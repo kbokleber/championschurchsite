@@ -1,0 +1,187 @@
+[
+{
+  "model": "auth.user",
+  "pk": 1,
+  "fields": {
+    "password": "pbkdf2_sha256$600000$3jOzIl9o9cMkBbMUImV254$7em8l90IZ/3G5yN7f4q6XaQJzA7+i1mkoJEBcuViXgg=",
+    "last_login": null,
+    "is_superuser": true,
+    "username": "admin",
+    "first_name": "",
+    "last_name": "",
+    "email": "admin@church.com",
+    "is_staff": true,
+    "is_active": true,
+    "date_joined": "2026-01-31T13:28:36.331Z",
+    "groups": [],
+    "user_permissions": []
+  }
+},
+{
+  "model": "eventos.membro",
+  "pk": 67,
+  "fields": {
+    "nome": "Kleber Bueno de Oliveira",
+    "telefone": "13988302897",
+    "is_acompanhante": false,
+    "responsavel": null,
+    "email": null,
+    "senha": "pbkdf2_sha256$600000$hQ7a6cpxpBlPWGwHdUdgcC$7A3bt4e6trdT7PVf+3MLQirnA4Do60YFnRRjtQP15M0=",
+    "senha_texto": "599360",
+    "data_nascimento": null,
+    "sexo": "",
+    "endereco": "",
+    "data_cadastro": "2026-01-31T23:13:06.345Z",
+    "status": "visitante",
+    "foto": "",
+    "observacoes": ""
+  }
+},
+{
+  "model": "eventos.evento",
+  "pk": 1,
+  "fields": {
+    "titulo": "Culto de Domingo",
+    "descricao": "Venha celebrar conosco",
+    "tipo": "culto",
+    "data_inicio": "2026-01-31T13:16:00Z",
+    "data_fim": "2026-02-01T01:20:00Z",
+    "local": "Templo Principal",
+    "endereco": "",
+    "vagas": 20,
+    "imagem": "",
+    "inscricao_inicio": null,
+    "inscricao_fim": null,
+    "evento_pago": false,
+    "valor_inscricao": null,
+    "status": "em_andamento",
+    "destaque": true,
+    "criado_em": "2026-01-31T13:28:49.641Z",
+    "atualizado_em": "2026-01-31T21:20:59.244Z"
+  }
+},
+{
+  "model": "eventos.evento",
+  "pk": 2,
+  "fields": {
+    "titulo": "teste",
+    "descricao": "teste",
+    "tipo": "culto",
+    "data_inicio": "2026-01-31T15:23:00Z",
+    "data_fim": "2026-02-01T01:30:00Z",
+    "local": "teste",
+    "endereco": "",
+    "vagas": 20,
+    "imagem": "eventos/escritório_RHPUEia.png",
+    "inscricao_inicio": null,
+    "inscricao_fim": "2026-02-01T00:46:00Z",
+    "evento_pago": true,
+    "valor_inscricao": "0.02",
+    "status": "agendado",
+    "destaque": true,
+    "criado_em": "2026-01-31T13:55:41.640Z",
+    "atualizado_em": "2026-02-01T00:46:40.235Z"
+  }
+},
+{
+  "model": "eventos.categoriaparticipante",
+  "pk": 1,
+  "fields": {
+    "nome": "Adulto",
+    "descricao": "",
+    "tipo_valor": "porcentagem",
+    "valor": "100.00",
+    "idade_minima": 18,
+    "idade_maxima": null,
+    "ordem": 0,
+    "ativo": true,
+    "criado_em": "2026-01-31T15:57:44.378Z"
+  }
+},
+{
+  "model": "eventos.categoriaparticipante",
+  "pk": 2,
+  "fields": {
+    "nome": "Criança",
+    "descricao": "",
+    "tipo_valor": "porcentagem",
+    "valor": "0.00",
+    "idade_minima": 1,
+    "idade_maxima": 12,
+    "ordem": 3,
+    "ativo": true,
+    "criado_em": "2026-01-31T15:58:06.393Z"
+  }
+},
+{
+  "model": "eventos.categoriaparticipante",
+  "pk": 3,
+  "fields": {
+    "nome": "Adolescente",
+    "descricao": "",
+    "tipo_valor": "porcentagem",
+    "valor": "50.00",
+    "idade_minima": 13,
+    "idade_maxima": 17,
+    "ordem": 1,
+    "ativo": true,
+    "criado_em": "2026-01-31T15:58:44.264Z"
+  }
+},
+{
+  "model": "eventos.inscricao",
+  "pk": 73,
+  "fields": {
+    "membro": 67,
+    "evento": 1,
+    "categoria": null,
+    "responsavel": null,
+    "is_acompanhante": false,
+    "valor_inscricao": "0.00",
+    "status_pagamento": "nao_aplicavel",
+    "data_pagamento": null,
+    "codigo": "31366dd3-8293-415d-92bb-dd3845e09a03",
+    "qrcode": "qrcodes/qrcode_31366dd3-8293-415d-92bb-dd3845e09a03.png",
+    "data_inscricao": "2026-01-31T23:13:06.351Z",
+    "status": "confirmada",
+    "observacoes": "",
+    "presente": false,
+    "data_checkin": null
+  }
+},
+{
+  "model": "eventos.configuracaosite",
+  "pk": 1,
+  "fields": {
+    "nome_igreja": "Champions Church",
+    "slogan": "",
+    "descricao": "",
+    "logo": "",
+    "logo_branco": "",
+    "favicon": "",
+    "email": "contato1@championschurch.com.br",
+    "telefone": "13999999991",
+    "whatsapp": "5513999999991",
+    "endereco": "",
+    "cidade": "",
+    "estado": "",
+    "cep": "",
+    "facebook": "",
+    "instagram": "",
+    "youtube": "",
+    "tiktok": "",
+    "twitter": "",
+    "horarios": "",
+    "google_maps_embed": "",
+    "webhook_inscricao": "https://webhook.n8nh.kbosolucoes.com.br/webhook/evento",
+    "webhook_ativo": true,
+    "mp_ambiente": "production",
+    "mp_ativo": true,
+    "mp_public_key_sandbox": "APP_USR-dbd60e52-d0a3-4c0f-b14d-db37ed5c578a",
+    "mp_access_token_sandbox": "APP_USR-4713153647583059-013116-b665ec869679e3ff42daa9fc45065a97-2053352890",
+    "mp_public_key_production": "APP_USR-8785b14d-acfc-4ab7-9729-28039f3a4e5d",
+    "mp_access_token_production": "APP_USR-7092688787047994-032407-818ba0d4ad567133835a029f069a95c4-106443062",
+    "atualizado_em": "2026-01-31T20:57:14.011Z"
+  }
+}
+]

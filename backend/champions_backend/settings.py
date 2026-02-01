@@ -4,9 +4,13 @@ Django settings for Champions Church project.
 
 from pathlib import Path
 import os
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Carregar variáveis de ambiente do arquivo .env
+load_dotenv(os.path.join(BASE_DIR, '.env'))
 
 # ==============================================
 # CONFIGURAÇÕES DE AMBIENTE
@@ -106,24 +110,25 @@ TEMPLATES = [
 WSGI_APPLICATION = 'champions_backend.wsgi.application'
 
 # Database
-# Configuração dinâmica: PostgreSQL em produção, SQLite em desenvolvimento
-if ENVIRONMENT == 'production':
+# Usar PostgreSQL se as variáveis estiverem definidas, caso contrário SQLite
+if os.environ.get('POSTGRES_HOST'):
+    # PostgreSQL (desenvolvimento e produção)
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
             'NAME': os.environ.get('POSTGRES_DB', 'championschurch'),
             'USER': os.environ.get('POSTGRES_USER', 'postgres'),
             'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
-            'HOST': os.environ.get('POSTGRES_HOST', 'postgres'),
+            'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
             'PORT': os.environ.get('POSTGRES_PORT', '5432'),
-            'CONN_MAX_AGE': 600,  # Conexões persistentes (10 minutos)
+            'CONN_MAX_AGE': 600 if ENVIRONMENT == 'production' else 0,
             'OPTIONS': {
                 'connect_timeout': 10,
             },
         }
     }
 else:
-    # Desenvolvimento: SQLite em pasta separada para evitar problemas de I/O
+    # Fallback: SQLite (apenas se PostgreSQL não estiver configurado)
     DB_PATH = os.environ.get('CHURCH_DB_PATH', 'C:/temp/churchdb/db.sqlite3')
     DATABASES = {
         'default': {

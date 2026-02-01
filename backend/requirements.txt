@@ -18,6 +18,7 @@ Pillow>=10.2.0
 
 # Utilitários
 python-decouple>=3.8  # Variáveis de ambiente
+python-dotenv>=1.0.1  # Carregamento de arquivo .env
 requests>=2.31.0  # HTTP requests para webhooks
 qrcode>=7.4.2  # Geração de QR Codes
 

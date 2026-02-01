@@ -71,6 +71,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # Servir arquivos estáticos
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -105,18 +106,34 @@ TEMPLATES = [
 WSGI_APPLICATION = 'champions_backend.wsgi.application'
 
 # Database
-# Banco em pasta separada para evitar problemas de I/O com antivírus
-import os
-DB_PATH = os.environ.get('CHURCH_DB_PATH', 'C:/temp/churchdb/db.sqlite3')
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': DB_PATH,
-        'OPTIONS': {
-            'timeout': 30,
-        },
+# Configuração dinâmica: PostgreSQL em produção, SQLite em desenvolvimento
+if ENVIRONMENT == 'production':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get('POSTGRES_DB', 'championschurch'),
+            'USER': os.environ.get('POSTGRES_USER', 'postgres'),
+            'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
+            'HOST': os.environ.get('POSTGRES_HOST', 'postgres'),
+            'PORT': os.environ.get('POSTGRES_PORT', '5432'),
+            'CONN_MAX_AGE': 600,  # Conexões persistentes (10 minutos)
+            'OPTIONS': {
+                'connect_timeout': 10,
+            },
+        }
     }
-}
+else:
+    # Desenvolvimento: SQLite em pasta separada para evitar problemas de I/O
+    DB_PATH = os.environ.get('CHURCH_DB_PATH', 'C:/temp/churchdb/db.sqlite3')
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': DB_PATH,
+            'OPTIONS': {
+                'timeout': 30,
+            },
+        }
+    }
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [

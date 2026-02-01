@@ -1,0 +1,27 @@
+# Django e REST Framework
+Django>=4.2,<5.0
+djangorestframework>=3.14.0
+djangorestframework-simplejwt>=5.3.0
+django-cors-headers>=4.3.0
+
+# Banco de dados (opcional - para produção)
+# psycopg2-binary>=2.9.9  # PostgreSQL
+# mysqlclient>=2.2.0  # MySQL
+
+# Processamento de imagens
+Pillow>=10.2.0
+
+# Utilitários
+python-decouple>=3.8  # Variáveis de ambiente
+requests>=2.31.0  # HTTP requests para webhooks
+qrcode>=7.4.2  # Geração de QR Codes
+
+# Pagamentos
+mercadopago>=2.3.0  # SDK Mercado Pago
+
+# Segurança
+bleach>=6.1.0  # Sanitização HTML
+cryptography>=42.0.0  # Criptografia
+
+# Desenvolvimento
+# django-debug-toolbar>=4.2.0

@@ -10,6 +10,7 @@ from .views import (
     CategoriaParticipanteViewSet, CobrancaViewSet,
     get_current_user, dashboard_stats, meus_ingressos,
     participante_login, participante_registro, participante_perfil,
+    participante_reset_senha,
     buscar_participante_por_telefone,
     configuracao_publica, configuracao_admin,
     # Mercado Pago
@@ -38,6 +39,7 @@ urlpatterns = [
     path('participante/login/', participante_login, name='participante_login'),
     path('participante/registro/', participante_registro, name='participante_registro'),
     path('participante/perfil/', participante_perfil, name='participante_perfil'),
+    path('participante/reset-senha/', participante_reset_senha, name='participante_reset_senha'),
     path('participante/consultar/', meus_ingressos, name='meus_ingressos'),
     path('participante/buscar/', buscar_participante_por_telefone, name='buscar_participante'),
     

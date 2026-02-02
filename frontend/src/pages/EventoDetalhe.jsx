@@ -21,6 +21,7 @@ function EventoDetalhe() {
   const [novoCadastro, setNovoCadastro] = useState(false)
   const [inscricaoErro, setInscricaoErro] = useState('')
   const [jaInscrito, setJaInscrito] = useState(false)
+  const [reutilizado, setReutilizado] = useState(false)
   const [acompanhantesAdicionados, setAcompanhantesAdicionados] = useState(false)
   const [cobranca, setCobranca] = useState(null)
   const [categorias, setCategorias] = useState([])
@@ -39,7 +40,7 @@ function EventoDetalhe() {
       try {
         const response = await api.get(`/eventos/${id}/`)
         setEvento(response.data)
-        
+
         // Se for evento pago, carregar categorias
         if (response.data.evento_pago) {
           fetchCategorias()
@@ -54,7 +55,7 @@ function EventoDetalhe() {
 
     fetchEvento()
   }, [id])
-  
+
   const fetchCategorias = async () => {
     try {
       const response = await api.get('/categorias/ativas/')
@@ -81,14 +82,14 @@ function EventoDetalhe() {
 
   const handleChange = (e) => {
     const { name, value } = e.target
-    
+
     if (name === 'telefone') {
       const telefoneFormatado = formatarTelefone(value)
       setFormData({
         ...formData,
         telefone: telefoneFormatado,
       })
-      
+
       // Buscar participante quando telefone tiver 11 dígitos
       const numeros = value.replace(/\D/g, '')
       if (numeros.length >= 10) {
@@ -104,12 +105,12 @@ function EventoDetalhe() {
     }
     setInscricaoErro('')
   }
-  
+
   const buscarParticipantePorTelefone = async (telefone) => {
     try {
       setBuscandoParticipante(true)
       const response = await api.get(`/participante/buscar/?telefone=${telefone}`)
-      
+
       if (response.data.encontrado) {
         setFormData(prev => ({
           ...prev,
@@ -137,8 +138,8 @@ function EventoDetalhe() {
         setInscricaoErro(`Vagas insuficientes para adicionar mais acompanhantes. Disponível: ${evento.vagas_disponiveis}`)
         return
       }
-      setAcompanhantes([...acompanhantes, { 
-        nome, 
+      setAcompanhantes([...acompanhantes, {
+        nome,
         categoria_id: novoAcompanhanteCategoria || (categorias[0]?.id || '')
       }])
       setNovoAcompanhante('')
@@ -152,22 +153,22 @@ function EventoDetalhe() {
   const removerAcompanhante = (index) => {
     setAcompanhantes(acompanhantes.filter((_, i) => i !== index))
   }
-  
+
   const atualizarCategoriaAcompanhante = (index, categoriaId) => {
-    setAcompanhantes(acompanhantes.map((a, i) => 
+    setAcompanhantes(acompanhantes.map((a, i) =>
       i === index ? { ...a, categoria_id: categoriaId } : a
     ))
   }
-  
+
   // Calcular valor total
   const calcularValorTotal = () => {
     if (!evento?.evento_pago || !evento.valor_inscricao) return 0
-    
+
     const valorEvento = parseFloat(evento.valor_inscricao)
-    
+
     // Responsável sempre paga valor integral (adulto)
     let total = valorEvento
-    
+
     // Valor dos acompanhantes (baseado na categoria selecionada)
     acompanhantes.forEach(acomp => {
       const cat = categorias.find(c => c.id == acomp.categoria_id)
@@ -181,10 +182,10 @@ function EventoDetalhe() {
         total += valorEvento // Valor integral se não tiver categoria
       }
     })
-    
+
     return total
   }
-  
+
   // Calcular valor de um acompanhante específico
   const calcularValorAcompanhante = (categoriaId) => {
     if (!evento?.evento_pago || !evento.valor_inscricao) return 0
@@ -199,7 +200,7 @@ function EventoDetalhe() {
     }
     return valorEvento
   }
-  
+
   const formatarValor = (valor) => {
     return `R$ ${valor.toFixed(2).replace('.', ',')}`
   }
@@ -215,7 +216,7 @@ function EventoDetalhe() {
   const handleSubmit = (e) => {
     e.preventDefault()
     setInscricaoErro('')
-    
+
     // Validar campos obrigatórios
     if (!formData.nome.trim()) {
       setInscricaoErro('Por favor, informe seu nome.')
@@ -225,7 +226,7 @@ function EventoDetalhe() {
       setInscricaoErro('Por favor, informe um telefone válido.')
       return
     }
-    
+
     // Abrir modal de confirmação
     setShowConfirmModal(true)
   }
@@ -241,7 +242,7 @@ function EventoDetalhe() {
         nome: a.nome,
         categoria_id: evento.evento_pago ? a.categoria_id : null
       }))
-      
+
       // Usar o novo endpoint de registro de participante
       // Responsável não precisa de categoria (sempre adulto, valor integral)
       const result = await registrar({
@@ -255,7 +256,7 @@ function EventoDetalhe() {
       if (result.success) {
         // Fechar modal
         setShowConfirmModal(false)
-        
+
         // Incluir valor_total e status_pagamento na inscricaoData
         setInscricaoData({
           ...result.data.inscricao,
@@ -265,23 +266,28 @@ function EventoDetalhe() {
         setAcompanhantesData(result.data.acompanhantes || [])
         setInscricaoSucesso(true)
         setNovoCadastro(result.data.novo_cadastro)
-        
+
         // Capturar cobrança se existir
         if (result.data.cobranca) {
           setCobranca(result.data.cobranca)
         }
-        
+
         // Verificar se já estava inscrito
         if (result.data.ja_inscrito) {
           setJaInscrito(true)
           setInscricaoErro('')
-          
+
           // Verificar se foram adicionados novos acompanhantes
           if (result.data.acompanhantes_adicionados) {
             setAcompanhantesAdicionados(true)
           }
+
+          // Verificar se foi uma reutilização de cobrança pendente
+          if (result.data.reutilizado) {
+            setReutilizado(true)
+          }
         }
-        
+
         // Senha pode vir como senha_gerada (novo) ou senha_existente (já cadastrado)
         if (result.data.senha_gerada) {
           setSenhaGerada(result.data.senha_gerada)
@@ -382,22 +388,21 @@ function EventoDetalhe() {
             <ArrowLeft className="h-5 w-5 mr-2" />
             Voltar para Eventos
           </Link>
-                  <div className="flex flex-wrap items-center gap-3 mb-4">
-                    <span className="bg-church-gold text-church-navy text-sm font-bold px-4 py-1 rounded-full">
-                      {evento.tipo_display || evento.tipo}
-                    </span>
-                    <span className={`${statusInfo.bg} ${statusInfo.text} text-sm font-bold px-4 py-1 rounded-full inline-flex items-center gap-2`}>
-                      {statusInfo.icon}
-                      {statusInfo.label}
-                    </span>
-                    <span className={`text-sm font-bold px-4 py-1 rounded-full ${
-                      evento.evento_pago 
-                        ? 'bg-green-500 text-white' 
-                        : 'bg-blue-500 text-white'
-                    }`}>
-                      {evento.valor_inscricao_formatado || 'Gratuito'}
-                    </span>
-                  </div>
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <span className="bg-church-gold text-church-navy text-sm font-bold px-4 py-1 rounded-full">
+              {evento.tipo_display || evento.tipo}
+            </span>
+            <span className={`${statusInfo.bg} ${statusInfo.text} text-sm font-bold px-4 py-1 rounded-full inline-flex items-center gap-2`}>
+              {statusInfo.icon}
+              {statusInfo.label}
+            </span>
+            <span className={`text-sm font-bold px-4 py-1 rounded-full ${evento.evento_pago
+                ? 'bg-green-500 text-white'
+                : 'bg-blue-500 text-white'
+              }`}>
+              {evento.valor_inscricao_formatado || 'Gratuito'}
+            </span>
+          </div>
           <h1 className="text-3xl md:text-5xl font-serif font-bold text-white">
             {evento.titulo}
           </h1>
@@ -438,7 +443,7 @@ function EventoDetalhe() {
                       <p className="text-gray-600">{formatDateTimeBR(evento.data_inicio)}</p>
                     </div>
                   </div>
-                  
+
                   {evento.data_fim && (
                     <div className="flex items-start space-x-4 p-4 bg-gray-50 rounded-lg">
                       <Clock className="h-6 w-6 text-primary-600 flex-shrink-0 mt-1" />
@@ -448,7 +453,7 @@ function EventoDetalhe() {
                       </div>
                     </div>
                   )}
-                  
+
                   <div className="flex items-start space-x-4 p-4 bg-gray-50 rounded-lg">
                     <MapPin className="h-6 w-6 text-primary-600 flex-shrink-0 mt-1" />
                     <div>
@@ -459,7 +464,7 @@ function EventoDetalhe() {
                       )}
                     </div>
                   </div>
-                  
+
                   {evento.vagas && (
                     <div className="flex items-start space-x-4 p-4 bg-gray-50 rounded-lg">
                       <Users className="h-6 w-6 text-primary-600 flex-shrink-0 mt-1" />
@@ -471,7 +476,7 @@ function EventoDetalhe() {
                       </div>
                     </div>
                   )}
-                  
+
                   <div className="flex items-start space-x-4 p-4 bg-gray-50 rounded-lg">
                     <DollarSign className="h-6 w-6 text-primary-600 flex-shrink-0 mt-1" />
                     <div>
@@ -518,12 +523,14 @@ function EventoDetalhe() {
                           <Check className="h-8 w-8 text-blue-600" />
                         </div>
                         <h3 className="text-xl font-bold text-church-navy mb-2">
-                          Você já está inscrito!
+                          {reutilizado ? 'Inscrição Pendente Detectada' : 'Você já está inscrito!'}
                         </h3>
                         <p className="text-gray-600 mb-4">
-                          Deseja adicionar acompanhantes? Preencha os dados abaixo.
+                          {reutilizado
+                            ? 'Identificamos que você já possui uma inscrição para este evento aguardando pagamento.'
+                            : 'Deseja adicionar acompanhantes? Preencha os dados abaixo.'}
                         </p>
-                        
+
                         {/* Mostra acompanhantes existentes */}
                         {acompanhantesData.length > 0 && (
                           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4 text-left">
@@ -535,7 +542,7 @@ function EventoDetalhe() {
                             </ul>
                           </div>
                         )}
-                        
+
                         <button
                           onClick={() => {
                             setInscricaoSucesso(false)
@@ -559,11 +566,11 @@ function EventoDetalhe() {
                           Acompanhantes Adicionados!
                         </h3>
                         <p className="text-gray-600 mb-4">
-                          {inscricaoData?.status_pagamento === 'pendente' 
+                          {inscricaoData?.status_pagamento === 'pendente'
                             ? 'Aguardando pagamento para liberar os ingressos.'
                             : 'Os novos acompanhantes foram adicionados com sucesso.'}
                         </p>
-                        
+
                         {inscricaoData?.status_pagamento === 'pendente' && inscricaoData?.valor > 0 && (
                           <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 text-left">
                             <h4 className="font-semibold text-amber-800 mb-2 flex items-center">
@@ -589,7 +596,7 @@ function EventoDetalhe() {
                         <p className="text-gray-600 mb-4">
                           Aguardando confirmação de pagamento para liberar o ingresso.
                         </p>
-                        
+
                         {/* Resumo do valor */}
                         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 text-left">
                           <h4 className="font-semibold text-amber-800 mb-2 flex items-center">
@@ -601,7 +608,7 @@ function EventoDetalhe() {
                             <p><span className="font-medium">Total de Inscritos:</span> {1 + acompanhantesData.length} pessoa(s)</p>
                           </div>
                         </div>
-                        
+
                         {/* Botão Pagar - Navega para página de pagamento com auto-open */}
                         {cobranca && (
                           <button
@@ -612,7 +619,7 @@ function EventoDetalhe() {
                             Pagar Agora
                           </button>
                         )}
-                        
+
                         <p className="text-xs text-gray-500">
                           Ou entre em contato com a secretaria da igreja
                         </p>
@@ -631,7 +638,7 @@ function EventoDetalhe() {
                         </p>
                       </>
                     )}
-                    
+
                     {/* Dados de acesso (novo cadastro) */}
                     {novoCadastro && senhaGerada && (
                       <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6 text-left">
@@ -648,7 +655,7 @@ function EventoDetalhe() {
                         </p>
                       </div>
                     )}
-                    
+
                     {/* QR Code do responsável - só existe se pagamento foi confirmado */}
                     {inscricaoData?.qrcode && (
                       <div className="mb-6">
@@ -656,8 +663,8 @@ function EventoDetalhe() {
                           {acompanhantesData.length > 0 ? 'Seu ingresso:' : 'Seu QR Code:'}
                         </h4>
                         <div className="bg-white p-4 rounded-lg border-2 border-dashed border-gray-200 inline-block">
-                          <img 
-                            src={getMediaUrl(inscricaoData.qrcode)} 
+                          <img
+                            src={getMediaUrl(inscricaoData.qrcode)}
                             alt="QR Code da Inscrição"
                             className="w-40 h-40 mx-auto"
                           />
@@ -676,7 +683,7 @@ function EventoDetalhe() {
                         </a>
                       </div>
                     )}
-                    
+
                     {/* QR Codes dos acompanhantes - só existem se pagamento foi confirmado */}
                     {acompanhantesData.length > 0 && acompanhantesData[0]?.qrcode && (
                       <div className="mb-6">
@@ -687,8 +694,8 @@ function EventoDetalhe() {
                           {acompanhantesData.map((acomp, index) => (
                             <div key={index} className="text-center">
                               <div className="bg-white p-2 rounded-lg border border-gray-200 inline-block">
-                                <img 
-                                  src={getMediaUrl(acomp.qrcode)} 
+                                <img
+                                  src={getMediaUrl(acomp.qrcode)}
                                   alt={`QR Code de ${acomp.nome}`}
                                   className="w-28 h-28 mx-auto"
                                 />
@@ -709,7 +716,7 @@ function EventoDetalhe() {
                         </div>
                       </div>
                     )}
-                    
+
                     {/* Lista de acompanhantes (quando pagamento pendente - sem QR code gerado) */}
                     {acompanhantesData.length > 0 && !acompanhantesData[0]?.qrcode && (
                       <div className="mb-6">
@@ -731,7 +738,7 @@ function EventoDetalhe() {
                         </p>
                       </div>
                     )}
-                    
+
                     {inscricaoData?.status_pagamento === 'pendente' ? (
                       <div className="bg-amber-50 p-4 rounded-lg text-left mb-6">
                         <h4 className="font-semibold text-amber-800 mb-2 flex items-center">
@@ -757,7 +764,7 @@ function EventoDetalhe() {
                         </ul>
                       </div>
                     )}
-                    
+
                     <div className="flex flex-col gap-3">
                       <Link to="/meus-ingressos" className="btn-primary">
                         Ver Meus Ingressos
@@ -772,43 +779,43 @@ function EventoDetalhe() {
                     <h3 className="text-xl font-bold text-church-navy mb-4">
                       Inscreva-se
                     </h3>
-                    
+
                     {/* Status Badge */}
                     <div className={`${statusInfo.bg} ${statusInfo.text} p-3 rounded-lg mb-6 flex items-center gap-2`}>
                       {statusInfo.icon}
                       <span className="text-sm font-medium">{statusInfo.label}</span>
                     </div>
-                    
+
                     {!evento.inscricoes_abertas ? (
                       <div className="text-center py-4">
                         <p className="text-gray-600 mb-2">
-                          {evento.status_inscricao === 'nao_iniciado' 
+                          {evento.status_inscricao === 'nao_iniciado'
                             ? 'As inscrições para este evento ainda não foram abertas.'
                             : evento.status_inscricao === 'encerrado'
-                            ? 'O período de inscrições já foi encerrado.'
-                            : evento.status_inscricao === 'lotado'
-                            ? 'Este evento está com as vagas esgotadas.'
-                            : 'Não é possível se inscrever neste evento no momento.'}
+                              ? 'O período de inscrições já foi encerrado.'
+                              : evento.status_inscricao === 'lotado'
+                                ? 'Este evento está com as vagas esgotadas.'
+                                : 'Não é possível se inscrever neste evento no momento.'}
                         </p>
-                        
+
                         {/* Mostrar período de inscrição quando encerrado ou não iniciado */}
-                        {(evento.status_inscricao === 'encerrado' || evento.status_inscricao === 'nao_iniciado') && 
-                         (evento.inscricao_inicio_formatada || evento.inscricao_fim_formatada) && (
-                          <div className="bg-gray-100 rounded-lg p-3 mb-4 text-sm">
-                            <p className="font-medium text-gray-700 mb-1">Período de Inscrições:</p>
-                            {evento.inscricao_inicio_formatada && (
-                              <p className="text-gray-600">
-                                <span className="font-medium">Início:</span> {evento.inscricao_inicio_formatada}
-                              </p>
-                            )}
-                            {evento.inscricao_fim_formatada && (
-                              <p className="text-gray-600">
-                                <span className="font-medium">Término:</span> {evento.inscricao_fim_formatada}
-                              </p>
-                            )}
-                          </div>
-                        )}
-                        
+                        {(evento.status_inscricao === 'encerrado' || evento.status_inscricao === 'nao_iniciado') &&
+                          (evento.inscricao_inicio_formatada || evento.inscricao_fim_formatada) && (
+                            <div className="bg-gray-100 rounded-lg p-3 mb-4 text-sm">
+                              <p className="font-medium text-gray-700 mb-1">Período de Inscrições:</p>
+                              {evento.inscricao_inicio_formatada && (
+                                <p className="text-gray-600">
+                                  <span className="font-medium">Início:</span> {evento.inscricao_inicio_formatada}
+                                </p>
+                              )}
+                              {evento.inscricao_fim_formatada && (
+                                <p className="text-gray-600">
+                                  <span className="font-medium">Término:</span> {evento.inscricao_fim_formatada}
+                                </p>
+                              )}
+                            </div>
+                          )}
+
                         <Link to="/eventos" className="btn-outline">
                           Ver Outros Eventos
                         </Link>
@@ -904,12 +911,12 @@ function EventoDetalhe() {
                             <p className="text-xs text-gray-500 mb-3">
                               Adicione outras pessoas que irão com você
                             </p>
-                            
+
                             {/* Lista de acompanhantes */}
                             {acompanhantes.length > 0 && (
                               <div className="space-y-2 mb-3">
                                 {acompanhantes.map((acomp, index) => (
-                                  <div 
+                                  <div
                                     key={index}
                                     className="bg-gray-50 px-3 py-2 rounded-lg"
                                   >
@@ -941,7 +948,7 @@ function EventoDetalhe() {
                                 ))}
                               </div>
                             )}
-                            
+
                             {/* Campo para adicionar */}
                             <div className="space-y-2">
                               <div className="flex gap-2">
@@ -977,14 +984,14 @@ function EventoDetalhe() {
                                 </select>
                               )}
                             </div>
-                            
+
                             {acompanhantes.length > 0 && (
                               <p className="text-xs text-primary-600 mt-2">
                                 Total: {1 + acompanhantes.length} pessoa(s)
                               </p>
                             )}
                           </div>
-                          
+
                           {/* Resumo de valores (para eventos pagos) */}
                           {evento.evento_pago && (
                             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
@@ -1066,7 +1073,7 @@ function EventoDetalhe() {
                 <p className="text-xs sm:text-sm text-gray-500">{formData.telefone}</p>
               </div>
             </div>
-            
+
             {/* Acompanhantes */}
             {acompanhantes.length > 0 && (
               <div className="pt-1 sm:pt-2">
@@ -1086,7 +1093,7 @@ function EventoDetalhe() {
                 </div>
               </div>
             )}
-            
+
             {/* Valor total (eventos pagos) */}
             {evento?.evento_pago && (
               <div className="pt-2 sm:pt-3 mt-1 sm:mt-2 border-t border-gray-200">
@@ -1098,7 +1105,7 @@ function EventoDetalhe() {
                 </p>
               </div>
             )}
-            
+
             {/* Total de pessoas */}
             <div className="bg-primary-50 rounded-lg py-2 px-3 text-center">
               <p className="text-xs sm:text-sm text-primary-700">

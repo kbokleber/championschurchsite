@@ -5,7 +5,7 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import ConfirmModal from '../components/ConfirmModal'
 import { useParticipante } from '../contexts/ParticipanteContext'
 import api from '../services/api'
-import { getMediaUrl, formatDateTimeBR } from '../services/utils'
+import { getMediaUrl, formatDateTimeBR, formatarTelefone } from '../services/utils'
 
 function EventoDetalhe() {
   const { id } = useParams()
@@ -69,13 +69,6 @@ function EventoDetalhe() {
     }
   }
 
-  const formatarTelefone = (valor) => {
-    const numeros = valor.replace(/\D/g, '')
-    if (numeros.length <= 2) return numeros
-    if (numeros.length <= 7) return `(${numeros.slice(0, 2)}) ${numeros.slice(2)}`
-    if (numeros.length <= 11) return `(${numeros.slice(0, 2)}) ${numeros.slice(2, 7)}-${numeros.slice(7)}`
-    return `(${numeros.slice(0, 2)}) ${numeros.slice(2, 7)}-${numeros.slice(7, 11)}`
-  }
 
   const [buscandoParticipante, setBuscandoParticipante] = useState(false)
   const [participanteEncontrado, setParticipanteEncontrado] = useState(false)
@@ -397,8 +390,8 @@ function EventoDetalhe() {
               {statusInfo.label}
             </span>
             <span className={`text-sm font-bold px-4 py-1 rounded-full ${evento.evento_pago
-                ? 'bg-green-500 text-white'
-                : 'bg-blue-500 text-white'
+              ? 'bg-green-500 text-white'
+              : 'bg-blue-500 text-white'
               }`}>
               {evento.valor_inscricao_formatado || 'Gratuito'}
             </span>

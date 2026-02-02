@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Ticket, QrCode, Calendar, MapPin, Download, Check, Clock, X, LogIn, Phone, Lock, LogOut, User, Users, DollarSign, AlertCircle, ExternalLink, RefreshCw } from 'lucide-react'
 import { useParticipante } from '../contexts/ParticipanteContext'
-import { getMediaUrl } from '../services/utils'
+import { getMediaUrl, formatarTelefone } from '../services/utils'
 import LoadingSpinner from '../components/LoadingSpinner'
 
 function MeusIngressos() {
@@ -94,20 +94,6 @@ function MeusIngressos() {
     }
   }
 
-  const formatarTelefone = (valor) => {
-    // Remove tudo que não é número
-    const numeros = valor.replace(/\D/g, '')
-
-    // Aplica máscara
-    if (numeros.length <= 2) {
-      return numeros
-    } else if (numeros.length <= 7) {
-      return `(${numeros.slice(0, 2)}) ${numeros.slice(2)}`
-    } else if (numeros.length <= 11) {
-      return `(${numeros.slice(0, 2)}) ${numeros.slice(2, 7)}-${numeros.slice(7)}`
-    }
-    return `(${numeros.slice(0, 2)}) ${numeros.slice(2, 7)}-${numeros.slice(7, 11)}`
-  }
 
   const handleTelefoneChange = (e) => {
     setTelefone(formatarTelefone(e.target.value))

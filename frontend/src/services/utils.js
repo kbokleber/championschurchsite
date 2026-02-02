@@ -12,12 +12,12 @@ const BACKEND_URL = 'http://localhost:8000'
  */
 export function getMediaUrl(path) {
   if (!path) return null
-  
+
   // Se já é uma URL completa, retorna como está
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path
   }
-  
+
   // Se é um caminho relativo, adiciona a URL do backend
   return `${BACKEND_URL}${path}`
 }
@@ -53,4 +53,17 @@ export function formatDateBR(dateString) {
     month: '2-digit',
     year: 'numeric',
   })
+}
+/**
+ * Formata telefone para exibição (Máscara brasileira)
+ * @param {string} valor - Valor bruto do telefone
+ * @returns {string} Telefone formatado
+ */
+export function formatarTelefone(valor) {
+  if (!valor) return ''
+  const numeros = valor.replace(/\D/g, '')
+  if (numeros.length <= 2) return numeros
+  if (numeros.length <= 7) return `(${numeros.slice(0, 2)}) ${numeros.slice(2)}`
+  if (numeros.length <= 11) return `(${numeros.slice(0, 2)}) ${numeros.slice(2, 7)}-${numeros.slice(7)}`
+  return `(${numeros.slice(0, 2)}) ${numeros.slice(2, 7)}-${numeros.slice(7, 11)}`
 }

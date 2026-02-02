@@ -15,6 +15,7 @@ from django.utils import timezone
 from django.contrib.auth.models import User
 from django.conf import settings
 from .models import Membro, Evento, Inscricao, Contato, ConfiguracaoSite, CategoriaParticipante, Cobranca, CobrancaItem, gerar_senha_aleatoria
+from .utils_participante import gerar_token_participante, formatar_telefone_display, formatar_data_br
 from .serializers import (
     MembroSerializer, MembroResumoSerializer,
     EventoSerializer, EventoListaSerializer,
@@ -351,21 +352,7 @@ def participante_login(request):
         )
     
     # Gerar token JWT customizado para participante
-    # Usamos um token simples baseado no ID do membro
-    import jwt
-    from django.conf import settings
-    from datetime import datetime, timedelta
-    
-    payload = {
-        'participante_id': membro.id,
-        'telefone': membro.telefone,
-        'nome': membro.nome,
-        'exp': datetime.utcnow() + timedelta(days=30),
-        'iat': datetime.utcnow(),
-        'type': 'participante'
-    }
-    
-    token = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
+    token = gerar_token_participante(membro)
     
     return Response({
         'success': True,
@@ -917,15 +904,7 @@ def participante_registro(request):
             )
     
     # Gerar token de login
-    payload = {
-        'participante_id': membro.id,
-        'telefone': membro.telefone,
-        'nome': membro.nome,
-        'exp': datetime.utcnow() + timedelta(days=30),
-        'iat': datetime.utcnow(),
-        'type': 'participante'
-    }
-    token = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
+    token = gerar_token_participante(membro)
     
     # Limpar referências de objeto dos acompanhantes (não serializáveis)
     acompanhantes_response = [
@@ -985,22 +964,7 @@ def participante_registro(request):
         senha_para_webhook = membro.senha_texto
     
     # Formatar telefone para exibição
-    telefone_formatado = membro.telefone
-    if len(membro.telefone) == 11:
-        telefone_formatado = f"({membro.telefone[:2]}) {membro.telefone[2:7]}-{membro.telefone[7:]}"
-    elif len(membro.telefone) == 10:
-        telefone_formatado = f"({membro.telefone[:2]}) {membro.telefone[2:6]}-{membro.telefone[6:]}"
-    
-    # Função para converter data para fuso horário local (Brasil)
-    def formatar_data_local(dt):
-        if dt is None:
-            return None
-        from django.utils import timezone as tz
-        if tz.is_aware(dt):
-            dt_local = tz.localtime(dt)
-        else:
-            dt_local = dt
-        return dt_local.strftime('%d/%m/%Y %H:%M')
+    telefone_formatado = formatar_telefone_display(membro.telefone)
     
     # Enviar webhook notificando a inscrição (mesmo que pendente de pagamento)
     dados_webhook = {
@@ -1017,8 +981,8 @@ def participante_registro(request):
         'qrcode_path': inscricao.qrcode.url if inscricao.qrcode else None,
         'evento_id': evento.id,
         'evento_titulo': evento.titulo,
-        'evento_data_inicio': formatar_data_local(evento.data_inicio),
-        'evento_data_fim': formatar_data_local(evento.data_fim),
+        'evento_data_inicio': formatar_data_br(evento.data_inicio),
+        'evento_data_fim': formatar_data_br(evento.data_fim),
         'evento_local': evento.local,
         'evento_endereco': evento.endereco,
         'evento_pago': evento.evento_pago,

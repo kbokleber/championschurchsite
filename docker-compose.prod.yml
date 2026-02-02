@@ -18,7 +18,8 @@ services:
       - media_data:/app/media
       - static_data:/app/staticfiles
     networks:
-      - postgres_network
+      - nginx_public
+      - db_network
       - app_network
     deploy:
       replicas: 2
@@ -38,7 +39,7 @@ services:
   frontend:
     image: championschurch/frontend:latest
     networks:
-      - nginx_network
+      - nginx_public
       - app_network
     deploy:
       replicas: 2
@@ -57,14 +58,11 @@ services:
 
 networks:
   app_network:
-    driver: overlay
-    attachable: true
-  nginx_network:
     external: true
-    name: ${NGINX_NETWORK_NAME:-nginx_network}
-  postgres_network:
+  nginx_public:
     external: true
-    name: ${POSTGRES_NETWORK_NAME:-postgres_network}
+  db_network:
+    external: true
 
 volumes:
   media_data:

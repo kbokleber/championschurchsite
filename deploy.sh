@@ -48,13 +48,38 @@ echo "Building frontend..."
 docker build -t championschurch/frontend:latest ./frontend
 echo -e "${GREEN}✓${NC} Frontend image built"
 
+# Verificar/Criar redes externas
+echo ""
+echo "=========================================="
+echo "Verifying Networks"
+echo "=========================================="
+
+NGINX_NET=${NGINX_NETWORK_NAME:-nginx_network}
+POSTGRES_NET=${POSTGRES_NETWORK_NAME:-postgres_network}
+
+if ! docker network ls | grep -q "$NGINX_NET"; then
+    echo -e "${YELLOW}Rede $NGINX_NET não encontrada. Criando...${NC}"
+    docker network create --driver overlay --attachable "$NGINX_NET"
+    echo -e "${GREEN}✓${NC} Rede $NGINX_NET criada"
+else
+    echo -e "${GREEN}✓${NC} Rede $NGINX_NET já existe"
+fi
+
+if ! docker network ls | grep -q "$POSTGRES_NET"; then
+    echo -e "${YELLOW}Rede $POSTGRES_NET não encontrada. Criando...${NC}"
+    docker network create --driver overlay --attachable "$POSTGRES_NET"
+    echo -e "${GREEN}✓${NC} Rede $POSTGRES_NET criada"
+else
+    echo -e "${GREEN}✓${NC} Rede $POSTGRES_NET já existe"
+fi
+
 # Deploy do stack
 echo ""
 echo "=========================================="
 echo "Deploying Stack"
 echo "=========================================="
 
-docker stack deploy -c docker-compose.yml championschurch
+docker stack deploy -c docker-compose.prod.yml championschurch
 echo -e "${GREEN}✓${NC} Stack deployed"
 
 # Aguardar serviços ficarem prontos

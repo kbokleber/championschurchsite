@@ -83,57 +83,47 @@ Abra o `docker-compose.yml` e verifique/ajuste:
    - POSTGRES_HOST=${POSTGRES_HOST:-postgres}  # Use o nome do serviço ou IP
    ```
 
-## Passo 5: Build das Imagens
+## Passo 5: Executar Script de Deploy
+
+O script `deploy.sh` foi atualizado para **automatizar todo o processo**:
+1. Verifica/Inicia o Docker Swarm
+2. Cria automaticamente as redes necessárias (se não existirem)
+3. Faz o build das imagens
+4. Faz o deploy do stack usando `docker-compose.prod.yml`
+5. Aguarda os serviços iniciarem
+6. Executa as migrações do banco de dados
+
+Para rodar (no Linux/Bash):
 
 ```bash
-# Backend
-docker build -t championschurch/backend:latest ./backend
+# Dar permissão de execução (apenas na primeira vez)
+chmod +x deploy.sh
 
-# Frontend
-docker build -t championschurch/frontend:latest ./frontend
+# Rodar o deploy
+./deploy.sh
 ```
 
-## Passo 6: Inicializar Swarm (se ainda não estiver)
+**Se tudo correu bem, você verá "Deploy Concluído!" no final.**
 
-```bash
-docker swarm init
-```
+### Se precisar rodar manualmente (Caso o script falhe):
 
-Se já estiver inicializado, você verá uma mensagem informando.
+1. **Build das imagens:**
+   ```bash
+   docker build -t championschurch/backend:latest ./backend
+   docker build -t championschurch/frontend:latest ./frontend
+   ```
 
-## Passo 7: Deploy do Stack
+2. **Deploy:**
+   ```bash
+   docker stack deploy -c docker-compose.prod.yml championschurch
+   ```
 
-```bash
-docker stack deploy -c docker-compose.yml championschurch
-```
-
-## Passo 8: Verificar Serviços
-
-```bash
-# Ver status dos serviços
-docker stack services championschurch
-
-# Ver logs do backend
-docker service logs championschurch_backend -f
-
-# Ver logs do frontend
-docker service logs championschurch_frontend -f
-```
-
-## Passo 9: Executar Migrations
-
-Aguarde os containers ficarem prontos (status 2/2), depois execute:
-
-```bash
-# Pegar ID de um container do backend
-BACKEND_CONTAINER=$(docker ps -q -f name=championschurch_backend | head -n 1)
-
-# Executar migrations
-docker exec $BACKEND_CONTAINER python manage.py migrate
-
-# Criar superusuário (opcional)
-docker exec -it $BACKEND_CONTAINER python manage.py createsuperuser
-```
+3. **Migrations:**
+   ```bash
+   # Pegar ID do container
+   ID=$(docker ps -q -f name=championschurch_backend | head -n 1)
+   docker exec $ID python manage.py migrate
+   ```
 
 ## Passo 10: Configurar Nginx Externo
 

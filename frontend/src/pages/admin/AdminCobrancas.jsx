@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../../services/api';
+import ConfirmModal from '../../components/ConfirmModal';
 import { 
   DollarSign, 
   Check, 
@@ -26,6 +27,13 @@ function AdminCobrancas() {
   const [expandido, setExpandido] = useState({});
   const [totais, setTotais] = useState({ pendente: 0, pago: 0, isento: 0, total: 0 });
   const [processando, setProcessando] = useState(null);
+
+  // Modal de confirmação: { isOpen, action: 'confirmar'|'isentar'|'cancelar', cobranca }
+  const [modalConfig, setModalConfig] = useState({
+    isOpen: false,
+    action: null,
+    cobranca: null,
+  });
 
   useEffect(() => {
     carregarDados();
@@ -65,51 +73,86 @@ function AdminCobrancas() {
     }
   };
 
-  const confirmarPagamento = async (cobrancaId) => {
-    if (!window.confirm('Confirmar pagamento desta cobrança?')) return;
-    
+  const fecharModal = () => {
+    setModalConfig({ isOpen: false, action: null, cobranca: null });
+  };
+
+  const confirmarPagamento = (cobranca) => {
+    setModalConfig({
+      isOpen: true,
+      action: 'confirmar',
+      cobranca,
+    });
+  };
+
+  const isentarCobranca = (cobranca) => {
+    setModalConfig({
+      isOpen: true,
+      action: 'isentar',
+      cobranca,
+    });
+  };
+
+  const cancelarCobranca = (cobranca) => {
+    setModalConfig({
+      isOpen: true,
+      action: 'cancelar',
+      cobranca,
+    });
+  };
+
+  const executarAcaoConfirmada = async () => {
+    if (!modalConfig.cobranca) return;
+    const cobrancaId = modalConfig.cobranca.id;
+
     try {
       setProcessando(cobrancaId);
-      await api.post(`/cobrancas/${cobrancaId}/confirmar_pagamento/`, {
-        metodo_pagamento: 'Manual'
-      });
+      if (modalConfig.action === 'confirmar') {
+        await api.post(`/cobrancas/${cobrancaId}/confirmar_pagamento/`, { metodo_pagamento: 'Manual' });
+      } else if (modalConfig.action === 'isentar') {
+        await api.post(`/cobrancas/${cobrancaId}/isentar/`);
+      } else if (modalConfig.action === 'cancelar') {
+        await api.post(`/cobrancas/${cobrancaId}/cancelar/`);
+      }
+      fecharModal();
       carregarDados();
     } catch (error) {
-      console.error('Erro ao confirmar pagamento:', error);
-      alert('Erro ao confirmar pagamento');
+      console.error('Erro na ação:', error);
+      alert(modalConfig.action === 'confirmar' ? 'Erro ao confirmar pagamento' : modalConfig.action === 'isentar' ? 'Erro ao isentar cobrança' : 'Erro ao cancelar cobrança');
     } finally {
       setProcessando(null);
     }
   };
 
-  const isentarCobranca = async (cobrancaId) => {
-    if (!window.confirm('Isentar esta cobrança? Não será cobrado nenhum valor.')) return;
-    
-    try {
-      setProcessando(cobrancaId);
-      await api.post(`/cobrancas/${cobrancaId}/isentar/`);
-      carregarDados();
-    } catch (error) {
-      console.error('Erro ao isentar:', error);
-      alert('Erro ao isentar cobrança');
-    } finally {
-      setProcessando(null);
+  const getModalConfig = () => {
+    const c = modalConfig.cobranca;
+    if (!c) return { title: '', message: '', type: 'confirm', confirmText: '' };
+    const valor = formatarValor(c.valor);
+    if (modalConfig.action === 'confirmar') {
+      return {
+        title: 'Confirmar Pagamento',
+        message: `Deseja confirmar o pagamento de ${valor} da cobrança de ${c.membro_nome} (${c.evento_titulo})?`,
+        type: 'success',
+        confirmText: 'Confirmar Pagamento',
+      };
     }
-  };
-
-  const cancelarCobranca = async (cobrancaId) => {
-    if (!window.confirm('Cancelar esta cobrança? As inscrições serão canceladas.')) return;
-    
-    try {
-      setProcessando(cobrancaId);
-      await api.post(`/cobrancas/${cobrancaId}/cancelar/`);
-      carregarDados();
-    } catch (error) {
-      console.error('Erro ao cancelar:', error);
-      alert('Erro ao cancelar cobrança');
-    } finally {
-      setProcessando(null);
+    if (modalConfig.action === 'isentar') {
+      return {
+        title: 'Isentar Cobrança',
+        message: `Deseja isentar a cobrança de ${valor} de ${c.membro_nome}? Nenhum valor será cobrado.`,
+        type: 'info',
+        confirmText: 'Isentar',
+      };
     }
+    if (modalConfig.action === 'cancelar') {
+      return {
+        title: 'Cancelar Cobrança',
+        message: `Deseja cancelar esta cobrança? As inscrições vinculadas serão canceladas. (${c.membro_nome} - ${c.evento_titulo})`,
+        type: 'danger',
+        confirmText: 'Cancelar Cobrança',
+      };
+    }
+    return { title: '', message: '', type: 'confirm', confirmText: '' };
   };
 
   const toggleExpandir = (id) => {
@@ -279,9 +322,9 @@ function AdminCobrancas() {
                   
                   {/* Botões de Ação */}
                   {cobranca.status === 'pendente' && (
-                    <div className="mt-3 flex gap-2 justify-end">
+                    <div className="mt-3 flex flex-wrap gap-2 justify-end">
                       <button
-                        onClick={() => confirmarPagamento(cobranca.id)}
+                        onClick={() => confirmarPagamento(cobranca)}
                         disabled={processando === cobranca.id}
                         className="btn btn-sm bg-green-600 hover:bg-green-700 text-white flex items-center gap-1"
                       >
@@ -289,7 +332,7 @@ function AdminCobrancas() {
                         Confirmar Pagamento
                       </button>
                       <button
-                        onClick={() => isentarCobranca(cobranca.id)}
+                        onClick={() => isentarCobranca(cobranca)}
                         disabled={processando === cobranca.id}
                         className="btn btn-sm bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1"
                       >
@@ -297,7 +340,7 @@ function AdminCobrancas() {
                         Isentar
                       </button>
                       <button
-                        onClick={() => cancelarCobranca(cobranca.id)}
+                        onClick={() => cancelarCobranca(cobranca)}
                         disabled={processando === cobranca.id}
                         className="btn btn-sm bg-red-600 hover:bg-red-700 text-white flex items-center gap-1"
                       >
@@ -360,6 +403,30 @@ function AdminCobrancas() {
           </div>
         )}
       </div>
+
+      {/* Modal de Confirmação */}
+      <ConfirmModal
+        isOpen={modalConfig.isOpen}
+        onClose={fecharModal}
+        onConfirm={executarAcaoConfirmada}
+        title={getModalConfig().title}
+        message={getModalConfig().message}
+        type={getModalConfig().type}
+        confirmText={getModalConfig().confirmText}
+        cancelText="Voltar"
+        loading={processando === modalConfig.cobranca?.id}
+      >
+        {modalConfig.cobranca && (
+          <div className="bg-gray-50 rounded-lg p-4 text-left">
+            <div className="space-y-2 text-sm">
+              <p><span className="text-gray-500">Membro:</span> <span className="font-medium text-gray-800">{modalConfig.cobranca.membro_nome}</span></p>
+              <p><span className="text-gray-500">Evento:</span> <span className="text-gray-800">{modalConfig.cobranca.evento_titulo}</span></p>
+              <p><span className="text-gray-500">Valor:</span> <span className="font-bold text-gray-900">{formatarValor(modalConfig.cobranca.valor)}</span></p>
+              <p><span className="text-gray-500">Pessoas:</span> <span className="text-gray-800">{modalConfig.cobranca.itens?.length || 0}</span></p>
+            </div>
+          </div>
+        )}
+      </ConfirmModal>
     </div>
   );
 }

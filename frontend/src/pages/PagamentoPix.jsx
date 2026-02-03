@@ -2,12 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import { useParticipante } from '../contexts/ParticipanteContext';
-import {
-  CreditCard,
-  ExternalLink,
-  Check,
-  Clock,
-  AlertCircle,
+import { 
+  CreditCard, 
+  ExternalLink, 
+  Check, 
+  Clock, 
+  AlertCircle, 
   CheckCircle,
   RefreshCw,
   ArrowLeft,
@@ -20,14 +20,14 @@ function PagamentoPix() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { atualizarIngressos, isLoggedIn } = useParticipante();
-
+  
   const [loading, setLoading] = useState(true);
   const [gerando, setGerando] = useState(false);
   const [cobranca, setCobranca] = useState(null);
   const [linkPagamento, setLinkPagamento] = useState(null);
   const [status, setStatus] = useState('pendente');
   const [error, setError] = useState(null);
-
+  
   const pollingRef = useRef(null);
 
   const autoOpen = searchParams.get('auto') === 'true';
@@ -39,16 +39,16 @@ function PagamentoPix() {
     if (statusParam === 'approved') {
       setStatus('pago');
     }
-
+    
     carregarCobranca();
-
+    
     return () => {
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
       }
     };
   }, [cobrancaId]);
-
+  
   // Auto-abrir Mercado Pago quando vier com parâmetro auto=true
   useEffect(() => {
     // Usar ref para garantir que só executa uma vez
@@ -64,7 +64,7 @@ function PagamentoPix() {
       setLoading(true);
       const response = await api.get(`/cobrancas/${cobrancaId}/`);
       setCobranca(response.data);
-
+      
       if (response.data.status === 'pago') {
         setStatus('pago');
       } else if (response.data.status === 'pendente') {
@@ -87,20 +87,20 @@ function PagamentoPix() {
     try {
       setGerando(true);
       setError(null);
-
+      
       const response = await api.post('/mercadopago/criar-pix/', {
         cobranca_id: cobrancaId
       });
-
+      
       if (response.data.success) {
         // Usar init_point para produção, sandbox_init_point para testes
         const link = response.data.init_point || response.data.sandbox_init_point;
         setLinkPagamento(link);
         iniciarPolling();
-
+        
         // Se foi reutilizado (usuário voltou do MP), não abrir automaticamente
         const foiReutilizado = response.data.reutilizado;
-
+        
         // Abrir automaticamente apenas se:
         // 1. Foi solicitado explicitamente OU veio com auto=true
         // 2. E NÃO foi reutilizado (para evitar abrir novamente quando volta do MP)
@@ -123,27 +123,27 @@ function PagamentoPix() {
 
   const iniciarPolling = () => {
     console.log('[Pagamento] Iniciando polling de verificação...');
-
+    
     // Limpar polling anterior se existir
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
     }
-
+    
     // Verificar status a cada 5 segundos
     pollingRef.current = setInterval(async () => {
       try {
         console.log('[Pagamento] Verificando status...');
         const response = await api.get(`/mercadopago/verificar/${cobrancaId}/`);
         console.log('[Pagamento] Status recebido:', response.data);
-
+        
         if (response.data.status === 'pago' || response.data.mp_status === 'approved') {
           console.log('[Pagamento] Pagamento confirmado!');
           setStatus('pago');
           clearInterval(pollingRef.current);
-
+          
           // Recarregar cobrança para ter dados atualizados
           carregarCobranca();
-
+          
           // Atualizar ingressos no contexto do participante
           if (isLoggedIn) {
             console.log('[Pagamento] Atualizando ingressos no contexto...');
@@ -207,13 +207,13 @@ function PagamentoPix() {
           <p className="text-gray-600 mb-6">
             Seu pagamento foi processado com sucesso. Os ingressos já estão disponíveis.
           </p>
-
+          
           <div className="bg-green-50 rounded-lg p-4 mb-6">
             <p className="text-green-800 font-medium">
               Valor pago: {formatarValor(cobranca?.valor)}
             </p>
           </div>
-
+          
           <div className="space-y-3">
             <button
               onClick={() => navigate('/meus-ingressos')}
@@ -266,7 +266,7 @@ function PagamentoPix() {
                 </p>
               </div>
             </div>
-
+            
             {/* Itens */}
             {cobranca?.itens && cobranca.itens.length > 0 && (
               <div className="mt-4 pt-4 border-t">
@@ -326,11 +326,11 @@ function PagamentoPix() {
                 <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Check className="w-8 h-8 text-green-600" />
                 </div>
-
+                
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">
                   Link de pagamento gerado!
                 </h3>
-
+                
                 <p className="text-gray-600 mb-6">
                   Clique no botão abaixo para pagar no Mercado Pago
                 </p>
@@ -363,19 +363,7 @@ function PagamentoPix() {
                     Após o pagamento, esta página será atualizada automaticamente.
                   </p>
                 </div>
-
-                {/* Aviso contra pagamento duplo */}
-                <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2 text-left">
-                  <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-xs font-bold text-amber-800">Cuidado para não pagar duas vezes!</p>
-                    <p className="text-[10px] text-amber-700 leading-tight mt-1">
-                      Se você já fez o Pix e o comprovante saiu no seu banco, aguarde alguns instantes.
-                      O sistema processará automaticamente. Não tente pagar o mesmo código novamente.
-                    </p>
-                  </div>
-                </div>
-
+                
                 {/* Segurança */}
                 <div className="flex items-center justify-center gap-2 mt-4 text-gray-500 text-sm">
                   <ShieldCheck className="w-4 h-4" />

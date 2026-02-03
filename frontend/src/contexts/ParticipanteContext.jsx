@@ -40,31 +40,31 @@ export function ParticipanteProvider({ children }) {
 
   const login = async (telefone, senha) => {
     const response = await api.post('/participante/login/', { telefone, senha })
-
+    
     if (response.data.success) {
       localStorage.setItem('participante_token', response.data.token)
       setParticipante(response.data.participante)
       setIngressos(response.data.ingressos)
       return { success: true }
     }
-
+    
     return { success: false, error: response.data.error }
   }
 
   const registrar = async (dados) => {
     const response = await api.post('/participante/registro/', dados)
-
+    
     if (response.data.success) {
       localStorage.setItem('participante_token', response.data.token)
       setParticipante(response.data.participante)
       // Recarregar ingressos após registro
       await carregarPerfil(response.data.token)
-      return {
-        success: true,
-        data: response.data
+      return { 
+        success: true, 
+        data: response.data 
       }
     }
-
+    
     return { success: false, error: response.data.error }
   }
 
@@ -85,16 +85,6 @@ export function ParticipanteProvider({ children }) {
     return localStorage.getItem('participante_token')
   }
 
-  const buscarParticipante = async (telefone) => {
-    const response = await api.get(`/participante/buscar/?telefone=${telefone}`)
-    return response.data
-  }
-
-  const resetarSenha = async (telefone) => {
-    const response = await api.post('/participante/reset-senha/', { telefone })
-    return response.data
-  }
-
   return (
     <ParticipanteContext.Provider value={{
       participante,
@@ -105,9 +95,7 @@ export function ParticipanteProvider({ children }) {
       registrar,
       logout,
       atualizarIngressos,
-      getToken,
-      buscarParticipante,
-      resetarSenha
+      getToken
     }}>
       {children}
     </ParticipanteContext.Provider>

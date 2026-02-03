@@ -58,11 +58,14 @@ services:
 
 networks:
   app_network:
-    external: true
+    driver: overlay
+    attachable: true
   nginx_public:
     external: true
+    name: ${NGINX_NETWORK_NAME:-nginx_network}
   db_network:
     external: true
+    name: ${POSTGRES_NETWORK_NAME:-postgres_network}
 
 volumes:
   media_data:

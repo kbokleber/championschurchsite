@@ -31,63 +31,7 @@ function Eventos() {
         setEventos(response.data.results || response.data)
       } catch (error) {
         console.error('Erro ao carregar eventos:', error)
-        // Dados de exemplo para demonstração
-        setEventos([
-          {
-            id: 1,
-            titulo: 'Culto de Celebração Dominical',
-            tipo: 'culto',
-            tipo_display: 'Culto',
-            data_inicio: new Date().toISOString(),
-            local: 'Templo Principal',
-            destaque: true,
-          },
-          {
-            id: 2,
-            titulo: 'Conferência de Jovens 2026',
-            tipo: 'conferencia',
-            tipo_display: 'Conferência',
-            data_inicio: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-            local: 'Auditório Central',
-            vagas_disponiveis: 50,
-            destaque: true,
-          },
-          {
-            id: 3,
-            titulo: 'Retiro de Casais',
-            tipo: 'retiro',
-            tipo_display: 'Retiro',
-            data_inicio: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-            local: 'Sítio da Igreja',
-            vagas_disponiveis: 30,
-          },
-          {
-            id: 4,
-            titulo: 'Encontro de Mulheres',
-            tipo: 'encontro',
-            tipo_display: 'Encontro',
-            data_inicio: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-            local: 'Salão de Eventos',
-            vagas_disponiveis: 100,
-          },
-          {
-            id: 5,
-            titulo: 'Workshop de Louvor',
-            tipo: 'workshop',
-            tipo_display: 'Workshop',
-            data_inicio: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString(),
-            local: 'Sala de Música',
-            vagas_disponiveis: 20,
-          },
-          {
-            id: 6,
-            titulo: 'Célula Centro',
-            tipo: 'celula',
-            tipo_display: 'Célula',
-            data_inicio: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
-            local: 'Residência - Centro',
-          },
-        ])
+        setEventos([])
       } finally {
         setLoading(false)
       }

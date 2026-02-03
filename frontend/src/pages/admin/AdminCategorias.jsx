@@ -147,17 +147,17 @@ function AdminCategorias() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
+      {/* Header - responsivo */}
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Categorias de Participantes</h1>
-          <p className="text-gray-600">
+          <p className="text-gray-600 text-sm sm:text-base">
             Gerencie as categorias para calcular valores diferenciados em eventos pagos
           </p>
         </div>
         <button
           onClick={() => abrirModal()}
-          className="btn-primary flex items-center gap-2"
+          className="btn-primary flex items-center justify-center gap-2 w-full sm:w-auto"
         >
           <Plus className="h-5 w-5" />
           Nova Categoria
@@ -174,130 +174,127 @@ function AdminCategorias() {
         </ul>
       </div>
 
-      {/* Lista de Categorias */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Categoria
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Tipo de Valor
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Valor
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Faixa Etária
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Ações
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {categorias.length === 0 ? (
-              <tr>
-                <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
-                  <Users className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                  <p>Nenhuma categoria cadastrada</p>
-                  <button
-                    onClick={() => abrirModal()}
-                    className="mt-2 text-primary-600 hover:text-primary-700"
-                  >
-                    Criar primeira categoria
-                  </button>
-                </td>
-              </tr>
-            ) : (
-              categorias.map(categoria => (
-                <tr key={categoria.id} className={!categoria.ativo ? 'bg-gray-50' : ''}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className={`h-10 w-10 rounded-full flex items-center justify-center ${
-                        categoria.ativo ? 'bg-primary-100 text-primary-600' : 'bg-gray-100 text-gray-400'
-                      }`}>
-                        <Users className="h-5 w-5" />
-                      </div>
-                      <div className="ml-4">
-                        <div className={`font-medium ${categoria.ativo ? 'text-gray-900' : 'text-gray-500'}`}>
-                          {categoria.nome}
-                        </div>
-                        {categoria.descricao && (
-                          <div className="text-sm text-gray-500">{categoria.descricao}</div>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      categoria.tipo_valor === 'fixo' 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-blue-100 text-blue-800'
-                    }`}>
-                      {categoria.tipo_valor === 'fixo' ? (
-                        <><DollarSign className="h-3 w-3" /> Valor Fixo</>
-                      ) : (
-                        <><Percent className="h-3 w-3" /> Porcentagem</>
-                      )}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-gray-900 font-medium">
-                      {categoria.valor_formatado}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {categoria.idade_minima || categoria.idade_maxima ? (
-                      <>
-                        {categoria.idade_minima && `${categoria.idade_minima} anos`}
-                        {categoria.idade_minima && categoria.idade_maxima && ' - '}
-                        {categoria.idade_maxima && `${categoria.idade_maxima} anos`}
-                      </>
-                    ) : (
-                      <span className="text-gray-400">Não definida</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <button
-                      onClick={() => toggleAtivo(categoria)}
-                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        categoria.ativo 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-gray-100 text-gray-600'
-                      }`}
-                    >
-                      {categoria.ativo ? (
-                        <><Check className="h-3 w-3" /> Ativa</>
-                      ) : (
-                        <><X className="h-3 w-3" /> Inativa</>
-                      )}
-                    </button>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => abrirModal(categoria)}
-                      className="text-primary-600 hover:text-primary-900 mr-3"
-                    >
-                      <Edit className="h-5 w-5" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(categoria)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      <Trash2 className="h-5 w-5" />
-                    </button>
-                  </td>
+      {/* Lista vazia */}
+      {categorias.length === 0 && (
+        <div className="bg-white rounded-xl shadow-md p-8 sm:p-12 text-center">
+          <Users className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+          <p className="text-gray-500 mb-4">Nenhuma categoria cadastrada</p>
+          <button
+            onClick={() => abrirModal()}
+            className="btn-primary inline-flex items-center gap-2"
+          >
+            <Plus className="h-5 w-5" />
+            Criar primeira categoria
+          </button>
+        </div>
+      )}
+
+      {/* Desktop: Tabela (oculta em mobile) */}
+      {categorias.length > 0 && (
+        <div className="hidden md:block bg-white rounded-xl shadow-md overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoria</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo de Valor</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Valor</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Faixa Etária</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {categorias.map(categoria => (
+                  <tr key={categoria.id} className={!categoria.ativo ? 'bg-gray-50' : ''}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <div className={`h-10 w-10 rounded-full flex items-center justify-center ${categoria.ativo ? 'bg-primary-100 text-primary-600' : 'bg-gray-100 text-gray-400'}`}>
+                          <Users className="h-5 w-5" />
+                        </div>
+                        <div className="ml-4">
+                          <div className={`font-medium ${categoria.ativo ? 'text-gray-900' : 'text-gray-500'}`}>{categoria.nome}</div>
+                          {categoria.descricao && <div className="text-sm text-gray-500">{categoria.descricao}</div>}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${categoria.tipo_valor === 'fixo' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>
+                        {categoria.tipo_valor === 'fixo' ? <><DollarSign className="h-3 w-3" /> Valor Fixo</> : <><Percent className="h-3 w-3" /> Porcentagem</>}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap"><span className="text-gray-900 font-medium">{categoria.valor_formatado}</span></td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {categoria.idade_minima || categoria.idade_maxima ? (
+                        <>{categoria.idade_minima && `${categoria.idade_minima} anos`}{categoria.idade_minima && categoria.idade_maxima && ' - '}{categoria.idade_maxima && `${categoria.idade_maxima} anos`}</>
+                      ) : (
+                        <span className="text-gray-400">Não definida</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <button onClick={() => toggleAtivo(categoria)} className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${categoria.ativo ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
+                        {categoria.ativo ? <><Check className="h-3 w-3" /> Ativa</> : <><X className="h-3 w-3" /> Inativa</>}
+                      </button>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => abrirModal(categoria)} className="p-2 text-primary-600 hover:bg-primary-50 rounded-lg" title="Editar"><Edit className="h-5 w-5" /></button>
+                        <button onClick={() => handleDelete(categoria)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Excluir"><Trash2 className="h-5 w-5" /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile: Cards (visível só em telas pequenas) */}
+      {categorias.length > 0 && (
+        <div className="md:hidden space-y-4">
+          {categorias.map(categoria => (
+            <div
+              key={categoria.id}
+              className={`bg-white rounded-xl shadow-md overflow-hidden ${!categoria.ativo ? 'opacity-75' : ''}`}
+            >
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-center min-w-0 flex-1">
+                    <div className={`h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 ${categoria.ativo ? 'bg-primary-100 text-primary-600' : 'bg-gray-100 text-gray-400'}`}>
+                      <Users className="h-5 w-5" />
+                    </div>
+                    <div className="ml-3 min-w-0">
+                      <div className={`font-medium truncate ${categoria.ativo ? 'text-gray-900' : 'text-gray-500'}`}>{categoria.nome}</div>
+                      {categoria.descricao && <div className="text-sm text-gray-500 truncate">{categoria.descricao}</div>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button onClick={() => abrirModal(categoria)} className="p-2 text-primary-600 hover:bg-primary-50 rounded-lg" title="Editar"><Edit className="h-5 w-5" /></button>
+                    <button onClick={() => handleDelete(categoria)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Excluir"><Trash2 className="h-5 w-5" /></button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${categoria.tipo_valor === 'fixo' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>
+                    {categoria.tipo_valor === 'fixo' ? <><DollarSign className="h-3 w-3" /> Valor Fixo</> : <><Percent className="h-3 w-3" /> Porcentagem</>}
+                  </span>
+                  <span className="text-sm font-medium text-gray-900">{categoria.valor_formatado}</span>
+                  <button onClick={() => toggleAtivo(categoria)} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${categoria.ativo ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
+                    {categoria.ativo ? <><Check className="h-3 w-3" /> Ativa</> : <><X className="h-3 w-3" /> Inativa</>}
+                  </button>
+                </div>
+                <div className="text-sm text-gray-500">
+                  {categoria.idade_minima || categoria.idade_maxima ? (
+                    <span>Faixa: {categoria.idade_minima && `${categoria.idade_minima} anos`}{categoria.idade_minima && categoria.idade_maxima && ' - '}{categoria.idade_maxima && `${categoria.idade_maxima} anos`}</span>
+                  ) : (
+                    <span className="text-gray-400">Faixa etária não definida</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Modal */}
       {showModal && (

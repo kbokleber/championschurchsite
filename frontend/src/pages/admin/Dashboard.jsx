@@ -19,13 +19,12 @@ function Dashboard() {
         setStats(response.data)
       } catch (error) {
         console.error('Erro ao carregar estatísticas:', error)
-        // Dados de exemplo
         setStats({
-          total_eventos: 12,
-          eventos_futuros: 5,
-          total_membros: 150,
-          total_inscricoes: 89,
-          contatos_nao_lidos: 3,
+          total_eventos: 0,
+          eventos_futuros: 0,
+          total_membros: 0,
+          total_inscricoes: 0,
+          contatos_nao_lidos: 0,
           proximos_eventos: []
         })
       } finally {

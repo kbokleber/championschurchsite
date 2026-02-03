@@ -14,8 +14,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone
 from django.contrib.auth.models import User
 from django.conf import settings
-from .models import Membro, Evento, Inscricao, Contato, ConfiguracaoSite, CategoriaParticipante, Cobranca, CobrancaItem, gerar_senha_aleatoria
-from .utils_participante import gerar_token_participante, formatar_telefone_display, formatar_data_br
+from .models import Membro, Evento, Inscricao, Contato, ConfiguracaoSite, CategoriaParticipante, Cobranca, CobrancaItem
 from .serializers import (
     MembroSerializer, MembroResumoSerializer,
     EventoSerializer, EventoListaSerializer,
@@ -134,46 +133,37 @@ def enviar_webhook_inscricao(dados_webhook):
 
 def enviar_webhook_reset_senha(dados_webhook):
     """
-    Envia webhook de reset de senha de forma assíncrona.
+    Envia webhook de "esqueci minha senha" de forma assíncrona.
+    Chamado quando o participante solicita lembrete de senha na tela Meus Ingressos.
     """
-    print('>>> WEBHOOK RESET: Iniciando envio...')
     try:
         config = ConfiguracaoSite.get_config()
-        
-        # Tenta usar o webhook específico de reset, se não existir usa o de inscrição como fallback
-        webhook_url = config.webhook_reset_senha or config.webhook_inscricao
-        
-        if not config.webhook_ativo or not webhook_url:
-            print('>>> WEBHOOK RESET: Inativo ou não configurado')
+        if not config.webhook_ativo or not getattr(config, 'webhook_reset_senha', None) or not config.webhook_reset_senha.strip():
+            logger.info('Webhook reset senha não configurado ou inativo')
             return
-        
+        url = config.webhook_reset_senha.strip()
         payload = {
             'tipo': 'reset_senha',
             'timestamp': timezone.now().isoformat(),
-            'participante': {
-                'id': dados_webhook.get('id'),
-                'nome': dados_webhook.get('nome'),
-                'telefone': dados_webhook.get('telefone'),
-                'email': dados_webhook.get('email'),
-                'nova_senha': dados_webhook.get('nova_senha'),
-            },
-            'igreja': {
-                'nome': config.nome_igreja,
-                'telefone': config.telefone,
-            }
+            'participante_id': dados_webhook.get('participante_id'),
+            'nome': dados_webhook.get('nome'),
+            'telefone': dados_webhook.get('telefone'),
+            'telefone_formatado': dados_webhook.get('telefone_formatado'),
+            'email': dados_webhook.get('email'),
+            'senha': dados_webhook.get('senha'),
         }
-        
-        print(f'>>> WEBHOOK RESET: Enviando para {webhook_url}...')
         response = requests.post(
-            webhook_url,
+            url,
             json=payload,
-            headers={'Content-Type': 'application/json'},
+            headers={
+                'Content-Type': 'application/json',
+                'User-Agent': 'ChampionsChurch-Webhook/1.0'
+            },
             timeout=30
         )
-        print(f'>>> WEBHOOK RESET: Resposta: {response.status_code}')
-        
+        logger.info(f'Webhook reset senha enviado: {response.status_code} - {url}')
     except Exception as e:
-        print(f'>>> WEBHOOK RESET ERRO: {str(e)}')
+        logger.error(f'Erro ao enviar webhook reset senha: {str(e)}')
 
 
 @api_view(['GET'])
@@ -352,7 +342,21 @@ def participante_login(request):
         )
     
     # Gerar token JWT customizado para participante
-    token = gerar_token_participante(membro)
+    # Usamos um token simples baseado no ID do membro
+    import jwt
+    from django.conf import settings
+    from datetime import datetime, timedelta
+    
+    payload = {
+        'participante_id': membro.id,
+        'telefone': membro.telefone,
+        'nome': membro.nome,
+        'exp': datetime.utcnow() + timedelta(days=30),
+        'iat': datetime.utcnow(),
+        'type': 'participante'
+    }
+    
+    token = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
     
     return Response({
         'success': True,
@@ -369,53 +373,55 @@ def participante_login(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-def participante_reset_senha(request):
+def participante_esqueci_senha(request):
     """
-    Gera uma nova senha para o participante e envia via webhook.
+    Esqueci minha senha: envia os dados (telefone, nome, senha) para o webhook
+    configurado (ex.: integração WhatsApp) para o usuário receber a senha.
+    Sempre retorna sucesso para não revelar se o telefone está cadastrado.
     """
-    telefone = request.data.get('telefone', '')
-    
+    telefone = (request.data.get('telefone') or '').strip()
     if not telefone:
         return Response(
-            {'error': 'Telefone é obrigatório'},
-            status=status.HTTP_400_BAD_REQUEST
+            {'success': True, 'message': 'Se este número estiver cadastrado, você receberá a senha em instantes.'},
+            status=status.HTTP_200_OK
         )
-    
     telefone_normalizado = Membro.normalizar_telefone(telefone)
-    
+    if len(telefone_normalizado) < 10:
+        return Response(
+            {'success': True, 'message': 'Se este número estiver cadastrado, você receberá a senha em instantes.'},
+            status=status.HTTP_200_OK
+        )
     try:
         membro = Membro.objects.get(telefone=telefone_normalizado, is_acompanhante=False)
-        
-        # Gera nova senha
-        nova_senha = gerar_senha_aleatoria(6)
-        membro.definir_senha(nova_senha)
-        membro.save()
-        
-        # Prepara dados para o webhook
-        dados_webhook = {
-            'id': membro.id,
-            'nome': membro.nome,
-            'telefone': membro.telefone,
-            'email': membro.email,
-            'nova_senha': nova_senha,
-        }
-        
-        # Dispara webhook em background
-        import threading
-        thread = threading.Thread(target=enviar_webhook_reset_senha, args=(dados_webhook,))
-        thread.daemon = True
-        thread.start()
-        
-        return Response({
-            'success': True,
-            'message': 'Uma nova senha foi gerada e enviada para o seu WhatsApp.'
-        })
-        
     except Membro.DoesNotExist:
         return Response(
-            {'success': False, 'error': 'Participante não encontrado'},
-            status=status.HTTP_404_NOT_FOUND
+            {'success': True, 'message': 'Se este número estiver cadastrado, você receberá a senha em instantes.'},
+            status=status.HTTP_200_OK
         )
+    # Gerar nova senha e salvar no sistema (a senha é trocada ao requerer)
+    nova_senha = membro.definir_senha()
+    membro.save()
+    # Formatar telefone para exibição
+    telefone_formatado = membro.telefone
+    if len(membro.telefone) == 11:
+        telefone_formatado = f"({membro.telefone[:2]}) {membro.telefone[2:7]}-{membro.telefone[7:]}"
+    elif len(membro.telefone) == 10:
+        telefone_formatado = f"({membro.telefone[:2]}) {membro.telefone[2:6]}-{membro.telefone[6:]}"
+    dados_webhook = {
+        'participante_id': membro.id,
+        'nome': membro.nome,
+        'telefone': membro.telefone,
+        'telefone_formatado': telefone_formatado,
+        'email': membro.email or '',
+        'senha': nova_senha,
+    }
+    thread = threading.Thread(target=enviar_webhook_reset_senha, args=(dados_webhook,))
+    thread.daemon = True
+    thread.start()
+    return Response(
+        {'success': True, 'message': 'A senha foi enviada para o número cadastrado.'},
+        status=status.HTTP_200_OK
+    )
 
 
 @api_view(['POST'])
@@ -508,26 +514,19 @@ def participante_registro(request):
     # Verificar se já está inscrito
     inscricao_existente = Inscricao.objects.filter(membro=membro, evento=evento, is_acompanhante=False).first()
     if inscricao_existente:
-        # Buscar acompanhantes existentes
-        acompanhantes_existentes = Inscricao.objects.filter(
-            evento=evento,
-            responsavel=membro,
-            is_acompanhante=True
-        ).select_related('membro', 'categoria')
-
-        # Se não está enviando NOVOS acompanhantes, verificar se há cobrança pendente
+        # Se não está enviando novos acompanhantes, apenas retorna info da inscrição existente
         if not acompanhantes:
-            # Buscar cobrança pendente para este membro e evento
-            cobranca_pendente = Cobranca.objects.filter(
-                membro=membro, 
-                evento=evento, 
-                status='pendente'
-            ).first()
+            # Buscar acompanhantes existentes
+            acompanhantes_existentes = Inscricao.objects.filter(
+                evento=evento,
+                responsavel=membro,
+                is_acompanhante=True
+            ).select_related('membro', 'categoria')
             
             response = {
                 'success': True,
                 'ja_inscrito': True,
-                'message': 'Você já está inscrito neste evento.',
+                'message': 'Você já está inscrito neste evento. Deseja adicionar acompanhantes?',
                 'participante': {
                     'id': membro.id,
                     'nome': membro.nome,
@@ -549,21 +548,8 @@ def participante_registro(request):
                         'categoria': a.categoria.nome if a.categoria else 'Adulto',
                     }
                     for a in acompanhantes_existentes
-                ],
-                'cobranca': {
-                    'id': cobranca_pendente.id,
-                    'codigo': cobranca_pendente.codigo,
-                    'valor': float(cobranca_pendente.valor),
-                    'status': cobranca_pendente.status,
-                } if cobranca_pendente else None
+                ]
             }
-            
-            if not cobranca_pendente:
-                response['message'] += ' Deseja adicionar acompanhantes?'
-            else:
-                response['reutilizado'] = True
-                response['message'] = 'Você possui uma inscrição pendente de pagamento. Redirecionando para o pagamento...'
-            
             # Incluir senha se disponível (para lembrete)
             if membro.senha_texto:
                 response['senha_existente'] = membro.senha_texto
@@ -904,7 +890,15 @@ def participante_registro(request):
             )
     
     # Gerar token de login
-    token = gerar_token_participante(membro)
+    payload = {
+        'participante_id': membro.id,
+        'telefone': membro.telefone,
+        'nome': membro.nome,
+        'exp': datetime.utcnow() + timedelta(days=30),
+        'iat': datetime.utcnow(),
+        'type': 'participante'
+    }
+    token = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
     
     # Limpar referências de objeto dos acompanhantes (não serializáveis)
     acompanhantes_response = [
@@ -964,39 +958,56 @@ def participante_registro(request):
         senha_para_webhook = membro.senha_texto
     
     # Formatar telefone para exibição
-    telefone_formatado = formatar_telefone_display(membro.telefone)
+    telefone_formatado = membro.telefone
+    if len(membro.telefone) == 11:
+        telefone_formatado = f"({membro.telefone[:2]}) {membro.telefone[2:7]}-{membro.telefone[7:]}"
+    elif len(membro.telefone) == 10:
+        telefone_formatado = f"({membro.telefone[:2]}) {membro.telefone[2:6]}-{membro.telefone[6:]}"
     
-    # Enviar webhook notificando a inscrição (mesmo que pendente de pagamento)
-    dados_webhook = {
-        'base_url': request.build_absolute_uri('/').rstrip('/'),
-        'participante_id': membro.id,
-        'nome': membro.nome,
-        'telefone': membro.telefone,
-        'telefone_formatado': telefone_formatado,
-        'email': membro.email,
-        'senha': senha_para_webhook,
-        'novo_cadastro': novo_cadastro,
-        'inscricao_id': inscricao.id,
-        'codigo': inscricao.codigo,
-        'qrcode_path': inscricao.qrcode.url if inscricao.qrcode else None,
-        'evento_id': evento.id,
-        'evento_titulo': evento.titulo,
-        'evento_data_inicio': formatar_data_br(evento.data_inicio),
-        'evento_data_fim': formatar_data_br(evento.data_fim),
-        'evento_local': evento.local,
-        'evento_endereco': evento.endereco,
-        'evento_pago': evento.evento_pago,
-        'evento_valor': float(evento.valor_inscricao) if evento.valor_inscricao else None,
-        'valor_total': valor_total,
-        'pagamento_confirmado': not evento.evento_pago,  # True se gratuito, False se pago
-        'acompanhantes': acompanhantes_response,
-        'total_inscritos': 1 + len(acompanhantes_response),
-    }
+    # Função para converter data para fuso horário local (Brasil)
+    def formatar_data_local(dt):
+        if dt is None:
+            return None
+        from django.utils import timezone as tz
+        if tz.is_aware(dt):
+            dt_local = tz.localtime(dt)
+        else:
+            dt_local = dt
+        return dt_local.strftime('%d/%m/%Y %H:%M')
     
-    # Dispara webhook em background
-    thread = threading.Thread(target=enviar_webhook_inscricao, args=(dados_webhook,))
-    thread.daemon = True
-    thread.start()
+    # Enviar webhook apenas para eventos GRATUITOS
+    # Para eventos pagos, o webhook é disparado quando o pagamento é confirmado
+    if not evento.evento_pago:
+        dados_webhook = {
+            'base_url': request.build_absolute_uri('/').rstrip('/'),
+            'participante_id': membro.id,
+            'nome': membro.nome,
+            'telefone': membro.telefone,
+            'telefone_formatado': telefone_formatado,
+            'email': membro.email,
+            'senha': senha_para_webhook,
+            'novo_cadastro': novo_cadastro,
+            'inscricao_id': inscricao.id,
+            'codigo': inscricao.codigo,
+            'qrcode_path': inscricao.qrcode.url if inscricao.qrcode else None,
+            'evento_id': evento.id,
+            'evento_titulo': evento.titulo,
+            'evento_data_inicio': formatar_data_local(evento.data_inicio),
+            'evento_data_fim': formatar_data_local(evento.data_fim),
+            'evento_local': evento.local,
+            'evento_endereco': evento.endereco,
+            'evento_pago': False,
+            'evento_valor': None,
+            'valor_total': 0,  # Evento gratuito
+            'pagamento_confirmado': True,  # Gratuito = automaticamente confirmado
+            'acompanhantes': inscricoes_acompanhantes,
+            'total_inscritos': 1 + len(inscricoes_acompanhantes),
+        }
+        
+        # Dispara webhook em background
+        thread = threading.Thread(target=enviar_webhook_inscricao, args=(dados_webhook,))
+        thread.daemon = True
+        thread.start()
     
     return Response(response_data, status=status.HTTP_201_CREATED)
 

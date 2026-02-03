@@ -276,34 +276,28 @@ function AdminInscricoes() {
         </div>
       </div>
 
-      {/* Inscriptions Table */}
-      <div className="bg-white rounded-xl shadow-md overflow-hidden">
-        {inscricoesFiltradas.length > 0 ? (
+      {/* Lista vazia */}
+      {inscricoesFiltradas.length === 0 && (
+        <div className="bg-white rounded-xl shadow-md py-12 text-center">
+          <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+          <p className="text-gray-500">Nenhuma inscrição encontrada</p>
+        </div>
+      )}
+
+      {/* Desktop: Tabela (oculta em mobile) */}
+      {inscricoesFiltradas.length > 0 && (
+        <div className="hidden md:block bg-white rounded-xl shadow-md overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50 border-b">
                 <tr>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">
-                    Membro
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">
-                    Evento
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">
-                    Categoria
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">
-                    Status
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">
-                    Pagamento
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">
-                    Presença
-                  </th>
-                  <th className="px-6 py-4 text-right text-sm font-semibold text-gray-700">
-                    Ações
-                  </th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Membro</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Evento</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Categoria</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Status</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Pagamento</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Presença</th>
+                  <th className="px-6 py-4 text-right text-sm font-semibold text-gray-700">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -317,39 +311,26 @@ function AdminInscricoes() {
                           </span>
                         </div>
                         <div>
-                          <span className="font-medium text-church-navy">
-                            {inscricao.membro_nome || `Membro #${inscricao.membro}`}
-                          </span>
-                          {inscricao.is_acompanhante && (
-                            <span className="block text-xs text-gray-500">Acompanhante</span>
-                          )}
+                          <span className="font-medium text-church-navy">{inscricao.membro_nome || `Membro #${inscricao.membro}`}</span>
+                          {inscricao.is_acompanhante && <span className="block text-xs text-gray-500">Acompanhante</span>}
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center">
                         <Calendar className="h-4 w-4 text-gray-400 mr-2" />
-                        <span className="text-gray-700">
-                          {inscricao.evento_titulo || `Evento #${inscricao.evento}`}
-                        </span>
+                        <span className="text-gray-700">{inscricao.evento_titulo || `Evento #${inscricao.evento}`}</span>
                       </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {formatDateTimeBR(inscricao.data_inscricao)}
-                      </div>
+                      <div className="text-xs text-gray-500 mt-1">{formatDateTimeBR(inscricao.data_inscricao)}</div>
                     </td>
                     <td className="px-6 py-4">
                       {inscricao.categoria_nome ? (
-                        <span className="inline-flex items-center text-sm">
-                          <Tag className="h-4 w-4 text-gray-400 mr-1" />
-                          {inscricao.categoria_nome}
-                        </span>
+                        <span className="inline-flex items-center text-sm"><Tag className="h-4 w-4 text-gray-400 mr-1" />{inscricao.categoria_nome}</span>
                       ) : (
                         <span className="text-gray-400">-</span>
                       )}
                     </td>
-                    <td className="px-6 py-4">
-                      {getStatusBadge(inscricao.status)}
-                    </td>
+                    <td className="px-6 py-4">{getStatusBadge(inscricao.status)}</td>
                     <td className="px-6 py-4">
                       {inscricao.is_acompanhante ? (
                         <span className="text-xs text-gray-500 italic">Via responsável</span>
@@ -359,70 +340,29 @@ function AdminInscricoes() {
                     </td>
                     <td className="px-6 py-4">
                       {inscricao.presente ? (
-                        <span className="inline-flex items-center text-green-600">
-                          <Check className="h-5 w-5 mr-1" />
-                          Presente
-                        </span>
+                        <span className="inline-flex items-center text-green-600"><Check className="h-5 w-5 mr-1" />Presente</span>
                       ) : (
                         <span className="text-gray-400">-</span>
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center justify-end space-x-1">
-                        {/* Confirmar pagamento - apenas para responsáveis */}
+                      <div className="flex items-center justify-end gap-1">
                         {!inscricao.is_acompanhante && inscricao.status_pagamento === 'pendente' && (
                           <>
-                            <button
-                              onClick={() => handleConfirmarPagamento(inscricao.id)}
-                              className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                              title="Confirmar Pagamento (inclui acompanhantes)"
-                            >
-                              <DollarSign className="h-5 w-5" />
-                            </button>
-                            <button
-                              onClick={() => handleIsentarPagamento(inscricao)}
-                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                              title="Isentar Pagamento (inclui acompanhantes)"
-                            >
-                              <Tag className="h-5 w-5" />
-                            </button>
+                            <button onClick={() => handleConfirmarPagamento(inscricao.id)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Confirmar Pagamento"><DollarSign className="h-5 w-5" /></button>
+                            <button onClick={() => handleIsentarPagamento(inscricao)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="Isentar"><Tag className="h-5 w-5" /></button>
                           </>
                         )}
-                        {/* Confirmar inscrição (para gratuitos) */}
                         {inscricao.status === 'pendente' && inscricao.status_pagamento !== 'pendente' && (
-                          <button
-                            onClick={() => handleConfirmar(inscricao.id)}
-                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                            title="Confirmar Inscrição"
-                          >
-                            <Check className="h-5 w-5" />
-                          </button>
+                          <button onClick={() => handleConfirmar(inscricao.id)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Confirmar"><Check className="h-5 w-5" /></button>
                         )}
                         {inscricao.status === 'confirmada' && !inscricao.presente && (
-                          <button
-                            onClick={() => handleMarcarPresenca(inscricao.id)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="Marcar Presença"
-                          >
-                            <UserCheck className="h-5 w-5" />
-                          </button>
+                          <button onClick={() => handleMarcarPresenca(inscricao.id)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="Marcar Presença"><UserCheck className="h-5 w-5" /></button>
                         )}
                         {inscricao.status !== 'cancelada' && (
-                          <button
-                            onClick={() => handleCancelar(inscricao)}
-                            className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
-                            title="Cancelar Inscrição"
-                          >
-                            <X className="h-5 w-5" />
-                          </button>
+                          <button onClick={() => handleCancelar(inscricao)} className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg" title="Cancelar"><X className="h-5 w-5" /></button>
                         )}
-                        <button
-                          onClick={() => handleDeletar(inscricao)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Excluir Inscrição"
-                        >
-                          <Trash2 className="h-5 w-5" />
-                        </button>
+                        <button onClick={() => handleDeletar(inscricao)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Excluir"><Trash2 className="h-5 w-5" /></button>
                       </div>
                     </td>
                   </tr>
@@ -430,13 +370,64 @@ function AdminInscricoes() {
               </tbody>
             </table>
           </div>
-        ) : (
-          <div className="text-center py-12">
-            <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500">Nenhuma inscrição encontrada</p>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Mobile: Cards com botões de ação sempre visíveis */}
+      {inscricoesFiltradas.length > 0 && (
+        <div className="md:hidden space-y-4">
+          {inscricoesFiltradas.map((inscricao) => (
+            <div key={inscricao.id} className="bg-white rounded-xl shadow-md overflow-hidden">
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-center min-w-0 flex-1">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${inscricao.is_acompanhante ? 'bg-gray-100' : 'bg-primary-100'}`}>
+                      <span className={`font-bold ${inscricao.is_acompanhante ? 'text-gray-500' : 'text-primary-600'}`}>
+                        {(inscricao.membro_nome || 'M')[0].toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="ml-3 min-w-0">
+                      <div className="font-medium text-church-navy truncate">{inscricao.membro_nome || `Membro #${inscricao.membro}`}</div>
+                      {inscricao.is_acompanhante && <div className="text-xs text-gray-500">Acompanhante</div>}
+                      <div className="text-sm text-gray-600 truncate">{inscricao.evento_titulo || `Evento #${inscricao.evento}`}</div>
+                      <div className="text-xs text-gray-500">{formatDateTimeBR(inscricao.data_inscricao)}</div>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1 flex-shrink-0">
+                    {!inscricao.is_acompanhante && inscricao.status_pagamento === 'pendente' && (
+                      <>
+                        <button onClick={() => handleConfirmarPagamento(inscricao.id)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Confirmar Pagamento"><DollarSign className="h-5 w-5" /></button>
+                        <button onClick={() => handleIsentarPagamento(inscricao)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="Isentar"><Tag className="h-5 w-5" /></button>
+                      </>
+                    )}
+                    {inscricao.status === 'pendente' && inscricao.status_pagamento !== 'pendente' && (
+                      <button onClick={() => handleConfirmar(inscricao.id)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Confirmar"><Check className="h-5 w-5" /></button>
+                    )}
+                    {inscricao.status === 'confirmada' && !inscricao.presente && (
+                      <button onClick={() => handleMarcarPresenca(inscricao.id)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="Marcar Presença"><UserCheck className="h-5 w-5" /></button>
+                    )}
+                    {inscricao.status !== 'cancelada' && (
+                      <button onClick={() => handleCancelar(inscricao)} className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg" title="Cancelar"><X className="h-5 w-5" /></button>
+                    )}
+                    <button onClick={() => handleDeletar(inscricao)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Excluir"><Trash2 className="h-5 w-5" /></button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {getStatusBadge(inscricao.status)}
+                  {!inscricao.is_acompanhante && getPagamentoBadge(inscricao.status_pagamento, inscricao.valor_inscricao)}
+                  {inscricao.is_acompanhante && <span className="text-xs text-gray-500 italic">Via responsável</span>}
+                  {inscricao.presente && (
+                    <span className="inline-flex items-center text-green-600 text-xs"><Check className="h-3 w-3 mr-1" />Presente</span>
+                  )}
+                  {inscricao.categoria_nome && (
+                    <span className="inline-flex items-center text-sm text-gray-600"><Tag className="h-3 w-3 mr-1" />{inscricao.categoria_nome}</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Modal de Confirmação */}
       <ConfirmModal

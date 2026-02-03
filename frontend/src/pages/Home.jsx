@@ -16,38 +16,7 @@ function Home() {
         setEventosDestaque(response.data.slice(0, 3))
       } catch (error) {
         console.error('Erro ao carregar eventos:', error)
-        // Dados de exemplo para demonstração
-        setEventosDestaque([
-          {
-            id: 1,
-            titulo: 'Culto de Celebração',
-            tipo: 'culto',
-            tipo_display: 'Culto',
-            data_inicio: new Date().toISOString(),
-            local: 'Templo Principal',
-            destaque: true,
-          },
-          {
-            id: 2,
-            titulo: 'Conferência de Jovens',
-            tipo: 'conferencia',
-            tipo_display: 'Conferência',
-            data_inicio: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-            local: 'Auditório',
-            vagas_disponiveis: 50,
-            destaque: true,
-          },
-          {
-            id: 3,
-            titulo: 'Retiro Espiritual',
-            tipo: 'retiro',
-            tipo_display: 'Retiro',
-            data_inicio: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-            local: 'Sítio da Igreja',
-            vagas_disponiveis: 30,
-            destaque: true,
-          },
-        ])
+        setEventosDestaque([])
       } finally {
         setLoading(false)
       }

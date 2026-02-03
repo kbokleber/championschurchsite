@@ -813,16 +813,16 @@ class ConfiguracaoSite(models.Model):
         blank=True,
         help_text='URL para enviar dados quando uma nova inscrição é realizada (ex: integração com WhatsApp)'
     )
+    webhook_ativo = models.BooleanField(
+        default=False,
+        verbose_name='Webhook Ativo',
+        help_text='Marque para ativar o envio de webhooks'
+    )
     webhook_reset_senha = models.URLField(
         verbose_name='Webhook de Reset de Senha',
         blank=True,
         null=True,
         help_text='URL para enviar dados quando um participante solicita reset de senha'
-    )
-    webhook_ativo = models.BooleanField(
-        default=False,
-        verbose_name='Webhook Ativo',
-        help_text='Marque para ativar o envio de webhooks'
     )
     
     # Mercado Pago - Configurações

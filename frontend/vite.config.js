@@ -19,5 +19,12 @@ export default defineConfig({
     strictPort: false,
     // Permitir todos os hosts - usar array vazio para desabilitar verificação
     allowedHosts: [],
+    cors: true,
+    // O Vite Preview já faz fallback para index.html automaticamente em rotas não encontradas
+  },
+  build: {
+    // Garantir que o build gere arquivos estáticos corretos
+    outDir: 'dist',
+    assetsDir: 'assets',
   },
 })

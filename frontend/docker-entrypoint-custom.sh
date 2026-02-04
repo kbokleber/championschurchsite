@@ -9,16 +9,39 @@ if [ -z "$BACKEND_URL" ]; then
     exit 1
 fi
 
-echo "🔧 Substituindo BACKEND_URL: ${BACKEND_URL}"
+echo "🔧 Configurando Nginx com BACKEND_URL: ${BACKEND_URL}"
+
+# Extrair host e porta do BACKEND_URL para teste de conectividade
+# Exemplo: http://host:port ou http://host
+BACKEND_HOST=$(echo "$BACKEND_URL" | sed -E 's|^https?://||' | sed -E 's|/.*$||' | cut -d: -f1)
+BACKEND_PORT=$(echo "$BACKEND_URL" | sed -E 's|^https?://||' | sed -E 's|/.*$||' | cut -d: -f2)
+BACKEND_PORT=${BACKEND_PORT:-80}
+
+echo "📡 Testando conectividade com backend:"
+echo "   Host: ${BACKEND_HOST}"
+echo "   Port: ${BACKEND_PORT}"
+
+# Testar conectividade (timeout de 5 segundos)
+if command -v nc >/dev/null 2>&1; then
+    if nc -z -w 5 "${BACKEND_HOST}" "${BACKEND_PORT}" 2>/dev/null; then
+        echo "✓ Backend está acessível!"
+    else
+        echo "⚠️ AVISO: Não foi possível conectar ao backend em ${BACKEND_HOST}:${BACKEND_PORT}"
+        echo "   O Nginx ainda vai iniciar, mas pode dar erro 502 se o backend não estiver acessível"
+    fi
+else
+    echo "⚠️ nc (netcat) não disponível, pulando teste de conectividade"
+fi
 
 # Substituir variável BACKEND_URL no template do Nginx
 if [ -f /etc/nginx/templates/default.conf.template ]; then
     envsubst '${BACKEND_URL}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
     echo "✓ Configuração do Nginx gerada com sucesso"
     
-    # Mostrar primeira linha do arquivo gerado para debug
-    echo "📄 Primeira linha da config gerada:"
-    head -n 1 /etc/nginx/conf.d/default.conf || true
+    # Mostrar configuração do proxy para debug
+    echo "📄 Configuração do proxy gerada:"
+    grep -A 5 "location /api/" /etc/nginx/conf.d/default.conf || true
+    echo ""
 else
     echo "⚠️ Template não encontrado, usando configuração padrão"
 fi

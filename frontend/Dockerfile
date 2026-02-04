@@ -22,8 +22,8 @@ RUN npm run build
 # Stage 2: Runtime com Nginx
 FROM nginx:alpine
 
-# Instalar gettext para envsubst e wget para healthcheck
-RUN apk add --no-cache gettext wget
+# Instalar gettext para envsubst, wget para healthcheck e netcat para teste de conectividade
+RUN apk add --no-cache gettext wget netcat-openbsd
 
 # Criar diretório de templates do Nginx
 RUN mkdir -p /etc/nginx/templates

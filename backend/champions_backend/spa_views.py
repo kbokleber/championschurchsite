@@ -39,13 +39,19 @@ class ServeSPAView(View):
         # path pode ser vazio (/) ou algo como 'eventos', 'admin', etc.
         file_path = frontend_root / path.strip('/') if path else frontend_root
 
-        # Se for um arquivo que existe, servir
+        # Se for um arquivo que existe, servir (ex: favicon.svg na raiz do build)
         if file_path.is_file():
-            return FileResponse(
+            content_type = None
+            if file_path.suffix.lower() == '.svg':
+                content_type = 'image/svg+xml'
+            resp = FileResponse(
                 open(file_path, 'rb'),
                 as_attachment=False,
                 filename=file_path.name,
             )
+            if content_type:
+                resp['Content-Type'] = content_type
+            return resp
 
         # Diretório (ex: assets): não listar, servir index.html
         if file_path.is_dir():

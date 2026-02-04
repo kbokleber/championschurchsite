@@ -28,7 +28,7 @@ if frontend_root:
     print(f"[URLS] Frontend detectado, adicionando rotas SPA. Root: {frontend_root}")
     urlpatterns += [
         path('assets/<path:path>', serve_frontend_asset),
-        re_path(r'^.*$', ServeSPAView.as_view()),
+        re_path(r'^(?P<path>.*)$', ServeSPAView.as_view()),
     ]
 else:
     print("[URLS] Frontend NÃO detectado, rotas SPA não serão adicionadas")

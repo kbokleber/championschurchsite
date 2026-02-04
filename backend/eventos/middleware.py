@@ -126,7 +126,8 @@ class SecurityHeadersMiddleware:
         response['X-Frame-Options'] = 'DENY'
         response['X-XSS-Protection'] = '1; mode=block'
         response['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-        response['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+        # camera=(self) para permitir scanner de QR Code na página de check-in
+        response['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=(self)'
         
         return response
 

@@ -30,7 +30,7 @@ FROM python:3.11-slim
 # Variáveis de ambiente
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PATH=/root/.local/bin:$PATH \
+    PATH=/usr/local/bin:/home/django/.local/bin:$PATH \
     DJANGO_SETTINGS_MODULE=champions_backend.settings
 
 # Instalar apenas dependências runtime
@@ -41,11 +41,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Criar usuário não-root para segurança
 RUN useradd -m -u 1000 django && \
-    mkdir -p /app /app/staticfiles /app/media /app/logs && \
-    chown -R django:django /app
+    mkdir -p /app /app/staticfiles /app/media /app/logs /home/django/.local && \
+    chown -R django:django /app && \
+    # Criar symlink python -> python3 para facilitar uso
+    ln -s /usr/local/bin/python3 /usr/local/bin/python || true
 
-# Copiar dependências Python do stage builder
-COPY --from=builder --chown=django:django /root/.local /root/.local
+# Copiar dependências Python do stage builder para local acessível ao usuário django
+COPY --from=builder /root/.local /home/django/.local
+RUN chown -R django:django /home/django/.local
 
 # Definir diretório de trabalho
 WORKDIR /app

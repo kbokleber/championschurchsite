@@ -7,19 +7,29 @@ echo "Iniciando entrypoint do backend..."
 echo "Executando migrações do banco de dados..."
 python manage.py migrate --noinput || {
     echo "ERRO: Falha ao executar migrações!"
-    exit 1
+    echo "Continuando mesmo assim para verificar outros problemas..."
 }
 
 # Criar configuração padrão do site se não existir
 echo "Verificando/criando configuração do site..."
-python manage.py shell << EOF
+python manage.py shell << 'PYEOF'
+import os
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'champions_backend.settings')
+import django
+django.setup()
+
 from eventos.models import ConfiguracaoSite
-config, created = ConfiguracaoSite.objects.get_or_create(pk=1)
-if created:
-    print("Configuração do site criada com sucesso!")
-else:
-    print("Configuração do site já existe.")
-EOF
+try:
+    config, created = ConfiguracaoSite.objects.get_or_create(pk=1)
+    if created:
+        print("✓ Configuração do site criada com sucesso!")
+    else:
+        print("✓ Configuração do site já existe.")
+except Exception as e:
+    print(f"✗ ERRO ao criar configuração: {e}")
+    import traceback
+    traceback.print_exc()
+PYEOF
 
 # Coletar arquivos estáticos
 echo "Coletando arquivos estáticos..."
@@ -33,14 +43,22 @@ python manage.py create_admin || {
 
 # Verificar se o usuário admin existe
 echo "Verificando usuário admin..."
-python manage.py shell << EOF
+python manage.py shell << 'PYEOF'
+import os
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'champions_backend.settings')
+import django
+django.setup()
+
 from django.contrib.auth import get_user_model
 User = get_user_model()
-if User.objects.filter(username='admin').exists():
-    print("✓ Usuário admin existe")
-else:
-    print("✗ Usuário admin NÃO existe!")
-EOF
+try:
+    if User.objects.filter(username='admin').exists():
+        print("✓ Usuário admin existe")
+    else:
+        print("✗ Usuário admin NÃO existe!")
+except Exception as e:
+    print(f"✗ ERRO ao verificar admin: {e}")
+PYEOF
 
 # Iniciar servidor Gunicorn
 echo "Iniciando servidor Gunicorn..."

@@ -5,9 +5,13 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api`
   : '/api'
 
+// Debug: log da URL da API sendo usada
+console.log('API Base URL:', API_BASE_URL)
+console.log('VITE_API_URL:', import.meta.env.VITE_API_URL)
+
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: 30000, // Aumentar timeout para 30s
   headers: {
     'Content-Type': 'application/json',
   },

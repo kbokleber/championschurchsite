@@ -65,15 +65,39 @@ VITE_API_URL: http://s8o8s80sw0gswkockswkw084.154.12.227.87.sslip.io
 
 Se aparecer `VITE_API_URL: undefined`, significa que a variável não foi passada durante o build.
 
-## Alternativa: Usar Nginx (Recomendado para Produção)
+## ⚠️ RECOMENDAÇÃO: Usar Dockerfile com Nginx (Solução Mais Confiável)
 
-Se o Vite Preview continuar dando problemas, considere usar o Dockerfile com Nginx que já está no projeto:
+O Vite Preview tem limitações com proxy em containers separados. **Recomendo usar o Dockerfile com Nginx** que já está no projeto:
 
-1. No Coolify, mude o **Build Pack** para **Dockerfile**
-2. **Dockerfile Path:** `frontend/Dockerfile`
-3. **Docker Context:** `frontend`
+### Passo 1: Mudar Build Pack no Coolify
 
-O Nginx já está configurado para fazer proxy para o backend. Você só precisa configurar a variável de ambiente `BACKEND_URL` no Dockerfile ou via variáveis de ambiente do Coolify.
+1. No Coolify → **Frontend** → **Settings**
+2. Mude o **Build Pack** de **Nixpacks** para **Dockerfile**
+3. **Dockerfile Path:** `frontend/Dockerfile`
+4. **Docker Context:** `frontend`
+
+### Passo 2: Configurar Variável de Ambiente
+
+No Coolify → **Frontend** → **Environment Variables**, adicione:
+
+**Nome:** `BACKEND_URL`  
+**Valor:** `http://s8o8s80sw0gswkockswkw084.154.12.227.87.sslip.io:8000` (URL do backend com porta)
+
+**OU** se os containers estão na mesma rede Docker:
+
+**Nome:** `BACKEND_URL`  
+**Valor:** `http://s8o8s80sw0gswkockswkw084:8000` (nome do serviço backend)
+
+### Passo 3: Atualizar nginx.conf (se necessário)
+
+O `nginx.conf` já está configurado para usar `http://backend:8000`. Se o nome do seu serviço backend no Coolify for diferente, você pode:
+
+1. Editar `frontend/nginx.conf` linha 24: `proxy_pass http://backend:8000;`
+2. Ou usar variável de ambiente no Dockerfile (requer ajuste)
+
+### Passo 4: Fazer Deploy
+
+Após configurar, faça um novo deploy. O Nginx vai fazer proxy corretamente para o backend.
 
 ## Troubleshooting
 

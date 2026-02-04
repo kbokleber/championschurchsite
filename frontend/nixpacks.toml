@@ -1,0 +1,12 @@
+# Configuração Nixpacks para Frontend React/Vite
+[phases.setup]
+nixPkgs = ["nodejs-18_x"]
+
+[phases.install]
+cmds = ["npm ci"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npx vite preview --host 0.0.0.0 --port 80"

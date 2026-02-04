@@ -8,8 +8,9 @@ from django.conf.urls.static import static
 
 from .spa_views import ServeSPAView, serve_frontend_asset, get_frontend_root
 
+# Admin do Django em /django-admin/ para não conflitar com a SPA em /admin
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    path('django-admin/', admin.site.urls),
     path('api/', include('eventos.urls')),
 ]
 

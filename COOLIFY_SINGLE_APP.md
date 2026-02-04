@@ -41,11 +41,24 @@ Configure apenas as do backend, por exemplo:
 
 Não é necessário `DJANGO_BEHIND_PROXY`: o usuário acessa só este app; o Coolify cuida do HTTPS na borda.
 
-### 4. Comandos de build/start
+### 4. Volume persistente para mídia (uploads e imagens)
+
+Para que imagens e arquivos enviados pelo sistema **não se percam** em redeploys ou restarts do container:
+
+1. No Coolify, abra o aplicativo Champions Church.
+2. Vá na aba **Storage** (ou **Volumes** / **Persistent Storage** / **Mounts**, conforme a versão do Coolify).
+3. Adicione um volume:
+   - **Container Path:** `/app/media`
+   - **Volume Name:** por exemplo `champions-media` (ou deixe o Coolify gerar).
+   - Se houver opção **Source** (host path): pode deixar vazio para volume nomeado, ou usar um caminho do servidor, ex.: `/data/champions-media`.
+
+Assim o diretório `/app/media` do container fica persistido no host; o Django já usa esse caminho para `MEDIA_ROOT`.
+
+### 5. Comandos de build/start
 
 Deixe vazios; o Dockerfile e o `entrypoint.sh` definem o build e o start.
 
-### 5. Deploy
+### 6. Deploy
 
 Clique em **Deploy** / **Redeploy**.
 
@@ -56,7 +69,7 @@ Clique em **Deploy** / **Redeploy**.
    - Build do backend (Python, Gunicorn).
    - Cópia de `frontend/dist` para `frontend_dist` dentro da imagem.
 2. O **Django**:
-   - Serve a API em `/api/` e o admin em `/admin/`.
+   - Serve a API em `/api/` e o admin do Django em `/django-admin/` (a SPA usa `/admin/`).
    - Se existir o diretório `frontend_dist`, serve os estáticos do frontend em `/assets/*` e devolve `index.html` para as rotas da SPA (fallback).
 3. O frontend em produção usa **URLs relativas** (`/api`, `/media`), então tudo é mesma origem e não há problema de CORS nem de certificado.
 
@@ -88,3 +101,4 @@ docker run -p 8000:8000 -e POSTGRES_HOST=... -e POSTGRES_DB=... ...
 - **404 em rotas do React (ex.: /eventos):** confirme que o build do frontend rodou e que `frontend_dist` existe na imagem (rota catch-all do Django que devolve `index.html`).
 - **500 ou “Invalid Host”:** ajuste `DJANGO_ALLOWED_HOSTS` ou use `*` (já suportado pelo projeto quando a variável não está definida).
 - **API não responde:** verifique variáveis do PostgreSQL e logs do container (migrações e Gunicorn).
+- **Painel Django (tabelas, usuários):** use **`/django-admin/`** (não `/admin/`). O `/admin/` é o painel React (SPA).

@@ -56,10 +56,10 @@ export function ConfiguracaoProvider({ children }) {
   const getImageUrl = (path) => {
     if (!path) return null
     if (path.startsWith('http')) return path
-    // Em produção usa mesma origem (''), Nginx faz proxy de /media
     const isProd = import.meta.env.MODE === 'production'
     const baseUrl = isProd ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:8000')
-    return `${baseUrl}${path}`
+    const pathFromRoot = path.startsWith('/') ? path : `/${path}`
+    return `${baseUrl}${pathFromRoot}`
   }
 
   return (

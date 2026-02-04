@@ -21,8 +21,9 @@ export function getMediaUrl(path) {
     return path
   }
   
-  // Se é um caminho relativo, adiciona a URL do backend
-  return `${BACKEND_URL}${path}`
+  // Garantir barra no início para ser relativo à origem (evita /admin/eventos/media/...)
+  const pathFromRoot = path.startsWith('/') ? path : `/${path}`
+  return `${BACKEND_URL}${pathFromRoot}`
 }
 
 /**

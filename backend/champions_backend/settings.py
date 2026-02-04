@@ -204,8 +204,8 @@ static_dir = BASE_DIR.parent / 'static'
 STATICFILES_DIRS = [static_dir] if static_dir.exists() else []
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# Media files
-MEDIA_URL = 'media/'
+# Media files (barra no início para URLs relativas à origem no frontend)
+MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 # Frontend SPA (build React/Vite) quando o backend serve o app em produção (single-app)

@@ -118,6 +118,12 @@ class Membro(models.Model):
     def __str__(self):
         return f"{self.nome} - {self.telefone}"
     
+    def delete(self, *args, **kwargs):
+        """Remove o arquivo de foto do storage ao excluir o membro."""
+        if self.foto:
+            self.foto.delete(save=False)
+        super().delete(*args, **kwargs)
+    
     def definir_senha(self, senha_texto=None):
         """Define a senha do participante."""
         if senha_texto is None:
@@ -232,6 +238,12 @@ class Evento(models.Model):
     
     def __str__(self):
         return f"{self.titulo} - {self.data_inicio.strftime('%d/%m/%Y')}"
+    
+    def delete(self, *args, **kwargs):
+        """Remove a imagem do evento do storage ao excluir."""
+        if self.imagem:
+            self.imagem.delete(save=False)
+        super().delete(*args, **kwargs)
     
     @property
     def vagas_disponiveis(self):
@@ -530,6 +542,12 @@ class Inscricao(models.Model):
         # Salvar no campo
         filename = f'qrcode_{self.codigo}.png'
         self.qrcode.save(filename, ContentFile(buffer.read()), save=True)
+    
+    def delete(self, *args, **kwargs):
+        """Remove o arquivo do QR Code do storage ao excluir a inscrição."""
+        if self.qrcode:
+            self.qrcode.delete(save=False)
+        super().delete(*args, **kwargs)
 
 
 class Cobranca(models.Model):
@@ -884,6 +902,13 @@ class ConfiguracaoSite(models.Model):
         # Garante que só existe uma instância (singleton)
         self.pk = 1
         super().save(*args, **kwargs)
+    
+    def delete(self, *args, **kwargs):
+        """Remove os arquivos de mídia (logo, favicon) do storage ao excluir."""
+        for field in (self.logo, self.logo_branco, self.favicon):
+            if field:
+                field.delete(save=False)
+        super().delete(*args, **kwargs)
     
     @classmethod
     def get_config(cls):

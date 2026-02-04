@@ -22,16 +22,17 @@ RUN npm run build
 # Stage 2: Runtime com Nginx
 FROM nginx:alpine
 
-# Variável de ambiente para URL do backend (pode ser sobrescrita)
-ARG BACKEND_URL=http://backend:8000
-ENV BACKEND_URL=${BACKEND_URL}
+# Instalar gettext para envsubst (substituição de variáveis)
+RUN apk add --no-cache gettext
 
-# Copiar configuração customizada do Nginx
+# Criar diretório de templates do Nginx
+RUN mkdir -p /etc/nginx/templates
+
+# Copiar configuração customizada do Nginx como template
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 
-# Substituir variável no template durante inicialização
-RUN envsubst '${BACKEND_URL}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf || \
-    cp /etc/nginx/templates/default.conf.template /etc/nginx/conf.d/default.conf
+# Variável de ambiente padrão (pode ser sobrescrita via Coolify)
+ENV BACKEND_URL=http://backend:8000
 
 # Copiar build do React do stage anterior
 COPY --from=builder /app/dist /usr/share/nginx/html
@@ -54,5 +55,17 @@ EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --quiet --tries=1 --spider http://localhost/health || exit 1
 
+# Script de entrada para substituir variáveis antes de iniciar Nginx
+COPY <<EOF /docker-entrypoint-custom.sh
+#!/bin/sh
+set -e
+# Substituir variável BACKEND_URL no template
+envsubst '\$BACKEND_URL' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
+# Executar entrypoint padrão do Nginx
+exec /docker-entrypoint.sh nginx -g "daemon off;"
+EOF
+
+RUN chmod +x /docker-entrypoint-custom.sh
+
 # Comando padrão
-CMD ["nginx", "-g", "daemon off;"]
+ENTRYPOINT ["/docker-entrypoint-custom.sh"]

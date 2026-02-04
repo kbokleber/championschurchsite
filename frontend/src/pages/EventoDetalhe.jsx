@@ -932,7 +932,7 @@ function EventoDetalhe() {
                                       >
                                         {categorias.map(cat => (
                                           <option key={cat.id} value={cat.id}>
-                                            {cat.nome} - {cat.valor_formatado}
+                                            {[cat.nome || 'Categoria', cat.descricao, cat.valor_formatado].filter(Boolean).join(' – ')}
                                           </option>
                                         ))}
                                       </select>
@@ -971,7 +971,7 @@ function EventoDetalhe() {
                                 >
                                   {categorias.map(cat => (
                                     <option key={cat.id} value={cat.id}>
-                                      {cat.nome} - {cat.valor_formatado}
+                                      {[cat.nome || 'Categoria', cat.descricao, cat.valor_formatado].filter(Boolean).join(' – ')}
                                     </option>
                                   ))}
                                 </select>

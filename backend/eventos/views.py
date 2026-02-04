@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly, AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone
+from django.shortcuts import get_object_or_404
 from django.contrib.auth.models import User
 from django.conf import settings
 from .models import Membro, Evento, Inscricao, Contato, ConfiguracaoSite, CategoriaParticipante, Cobranca, CobrancaItem
@@ -178,10 +179,16 @@ def get_current_user(request):
 # AUTENTICAÇÃO DE PARTICIPANTES
 # ============================================
 
+# Status de evento considerados "ativos" para exibir em Meus Ingressos e permitir check-in
+EVENTO_STATUS_ATIVOS = ['agendado', 'em_andamento']
+
+
 def _serializar_ingressos(membro):
-    """Helper para serializar ingressos de um membro, incluindo acompanhantes."""
-    # Inscrições próprias do membro (não acompanhantes)
-    # Inclui confirmadas E pendentes (aguardando pagamento)
+    """Helper para serializar ingressos de um membro, incluindo acompanhantes.
+    Retorna todos os ingressos (ativos e já realizados); o frontend filtra por data.
+    QR codes de eventos inativos continuam inválidos no check-in.
+    """
+    # Inscrições próprias do membro (não acompanhantes), todas (ativo/finalizado/cancelado)
     inscricoes = Inscricao.objects.filter(
         membro=membro,
         status__in=['confirmada', 'pendente'],
@@ -209,7 +216,7 @@ def _serializar_ingressos(membro):
                 'codigo': acomp.codigo,
                 'qrcode': acomp.qrcode.url if acomp.qrcode else None,
                 'presente': acomp.presente,
-                'data_checkin': acomp.data_checkin.strftime('%d/%m/%Y %H:%M') if acomp.data_checkin else None,
+                'data_checkin': timezone.localtime(acomp.data_checkin).strftime('%d/%m/%Y %H:%M') if acomp.data_checkin else None,
                 'categoria': acomp.categoria.nome if acomp.categoria else 'Adulto',
                 'valor': valor_acomp,
                 'status_pagamento': acomp.status_pagamento,
@@ -234,6 +241,8 @@ def _serializar_ingressos(membro):
             if cobranca_item:
                 cobranca_id = cobranca_item.cobranca.id
         
+        dt_inicio = timezone.localtime(inscricao.evento.data_inicio)
+        dt_fim = timezone.localtime(inscricao.evento.data_fim) if inscricao.evento.data_fim else None
         ingressos.append({
             'id': inscricao.id,
             'codigo': inscricao.codigo,
@@ -242,8 +251,10 @@ def _serializar_ingressos(membro):
             'evento': {
                 'id': inscricao.evento.id,
                 'titulo': inscricao.evento.titulo,
-                'data_inicio': inscricao.evento.data_inicio.strftime('%d/%m/%Y %H:%M'),
-                'data_fim': inscricao.evento.data_fim.strftime('%d/%m/%Y %H:%M') if inscricao.evento.data_fim else None,
+                'data_inicio': dt_inicio.strftime('%d/%m/%Y %H:%M'),
+                'data_inicio_iso': dt_inicio.isoformat(),
+                'data_fim': dt_fim.strftime('%d/%m/%Y %H:%M') if dt_fim else None,
+                'data_fim_iso': dt_fim.isoformat() if dt_fim else None,
                 'local': inscricao.evento.local,
                 'endereco': inscricao.evento.endereco,
                 'imagem': inscricao.evento.imagem.url if inscricao.evento.imagem else None,
@@ -251,9 +262,9 @@ def _serializar_ingressos(membro):
                 'evento_pago': inscricao.evento.evento_pago,
                 'valor_inscricao': float(inscricao.evento.valor_inscricao) if inscricao.evento.valor_inscricao else None,
             },
-            'data_inscricao': inscricao.data_inscricao.strftime('%d/%m/%Y %H:%M'),
+            'data_inscricao': timezone.localtime(inscricao.data_inscricao).strftime('%d/%m/%Y %H:%M'),
             'presente': inscricao.presente,
-            'data_checkin': inscricao.data_checkin.strftime('%d/%m/%Y %H:%M') if inscricao.data_checkin else None,
+            'data_checkin': timezone.localtime(inscricao.data_checkin).strftime('%d/%m/%Y %H:%M') if inscricao.data_checkin else None,
             'status_pagamento': inscricao.status_pagamento,
             'valor': valor_responsavel,
             'valor_total': valor_total,
@@ -288,9 +299,9 @@ def buscar_participante_por_telefone(request):
             status=status.HTTP_200_OK
         )
     
-    # Buscar membro pelo telefone (não acompanhante)
+    # Buscar membro pelo telefone (titular ou acompanhante com telefone cadastrado)
     try:
-        membro = Membro.objects.get(telefone=telefone_normalizado, is_acompanhante=False)
+        membro = Membro.objects.get(telefone=telefone_normalizado)
         return Response({
             'encontrado': True,
             'participante': {
@@ -347,12 +358,13 @@ def participante_login(request):
     from django.conf import settings
     from datetime import datetime, timedelta
     
+    now = datetime.utcnow()
     payload = {
         'participante_id': membro.id,
         'telefone': membro.telefone,
         'nome': membro.nome,
-        'exp': datetime.utcnow() + timedelta(days=30),
-        'iat': datetime.utcnow(),
+        'exp': int((now + timedelta(days=30)).timestamp()),
+        'iat': int(now.timestamp()),
         'type': 'participante'
     }
     
@@ -392,7 +404,7 @@ def participante_esqueci_senha(request):
             status=status.HTTP_200_OK
         )
     try:
-        membro = Membro.objects.get(telefone=telefone_normalizado, is_acompanhante=False)
+        membro = Membro.objects.get(telefone=telefone_normalizado)
     except Membro.DoesNotExist:
         return Response(
             {'success': True, 'message': 'Se este número estiver cadastrado, você receberá a senha em instantes.'},
@@ -511,8 +523,10 @@ def participante_registro(request):
         membro.save()
         novo_cadastro = True
     
-    # Verificar se já está inscrito
-    inscricao_existente = Inscricao.objects.filter(membro=membro, evento=evento, is_acompanhante=False).first()
+    # Verificar se já está inscrito (inscrições canceladas não contam — usuário pode se inscrever de novo)
+    inscricao_existente = Inscricao.objects.filter(
+        membro=membro, evento=evento, is_acompanhante=False
+    ).exclude(status='cancelada').first()
     if inscricao_existente:
         # Se não está enviando novos acompanhantes, apenas retorna info da inscrição existente
         if not acompanhantes:
@@ -742,6 +756,20 @@ def participante_registro(request):
             response['senha_existente'] = membro.senha_texto
             response['lembrete_senha'] = True
         
+        # Sempre retornar token para manter a sessão do participante (evitar novo login)
+        import jwt
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        payload = {
+            'participante_id': membro.id,
+            'telefone': membro.telefone,
+            'nome': membro.nome,
+            'exp': int((now + timedelta(days=30)).timestamp()),
+            'iat': int(now.timestamp()),
+            'type': 'participante'
+        }
+        response['token'] = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
+        
         return Response(response)
     
     # Buscar ou criar categoria "Adulto" para o responsável
@@ -804,6 +832,130 @@ def participante_registro(request):
     else:
         status_pagamento = 'nao_aplicavel'
         status_inscricao = 'confirmada'
+    
+    # Se existe inscrição cancelada, reutilizar em vez de criar nova (respeita unique_together membro+evento)
+    inscricao_cancelada = Inscricao.objects.filter(
+        membro=membro, evento=evento, is_acompanhante=False, status='cancelada'
+    ).first()
+    if inscricao_cancelada:
+        inscricao = inscricao_cancelada
+        inscricao.status = status_inscricao
+        inscricao.status_pagamento = status_pagamento
+        inscricao.valor_inscricao = valor_total
+        inscricao.categoria = categoria_adulto
+        inscricao.save(update_fields=['status', 'status_pagamento', 'valor_inscricao', 'categoria'])
+        # Criar acompanhantes (novos membros + inscrições)
+        inscricoes_acompanhantes = []
+        for acomp_info in acompanhantes_para_criar:
+            nome_acomp = acomp_info['nome']
+            categoria_acomp = acomp_info['categoria']
+            valor_acomp = acomp_info['valor']
+            membro_acomp = Membro.objects.create(
+                nome=nome_acomp,
+                telefone=None,
+                is_acompanhante=True,
+                responsavel=membro,
+                status='visitante'
+            )
+            inscricao_acomp = Inscricao.objects.create(
+                membro=membro_acomp,
+                evento=evento,
+                status=status_inscricao,
+                responsavel=membro,
+                is_acompanhante=True,
+                categoria=categoria_acomp,
+                valor_inscricao=0,
+                status_pagamento=status_pagamento
+            )
+            inscricoes_acompanhantes.append({
+                'id': inscricao_acomp.id,
+                'inscricao': inscricao_acomp,
+                'nome': nome_acomp,
+                'codigo': inscricao_acomp.codigo,
+                'qrcode': inscricao_acomp.qrcode.url if inscricao_acomp.qrcode else None,
+                'categoria': categoria_acomp.nome if categoria_acomp else None,
+                'valor': valor_acomp,
+            })
+        cobranca = None
+        if evento.evento_pago and valor_total > 0:
+            itens_desc = [f"{membro.nome} (Adulto)"]
+            for acomp in acompanhantes_para_criar:
+                cat_nome = acomp['categoria'].nome if acomp['categoria'] else 'Adulto'
+                itens_desc.append(f"{acomp['nome']} ({cat_nome})")
+            cobranca = Cobranca.objects.create(
+                membro=membro,
+                evento=evento,
+                valor=valor_total,
+                descricao=f"Inscrição: {', '.join(itens_desc)}",
+                status='pendente'
+            )
+            CobrancaItem.objects.create(
+                cobranca=cobranca,
+                inscricao=inscricao,
+                valor=valor_responsavel,
+                descricao=f"{membro.nome} - Adulto"
+            )
+            for acomp_data in inscricoes_acompanhantes:
+                CobrancaItem.objects.create(
+                    cobranca=cobranca,
+                    inscricao=acomp_data['inscricao'],
+                    valor=acomp_data['valor'],
+                    descricao=f"{acomp_data['nome']} - {acomp_data['categoria'] or 'Adulto'}"
+                )
+        import jwt
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        token = jwt.encode(
+            {
+                'participante_id': membro.id,
+                'telefone': membro.telefone,
+                'nome': membro.nome,
+                'exp': int((now + timedelta(days=30)).timestamp()),
+                'iat': int(now.timestamp()),
+                'type': 'participante'
+            },
+            settings.SECRET_KEY,
+            algorithm='HS256'
+        )
+        acompanhantes_response = [
+            {k: v for k, v in acomp.items() if k != 'inscricao'}
+            for acomp in inscricoes_acompanhantes
+        ]
+        response_data = {
+            'success': True,
+            'novo_cadastro': novo_cadastro,
+            'message': 'Inscrição realizada com sucesso!' if not evento.evento_pago else 'Inscrição realizada! Aguardando confirmação de pagamento.',
+            'token': token,
+            'participante': {'id': membro.id, 'nome': membro.nome, 'telefone': membro.telefone, 'email': membro.email},
+            'inscricao': {
+                'id': inscricao.id,
+                'codigo': inscricao.codigo,
+                'qrcode': inscricao.qrcode.url if inscricao.qrcode else None,
+                'categoria': 'Adulto',
+                'valor': valor_responsavel,
+                'status_pagamento': status_pagamento,
+            },
+            'acompanhantes': acompanhantes_response,
+            'evento': {
+                'id': evento.id,
+                'titulo': evento.titulo,
+                'data_inicio': evento.data_inicio.strftime('%d/%m/%Y %H:%M'),
+                'evento_pago': evento.evento_pago,
+                'valor_inscricao': float(evento.valor_inscricao) if evento.valor_inscricao else None,
+            },
+            'valor_total': valor_total,
+            'pagamento_pendente': evento.evento_pago,
+            'cobranca': {
+                'id': cobranca.id, 'codigo': cobranca.codigo, 'valor': float(cobranca.valor),
+                'status': cobranca.status, 'descricao': cobranca.descricao,
+            } if cobranca else None,
+        }
+        if novo_cadastro and senha_gerada:
+            response_data['senha_gerada'] = senha_gerada
+        elif getattr(membro, 'senha_texto', None):
+            response_data['senha_existente'] = membro.senha_texto
+            response_data['lembrete_senha'] = True
+        return Response(response_data, status=status.HTTP_201_CREATED)
     
     # Criar inscrição do responsável (categoria Adulto, valor TOTAL do grupo)
     inscricao = Inscricao.objects.create(
@@ -889,13 +1041,14 @@ def participante_registro(request):
                 descricao=f"{acomp_data['nome']} - {acomp_data['categoria'] or 'Adulto'}"
             )
     
-    # Gerar token de login
+    # Gerar token de login (exp/iat em timestamp numérico para sessão de 30 dias)
+    now = datetime.utcnow()
     payload = {
         'participante_id': membro.id,
         'telefone': membro.telefone,
         'nome': membro.nome,
-        'exp': datetime.utcnow() + timedelta(days=30),
-        'iat': datetime.utcnow(),
+        'exp': int((now + timedelta(days=30)).timestamp()),
+        'iat': int(now.timestamp()),
         'type': 'participante'
     }
     token = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
@@ -975,39 +1128,38 @@ def participante_registro(request):
             dt_local = dt
         return dt_local.strftime('%d/%m/%Y %H:%M')
     
-    # Enviar webhook apenas para eventos GRATUITOS
-    # Para eventos pagos, o webhook é disparado quando o pagamento é confirmado
-    if not evento.evento_pago:
-        dados_webhook = {
-            'base_url': request.build_absolute_uri('/').rstrip('/'),
-            'participante_id': membro.id,
-            'nome': membro.nome,
-            'telefone': membro.telefone,
-            'telefone_formatado': telefone_formatado,
-            'email': membro.email,
-            'senha': senha_para_webhook,
-            'novo_cadastro': novo_cadastro,
-            'inscricao_id': inscricao.id,
-            'codigo': inscricao.codigo,
-            'qrcode_path': inscricao.qrcode.url if inscricao.qrcode else None,
-            'evento_id': evento.id,
-            'evento_titulo': evento.titulo,
-            'evento_data_inicio': formatar_data_local(evento.data_inicio),
-            'evento_data_fim': formatar_data_local(evento.data_fim),
-            'evento_local': evento.local,
-            'evento_endereco': evento.endereco,
-            'evento_pago': False,
-            'evento_valor': None,
-            'valor_total': 0,  # Evento gratuito
-            'pagamento_confirmado': True,  # Gratuito = automaticamente confirmado
-            'acompanhantes': inscricoes_acompanhantes,
-            'total_inscritos': 1 + len(inscricoes_acompanhantes),
-        }
-        
-        # Dispara webhook em background
-        thread = threading.Thread(target=enviar_webhook_inscricao, args=(dados_webhook,))
-        thread.daemon = True
-        thread.start()
+    # Enviar webhook na inscrição: sempre (gratuito ou pago) para enviar a senha ao usuário
+    # Para eventos pagos, o QR code ainda não existe; após pagamento outro webhook é disparado
+    base_url = request.build_absolute_uri('/').rstrip('/')
+    dados_webhook = {
+        'base_url': base_url,
+        'participante_id': membro.id,
+        'nome': membro.nome,
+        'telefone': membro.telefone,
+        'telefone_formatado': telefone_formatado,
+        'email': membro.email,
+        'senha': senha_para_webhook,
+        'novo_cadastro': novo_cadastro,
+        'inscricao_id': inscricao.id,
+        'codigo': inscricao.codigo,
+        'qrcode_path': inscricao.qrcode.url if inscricao.qrcode else None,
+        'evento_id': evento.id,
+        'evento_titulo': evento.titulo,
+        'evento_data_inicio': formatar_data_local(evento.data_inicio),
+        'evento_data_fim': formatar_data_local(evento.data_fim),
+        'evento_local': evento.local,
+        'evento_endereco': evento.endereco,
+        'evento_pago': evento.evento_pago,
+        'evento_valor': float(evento.valor_inscricao) if evento.valor_inscricao else None,
+        'valor_total': float(valor_total) if valor_total else 0,
+        'pagamento_confirmado': not evento.evento_pago,
+        'acompanhantes': inscricoes_acompanhantes,
+        'total_inscritos': 1 + len(inscricoes_acompanhantes),
+    }
+    
+    thread = threading.Thread(target=enviar_webhook_inscricao, args=(dados_webhook,))
+    thread.daemon = True
+    thread.start()
     
     return Response(response_data, status=status.HTTP_201_CREATED)
 
@@ -1017,20 +1169,22 @@ def participante_registro(request):
 def participante_perfil(request):
     """
     Retorna o perfil e ingressos do participante logado.
-    Requer token de participante no header Authorization.
+    Aceita token no header Authorization ou na query ?token= (para evitar perda no F5).
     """
     import jwt
     from django.conf import settings
     
-    auth_header = request.headers.get('Authorization', '')
+    auth_header = request.headers.get('Authorization') or request.META.get('HTTP_AUTHORIZATION') or ''
+    if auth_header.startswith('Bearer '):
+        token = auth_header.split(' ', 1)[1].strip()
+    else:
+        token = (request.query_params.get('token') or request.GET.get('token') or '').strip()
     
-    if not auth_header.startswith('Bearer '):
+    if not token:
         return Response(
             {'error': 'Token não fornecido'},
             status=status.HTTP_401_UNAUTHORIZED
         )
-    
-    token = auth_header.split(' ')[1]
     
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
@@ -1244,6 +1398,23 @@ class EventoViewSet(viewsets.ModelViewSet):
             Q(data_fim__gte=agora) | Q(data_fim__isnull=True, data_inicio__gte=agora),
             destaque=True,
             status__in=['agendado', 'em_andamento']
+        ).order_by('data_inicio')
+        serializer = EventoListaSerializer(eventos, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def em_andamento(self, request):
+        """Retorna eventos que estão ocorrendo agora (para check-in manual).
+        Período: data_inicio <= agora <= data_fim (ou sem data_fim, desde que já começou).
+        """
+        from django.db.models import Q
+        agora = timezone.now()
+        # Já começou e ainda não terminou (ou não tem data_fim)
+        eventos = Evento.objects.filter(
+            status__in=EVENTO_STATUS_ATIVOS,
+            data_inicio__lte=agora,
+        ).filter(
+            Q(data_fim__isnull=True) | Q(data_fim__gte=agora)
         ).order_by('data_inicio')
         serializer = EventoListaSerializer(eventos, many=True)
         return Response(serializer.data)
@@ -1612,6 +1783,41 @@ class InscricaoViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
         
+        # Invalidar QR code de eventos inativos (finalizado/cancelado)
+        if inscricao.evento.status not in EVENTO_STATUS_ATIVOS:
+            return Response({
+                'error': 'Evento inativo ou encerrado. Este QR Code não é mais válido.',
+                'valido': False,
+                'evento_inativo': True,
+                'inscricao': InscricaoSerializer(inscricao).data
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Só permitir check-in no período do evento (entre data_inicio e data_fim)
+        evento = inscricao.evento
+        agora = timezone.now()
+        inicio = evento.data_inicio
+        fim = evento.data_fim
+        if timezone.is_naive(inicio):
+            inicio = timezone.make_aware(inicio)
+        if fim is not None and timezone.is_naive(fim):
+            fim = timezone.make_aware(fim)
+        if agora < inicio:
+            return Response({
+                'error': 'O evento ainda não começou. O check-in só pode ser feito durante a realização do evento.',
+                'valido': False,
+                'evento_nao_iniciado': True,
+                'inscricao': InscricaoSerializer(inscricao).data,
+                'data_inicio_evento': timezone.localtime(evento.data_inicio).strftime('%d/%m/%Y %H:%M'),
+            }, status=status.HTTP_400_BAD_REQUEST)
+        if fim is not None and agora > fim:
+            return Response({
+                'error': 'O evento já encerrou. Não é mais possível fazer check-in.',
+                'valido': False,
+                'evento_encerrado': True,
+                'inscricao': InscricaoSerializer(inscricao).data,
+                'data_fim_evento': timezone.localtime(evento.data_fim).strftime('%d/%m/%Y %H:%M'),
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
         # Verificar se já fez check-in
         if inscricao.presente:
             return Response({
@@ -1619,7 +1825,7 @@ class InscricaoViewSet(viewsets.ModelViewSet):
                 'valido': False,
                 'ja_checkin': True,
                 'inscricao': InscricaoSerializer(inscricao).data,
-                'data_checkin': inscricao.data_checkin.strftime('%d/%m/%Y %H:%M:%S') if inscricao.data_checkin else None
+                'data_checkin': timezone.localtime(inscricao.data_checkin).strftime('%d/%m/%Y %H:%M:%S') if inscricao.data_checkin else None
             }, status=status.HTTP_400_BAD_REQUEST)
         
         # Verificar se pagamento está pendente
@@ -1655,9 +1861,9 @@ class InscricaoViewSet(viewsets.ModelViewSet):
             },
             'evento': {
                 'titulo': inscricao.evento.titulo,
-                'data': inscricao.evento.data_inicio.strftime('%d/%m/%Y %H:%M'),
+                'data': timezone.localtime(inscricao.evento.data_inicio).strftime('%d/%m/%Y %H:%M'),
             },
-            'data_checkin': inscricao.data_checkin.strftime('%d/%m/%Y %H:%M:%S')
+            'data_checkin': timezone.localtime(inscricao.data_checkin).strftime('%d/%m/%Y %H:%M:%S')
         })
     
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
@@ -1682,8 +1888,11 @@ class InscricaoViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
         
+        evento_ativo = inscricao.evento.status in EVENTO_STATUS_ATIVOS
+        
         return Response({
             'encontrada': True,
+            'evento_ativo': evento_ativo,
             'inscricao': InscricaoSerializer(inscricao).data,
             'participante': {
                 'nome': inscricao.membro.nome,
@@ -1693,13 +1902,139 @@ class InscricaoViewSet(viewsets.ModelViewSet):
             'evento': {
                 'id': inscricao.evento.id,
                 'titulo': inscricao.evento.titulo,
-                'data': inscricao.evento.data_inicio.strftime('%d/%m/%Y %H:%M'),
+                'data': timezone.localtime(inscricao.evento.data_inicio).strftime('%d/%m/%Y %H:%M'),
                 'local': inscricao.evento.local,
             },
             'status': inscricao.status,
             'status_display': inscricao.get_status_display(),
             'ja_checkin': inscricao.presente,
-            'data_checkin': inscricao.data_checkin.strftime('%d/%m/%Y %H:%M:%S') if inscricao.data_checkin else None
+            'data_checkin': timezone.localtime(inscricao.data_checkin).strftime('%d/%m/%Y %H:%M:%S') if inscricao.data_checkin else None
+        })
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def buscar_para_checkin(self, request):
+        """
+        Busca inscritos de um evento (em andamento) por nome para check-in manual.
+        Query params: evento_id (obrigatório), nome (opcional - primeiro nome ou parte do nome).
+        Retorna apenas inscrições confirmadas com pagamento ok; evento deve estar em andamento.
+        """
+        from django.db.models import Q
+        evento_id = request.query_params.get('evento_id')
+        nome = (request.query_params.get('nome') or '').strip()
+        if not evento_id:
+            return Response(
+                {'error': 'evento_id é obrigatório'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            evento = Evento.objects.get(pk=evento_id)
+        except Evento.DoesNotExist:
+            return Response(
+                {'error': 'Evento não encontrado'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        # Só permitir se o evento está em andamento
+        agora = timezone.now()
+        if evento.status not in EVENTO_STATUS_ATIVOS:
+            return Response(
+                {'error': 'Este evento não está disponível para check-in no momento.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        inicio = evento.data_inicio
+        fim = evento.data_fim
+        if timezone.is_naive(inicio):
+            inicio = timezone.make_aware(inicio)
+        if fim is not None and timezone.is_naive(fim):
+            fim = timezone.make_aware(fim)
+        if agora < inicio:
+            return Response(
+                {'error': 'O evento ainda não começou.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if fim is not None and agora > fim:
+            return Response(
+                {'error': 'O evento já encerrou.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        # Inscrições confirmadas; excluir pendência de pagamento (salvo evento gratuito)
+        queryset = Inscricao.objects.filter(
+            evento=evento,
+            status='confirmada'
+        ).select_related('membro', 'evento')
+        if evento.evento_pago:
+            queryset = queryset.exclude(status_pagamento='pendente')
+        if nome:
+            if len(nome) < 2:
+                return Response(
+                    {'error': 'Digite ao menos 2 caracteres para buscar.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            queryset = queryset.filter(membro__nome__icontains=nome)
+        queryset = queryset.order_by('membro__nome')
+        lista = []
+        for ins in queryset:
+            lista.append({
+                'id': ins.id,
+                'membro_nome': ins.membro.nome,
+                'presente': ins.presente,
+                'data_checkin': timezone.localtime(ins.data_checkin).strftime('%d/%m/%Y %H:%M:%S') if ins.data_checkin else None,
+                'is_acompanhante': ins.is_acompanhante,
+                'evento_titulo': ins.evento.titulo,
+            })
+        return Response({
+            'evento_id': evento.id,
+            'evento_titulo': evento.titulo,
+            'inscricoes': lista,
+        })
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def marcar_presenca_manual(self, request, pk=None):
+        """
+        Marca presença manualmente (check-in sem QR Code).
+        Valida: evento em andamento, pagamento ok, inscrição confirmada.
+        """
+        inscricao = self.get_object()
+        evento = inscricao.evento
+        if inscricao.status != 'confirmada':
+            return Response(
+                {'error': f'Inscrição com status: {inscricao.get_status_display()}. Não é possível fazer check-in.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if evento.evento_pago and inscricao.status_pagamento == 'pendente':
+            return Response(
+                {'error': 'Pagamento pendente. Confirme o pagamento antes do check-in.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if inscricao.presente:
+            return Response({
+                'error': 'Check-in já realizado',
+                'ja_checkin': True,
+                'data_checkin': timezone.localtime(inscricao.data_checkin).strftime('%d/%m/%Y %H:%M:%S') if inscricao.data_checkin else None
+            }, status=status.HTTP_400_BAD_REQUEST)
+        # Evento em andamento
+        agora = timezone.now()
+        inicio = evento.data_inicio
+        fim = evento.data_fim
+        if timezone.is_naive(inicio):
+            inicio = timezone.make_aware(inicio)
+        if fim is not None and timezone.is_naive(fim):
+            fim = timezone.make_aware(fim)
+        if agora < inicio:
+            return Response({'error': 'O evento ainda não começou.'}, status=status.HTTP_400_BAD_REQUEST)
+        if fim is not None and agora > fim:
+            return Response({'error': 'O evento já encerrou.'}, status=status.HTTP_400_BAD_REQUEST)
+        if evento.status not in EVENTO_STATUS_ATIVOS:
+            return Response({'error': 'Evento inativo ou encerrado.'}, status=status.HTTP_400_BAD_REQUEST)
+        inscricao.presente = True
+        inscricao.data_checkin = timezone.now()
+        inscricao.save()
+        return Response({
+            'success': True,
+            'message': 'Check-in realizado com sucesso!',
+            'inscricao': InscricaoSerializer(inscricao).data,
+            'participante': {'nome': inscricao.membro.nome},
+            'evento': {'titulo': evento.titulo},
+            'data_checkin': timezone.localtime(inscricao.data_checkin).strftime('%d/%m/%Y %H:%M:%S')
         })
 
 
@@ -1899,8 +2234,8 @@ class CobrancaViewSet(viewsets.ModelViewSet):
             inscricao.data_pagamento = timezone.now()
             inscricao.save()  # Isso vai gerar o QR Code
         
-        # Disparar webhook
-        self._disparar_webhook_cobranca(request, cobranca)
+        # Disparar webhook com mesmo payload do MP (QR codes etc.), tipo confirmado_pagamento_manual
+        _disparar_webhook_cobranca_confirmada(cobranca, tipo='confirmado_pagamento_manual', request=request)
         
         serializer = CobrancaSerializer(cobranca)
         return Response({
@@ -1960,8 +2295,8 @@ class CobrancaViewSet(viewsets.ModelViewSet):
             inscricao.data_pagamento = timezone.now()
             inscricao.save()  # Isso vai gerar o QR Code
         
-        # Disparar webhook
-        self._disparar_webhook_cobranca(request, cobranca)
+        # Disparar webhook com mesmo payload do MP (QR codes etc.), tipo isento
+        _disparar_webhook_cobranca_confirmada(cobranca, tipo='isento', request=request)
         
         serializer = CobrancaSerializer(cobranca)
         return Response({
@@ -1970,69 +2305,96 @@ class CobrancaViewSet(viewsets.ModelViewSet):
             'cobranca': serializer.data
         })
     
-    def _disparar_webhook_cobranca(self, request, cobranca):
-        """Dispara webhook após confirmação de pagamento de uma cobrança."""
-        membro = cobranca.membro
-        evento = cobranca.evento
-        
-        # Formatar telefone
-        telefone_formatado = membro.telefone or ''
-        if membro.telefone and len(membro.telefone) == 11:
-            telefone_formatado = f"({membro.telefone[:2]}) {membro.telefone[2:7]}-{membro.telefone[7:]}"
-        elif membro.telefone and len(membro.telefone) == 10:
-            telefone_formatado = f"({membro.telefone[:2]}) {membro.telefone[2:6]}-{membro.telefone[6:]}"
-        
-        def formatar_data_local(dt):
-            if dt is None:
-                return None
-            if timezone.is_aware(dt):
-                dt_local = timezone.localtime(dt)
-            else:
-                dt_local = dt
-            return dt_local.strftime('%d/%m/%Y %H:%M')
-        
-        # Buscar inscrições da cobrança
-        inscricoes_lista = []
-        for item in cobranca.itens.all():
-            inscricao = item.inscricao
-            inscricoes_lista.append({
-                'id': inscricao.id,
-                'nome': inscricao.membro.nome,
-                'codigo': inscricao.codigo,
-                'qrcode': inscricao.qrcode.url if inscricao.qrcode else None,
-                'categoria': inscricao.categoria.nome if inscricao.categoria else 'Adulto',
-                'valor': float(item.valor),
-            })
-        
-        dados_webhook = {
-            'base_url': request.build_absolute_uri('/').rstrip('/'),
-            'tipo': 'pagamento_cobranca',
-            'cobranca_id': cobranca.id,
-            'cobranca_codigo': cobranca.codigo,
-            'participante_id': membro.id,
-            'nome': membro.nome,
-            'telefone': membro.telefone,
-            'telefone_formatado': telefone_formatado,
-            'email': membro.email,
-            'senha': membro.senha_texto,
-            'evento_id': evento.id,
-            'evento_titulo': evento.titulo,
-            'evento_data_inicio': formatar_data_local(evento.data_inicio),
-            'evento_data_fim': formatar_data_local(evento.data_fim),
-            'evento_local': evento.local,
-            'evento_endereco': evento.endereco,
-            'valor_total': float(cobranca.valor),
-            'metodo_pagamento': cobranca.metodo_pagamento,
-            'referencia_externa': cobranca.referencia_externa,
-            'pagamento_confirmado': cobranca.status in ['pago', 'isento'],
-            'inscricoes': inscricoes_lista,
-            'total_inscritos': len(inscricoes_lista),
-        }
-        
-        # Dispara webhook em background
-        thread = threading.Thread(target=enviar_webhook_inscricao, args=(dados_webhook,))
-        thread.daemon = True
-        thread.start()
+    def _atualizar_status_cobranca_apos_itens(self, cobranca):
+        """Recalcula valor e status da cobrança após alteração em um item."""
+        itens = list(cobranca.itens.select_related('inscricao').all())
+        statuses = [item.inscricao.status_pagamento for item in itens]
+        # Valor = soma apenas itens não cancelados
+        novo_valor = sum(float(item.valor) for item in itens if item.inscricao.status_pagamento != 'cancelado')
+        cobranca.valor = novo_valor
+        if all(s == 'cancelado' for s in statuses):
+            cobranca.status = 'cancelado'
+            cobranca.save()
+            return
+        if all(s in ('pago', 'isento') for s in statuses):
+            cobranca.status = 'isento' if all(s == 'isento' for s in statuses) else 'pago'
+            cobranca.data_pagamento = timezone.now()
+            cobranca.save()
+            _disparar_webhook_cobranca_confirmada(
+                cobranca,
+                tipo='isento' if cobranca.status == 'isento' else 'confirmado_pagamento_manual',
+                request=self.request
+            )
+            return
+        cobranca.save()
+    
+    @action(detail=True, methods=['post'], url_path='itens/(?P<item_id>[^/.]+)/confirmar')
+    def confirmar_item(self, request, pk=None, item_id=None):
+        """Confirma pagamento de um único participante (item) da cobrança."""
+        cobranca = self.get_object()
+        item = get_object_or_404(CobrancaItem, cobranca=cobranca, id=item_id)
+        inscricao = item.inscricao
+        if inscricao.status_pagamento not in ('pendente',):
+            return Response(
+                {'error': f'Inscrição já está com status {inscricao.status_pagamento}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        inscricao.status_pagamento = 'pago'
+        inscricao.status = 'confirmada'
+        inscricao.data_pagamento = timezone.now()
+        inscricao.save()
+        self._atualizar_status_cobranca_apos_itens(cobranca)
+        serializer = CobrancaSerializer(cobranca)
+        return Response({
+            'success': True,
+            'message': f'Pagamento de {inscricao.membro.nome} confirmado.',
+            'cobranca': serializer.data
+        })
+    
+    @action(detail=True, methods=['post'], url_path='itens/(?P<item_id>[^/.]+)/isentar')
+    def isentar_item(self, request, pk=None, item_id=None):
+        """Isenta um único participante (item) da cobrança."""
+        cobranca = self.get_object()
+        item = get_object_or_404(CobrancaItem, cobranca=cobranca, id=item_id)
+        inscricao = item.inscricao
+        if inscricao.status_pagamento not in ('pendente',):
+            return Response(
+                {'error': f'Inscrição já está com status {inscricao.status_pagamento}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        inscricao.status_pagamento = 'isento'
+        inscricao.status = 'confirmada'
+        inscricao.data_pagamento = timezone.now()
+        inscricao.save()
+        self._atualizar_status_cobranca_apos_itens(cobranca)
+        serializer = CobrancaSerializer(cobranca)
+        return Response({
+            'success': True,
+            'message': f'{inscricao.membro.nome} isento(a).',
+            'cobranca': serializer.data
+        })
+    
+    @action(detail=True, methods=['post'], url_path='itens/(?P<item_id>[^/.]+)/cancelar')
+    def cancelar_item(self, request, pk=None, item_id=None):
+        """Cancela inscrição de um único participante (item) na cobrança."""
+        cobranca = self.get_object()
+        item = get_object_or_404(CobrancaItem, cobranca=cobranca, id=item_id)
+        inscricao = item.inscricao
+        if inscricao.status_pagamento == 'cancelado':
+            return Response(
+                {'error': 'Inscrição já está cancelada'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        inscricao.status = 'cancelada'
+        inscricao.status_pagamento = 'cancelado'
+        inscricao.save()
+        self._atualizar_status_cobranca_apos_itens(cobranca)
+        serializer = CobrancaSerializer(cobranca)
+        return Response({
+            'success': True,
+            'message': f'Inscrição de {inscricao.membro.nome} cancelada.',
+            'cobranca': serializer.data
+        })
     
     @action(detail=False, methods=['get'])
     def pendentes(self, request):
@@ -2175,6 +2537,17 @@ def criar_pagamento_pix(request):
     # Formatar data do evento
     data_evento = evento.data_inicio.strftime('%d/%m/%Y às %H:%M') if evento.data_inicio else ''
     
+    # Nomes das pessoas (titular + acompanhantes) — uma linha só (Mercado Pago não quebra linha na descrição)
+    # Doc MP: title e description têm limite de 256 caracteres cada
+    MP_MAX_CHARS = 256
+    nomes_pessoas = [item.inscricao.membro.nome for item in cobranca.itens.all() if item.inscricao and item.inscricao.membro]
+    if not nomes_pessoas:
+        nomes_pessoas = [membro.nome]
+    descricao_pagamento = f"{evento.titulo} — {', '.join(nomes_pessoas)}"
+    if len(descricao_pagamento) > MP_MAX_CHARS:
+        descricao_pagamento = descricao_pagamento[: MP_MAX_CHARS - 3] + "..."
+    titulo_item = (evento.titulo or "Inscrição")[:MP_MAX_CHARS]
+    
     # URL da imagem do evento (se existir)
     imagem_url = None
     if evento.imagem:
@@ -2183,35 +2556,19 @@ def criar_pagamento_pix(request):
         except:
             pass
     
-    # Criar itens para a preferência com mais detalhes
-    items = []
-    for item in cobranca.itens.all():
-        item_data = {
-            "title": f"{evento.titulo}",
-            "description": f"Inscrição para {item.inscricao.membro.nome} - {evento.local or 'Local a definir'} - {data_evento}",
-            "quantity": 1,
-            "unit_price": float(item.valor) if float(item.valor) > 0 else float(cobranca.valor),
-            "currency_id": "BRL",
-            "category_id": "tickets",  # Categoria: ingressos
-        }
-        # Adicionar imagem se existir
-        if imagem_url:
-            item_data["picture_url"] = imagem_url
-        items.append(item_data)
-    
-    # Se não há itens ou todos têm valor 0, criar um item único
-    if not items or all(i["unit_price"] == 0 for i in items):
-        item_data = {
-            "title": f"{evento.titulo}",
-            "description": f"Inscrição para evento - {evento.local or 'Local a definir'} - {data_evento}",
-            "quantity": 1,
-            "unit_price": float(cobranca.valor),
-            "currency_id": "BRL",
-            "category_id": "tickets",
-        }
-        if imagem_url:
-            item_data["picture_url"] = imagem_url
-        items = [item_data]
+    # Um único item no Mercado Pago (evita "Pedido de X produtos" — mostra como 1 pedido com a descrição do evento e nomes)
+    valor_total = float(cobranca.valor)
+    item_data = {
+        "title": titulo_item,
+        "description": descricao_pagamento,
+        "quantity": 1,
+        "unit_price": valor_total,
+        "currency_id": "BRL",
+        "category_id": "tickets",
+    }
+    if imagem_url:
+        item_data["picture_url"] = imagem_url
+    items = [item_data]
     
     # Email do pagador
     # Em ambiente de teste (localhost), usar email placeholder para evitar conflito com conta do vendedor
@@ -2423,13 +2780,17 @@ def mercadopago_webhook(request):
         return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-def _disparar_webhook_cobranca_confirmada(cobranca):
-    """Dispara webhook quando uma cobrança é confirmada via Mercado Pago."""
+def _disparar_webhook_cobranca_confirmada(cobranca, tipo='pagamento_confirmado', request=None):
+    """
+    Dispara webhook quando uma cobrança é confirmada (via MP, manual ou isento).
+    Mesmo payload com QR codes; tipo define: 'pagamento_confirmado' | 'confirmado_pagamento_manual' | 'isento'.
+    """
     config = ConfiguracaoSite.get_config()
     if not config.webhook_ativo or not config.webhook_inscricao:
         print('[WEBHOOK] Webhook inativo ou não configurado')
         return
     
+    base_url = request.build_absolute_uri('/').rstrip('/') if request else 'http://localhost:8000'
     membro = cobranca.membro
     evento = cobranca.evento
     
@@ -2437,6 +2798,8 @@ def _disparar_webhook_cobranca_confirmada(cobranca):
     telefone_formatado = membro.telefone or ''
     if membro.telefone and len(membro.telefone) == 11:
         telefone_formatado = f"({membro.telefone[:2]}) {membro.telefone[2:7]}-{membro.telefone[7:]}"
+    elif membro.telefone and len(membro.telefone) == 10:
+        telefone_formatado = f"({membro.telefone[:2]}) {membro.telefone[2:6]}-{membro.telefone[6:]}"
     
     def formatar_data_local(dt):
         if dt is None:
@@ -2451,28 +2814,29 @@ def _disparar_webhook_cobranca_confirmada(cobranca):
     inscricoes_lista = []
     inscricoes_ids_processadas = set()
     
-    # 1. Primeiro, buscar das inscrições vinculadas à cobrança
+    def url_qrcode(inscricao):
+        if inscricao.qrcode:
+            path = inscricao.qrcode.url if not inscricao.qrcode.url.startswith('http') else inscricao.qrcode.url
+            return f"{base_url}{path}" if not path.startswith('http') else path
+        return None
+    
+    # 1. Inscrições vinculadas à cobrança
     for item in cobranca.itens.all():
         inscricao = item.inscricao
         if inscricao.id in inscricoes_ids_processadas:
             continue
         inscricoes_ids_processadas.add(inscricao.id)
-        
-        qrcode_url = None
-        if inscricao.qrcode:
-            qrcode_url = f"http://localhost:8000{inscricao.qrcode.url}"
         inscricoes_lista.append({
             'id': inscricao.id,
             'nome': inscricao.membro.nome,
             'codigo': inscricao.codigo,
-            'qrcode_url': qrcode_url,
+            'qrcode_url': url_qrcode(inscricao),
             'categoria': inscricao.categoria.nome if inscricao.categoria else 'Adulto',
             'valor': float(item.valor),
             'is_acompanhante': inscricao.is_acompanhante,
         })
     
-    # 2. Buscar acompanhantes que possam não estar nos itens da cobrança
-    # (inscrições do mesmo evento com responsavel = membro)
+    # 2. Acompanhantes do mesmo evento
     acompanhantes_inscricoes = Inscricao.objects.filter(
         evento=evento,
         responsavel=membro,
@@ -2483,21 +2847,17 @@ def _disparar_webhook_cobranca_confirmada(cobranca):
         if inscricao.id in inscricoes_ids_processadas:
             continue
         inscricoes_ids_processadas.add(inscricao.id)
-        
-        qrcode_url = None
-        if inscricao.qrcode:
-            qrcode_url = f"http://localhost:8000{inscricao.qrcode.url}"
         inscricoes_lista.append({
             'id': inscricao.id,
             'nome': inscricao.membro.nome,
             'codigo': inscricao.codigo,
-            'qrcode_url': qrcode_url,
+            'qrcode_url': url_qrcode(inscricao),
             'categoria': inscricao.categoria.nome if inscricao.categoria else None,
             'valor': float(inscricao.valor_inscricao) if inscricao.valor_inscricao else 0,
             'is_acompanhante': True,
         })
     
-    # 3. Buscar a inscrição principal do responsável se não estiver na lista
+    # 3. Inscrição principal do responsável se não estiver na lista
     try:
         inscricao_responsavel = Inscricao.objects.get(
             evento=evento,
@@ -2505,14 +2865,11 @@ def _disparar_webhook_cobranca_confirmada(cobranca):
             is_acompanhante=False
         )
         if inscricao_responsavel.id not in inscricoes_ids_processadas:
-            qrcode_url = None
-            if inscricao_responsavel.qrcode:
-                qrcode_url = f"http://localhost:8000{inscricao_responsavel.qrcode.url}"
-            inscricoes_lista.insert(0, {  # Inserir no início
+            inscricoes_lista.insert(0, {
                 'id': inscricao_responsavel.id,
                 'nome': inscricao_responsavel.membro.nome,
                 'codigo': inscricao_responsavel.codigo,
-                'qrcode_url': qrcode_url,
+                'qrcode_url': url_qrcode(inscricao_responsavel),
                 'categoria': inscricao_responsavel.categoria.nome if inscricao_responsavel.categoria else 'Adulto',
                 'valor': float(inscricao_responsavel.valor_inscricao) if inscricao_responsavel.valor_inscricao else 0,
                 'is_acompanhante': False,
@@ -2521,7 +2878,7 @@ def _disparar_webhook_cobranca_confirmada(cobranca):
         pass
     
     payload = {
-        'tipo': 'pagamento_confirmado',
+        'tipo': tipo,
         'timestamp': timezone.now().isoformat(),
         'cobranca': {
             'id': cobranca.id,
@@ -2552,7 +2909,7 @@ def _disparar_webhook_cobranca_confirmada(cobranca):
     
     def enviar():
         try:
-            print(f'[WEBHOOK] Enviando para: {config.webhook_inscricao}')
+            print(f'[WEBHOOK] Enviando para: {config.webhook_inscricao} (tipo={tipo})')
             response = requests.post(
                 config.webhook_inscricao,
                 json=payload,
@@ -2563,7 +2920,6 @@ def _disparar_webhook_cobranca_confirmada(cobranca):
         except Exception as e:
             print(f'[WEBHOOK] Erro: {str(e)}')
     
-    # Dispara webhook em background
     thread = threading.Thread(target=enviar)
     thread.daemon = True
     thread.start()

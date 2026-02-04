@@ -25,14 +25,16 @@ function AdminCobrancas() {
   const [filtroEvento, setFiltroEvento] = useState(searchParams.get('evento') || '');
   const [filtroStatus, setFiltroStatus] = useState('');
   const [expandido, setExpandido] = useState({});
-  const [totais, setTotais] = useState({ pendente: 0, pago: 0, isento: 0, total: 0 });
+  const [totais, setTotais] = useState({ pendente: 0, pago: 0, isento: 0, cancelado: 0, total: 0 });
   const [processando, setProcessando] = useState(null);
+  const [processandoItem, setProcessandoItem] = useState(null); // 'cobrancaId-itemId'
 
-  // Modal de confirmação: { isOpen, action: 'confirmar'|'isentar'|'cancelar', cobranca }
+  // Modal: cobrança inteira ou por item. item = null => ação na cobrança; item preenchido => ação no participante
   const [modalConfig, setModalConfig] = useState({
     isOpen: false,
     action: null,
     cobranca: null,
+    item: null,
   });
 
   useEffect(() => {
@@ -57,15 +59,27 @@ function AdminCobrancas() {
       const cobrancasRes = await api.get(url);
       setCobrancas(cobrancasRes.data.results || cobrancasRes.data);
       
-      // Calcular totais
+      // Calcular totais por status de cada ITEM (participante), não pelo status da cobrança
       const dados = cobrancasRes.data.results || cobrancasRes.data;
-      const totaisCal = {
-        pendente: dados.filter(c => c.status === 'pendente').reduce((acc, c) => acc + parseFloat(c.valor), 0),
-        pago: dados.filter(c => c.status === 'pago').reduce((acc, c) => acc + parseFloat(c.valor), 0),
-        isento: dados.filter(c => c.status === 'isento').reduce((acc, c) => acc + parseFloat(c.valor), 0),
-        total: dados.reduce((acc, c) => acc + parseFloat(c.valor), 0)
-      };
-      setTotais(totaisCal);
+      let pendente = 0, pago = 0, isento = 0, cancelado = 0;
+      for (const c of dados) {
+        const itens = c.itens || [];
+        for (const item of itens) {
+          const valor = parseFloat(item.valor) || 0;
+          const status = (item.status_inscricao || 'pendente').toLowerCase();
+          if (status === 'pendente') pendente += valor;
+          else if (status === 'pago') pago += valor;
+          else if (status === 'isento') isento += valor;
+          else if (status === 'cancelado') cancelado += valor;
+        }
+      }
+      setTotais({
+        pendente,
+        pago,
+        isento,
+        cancelado,
+        total: pendente + pago + isento
+      });
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
     } finally {
@@ -74,82 +88,109 @@ function AdminCobrancas() {
   };
 
   const fecharModal = () => {
-    setModalConfig({ isOpen: false, action: null, cobranca: null });
+    setModalConfig({ isOpen: false, action: null, cobranca: null, item: null });
   };
 
-  const confirmarPagamento = (cobranca) => {
+  const confirmarPagamento = (cobranca, item = null) => {
     setModalConfig({
       isOpen: true,
       action: 'confirmar',
       cobranca,
+      item: item || null,
     });
   };
 
-  const isentarCobranca = (cobranca) => {
+  const isentarCobranca = (cobranca, item = null) => {
     setModalConfig({
       isOpen: true,
       action: 'isentar',
       cobranca,
+      item: item || null,
     });
   };
 
-  const cancelarCobranca = (cobranca) => {
+  const cancelarCobranca = (cobranca, item = null) => {
     setModalConfig({
       isOpen: true,
       action: 'cancelar',
       cobranca,
+      item: item || null,
     });
   };
 
   const executarAcaoConfirmada = async () => {
     if (!modalConfig.cobranca) return;
     const cobrancaId = modalConfig.cobranca.id;
+    const item = modalConfig.item;
+    const chaveProcessando = item ? `${cobrancaId}-${item.id}` : cobrancaId;
 
     try {
-      setProcessando(cobrancaId);
-      if (modalConfig.action === 'confirmar') {
-        await api.post(`/cobrancas/${cobrancaId}/confirmar_pagamento/`, { metodo_pagamento: 'Manual' });
-      } else if (modalConfig.action === 'isentar') {
-        await api.post(`/cobrancas/${cobrancaId}/isentar/`);
-      } else if (modalConfig.action === 'cancelar') {
-        await api.post(`/cobrancas/${cobrancaId}/cancelar/`);
+      if (item) setProcessandoItem(chaveProcessando);
+      else setProcessando(cobrancaId);
+
+      if (item) {
+        if (modalConfig.action === 'confirmar') {
+          await api.post(`/cobrancas/${cobrancaId}/itens/${item.id}/confirmar/`);
+        } else if (modalConfig.action === 'isentar') {
+          await api.post(`/cobrancas/${cobrancaId}/itens/${item.id}/isentar/`);
+        } else if (modalConfig.action === 'cancelar') {
+          await api.post(`/cobrancas/${cobrancaId}/itens/${item.id}/cancelar/`);
+        }
+      } else {
+        if (modalConfig.action === 'confirmar') {
+          await api.post(`/cobrancas/${cobrancaId}/confirmar_pagamento/`, { metodo_pagamento: 'Manual' });
+        } else if (modalConfig.action === 'isentar') {
+          await api.post(`/cobrancas/${cobrancaId}/isentar/`);
+        } else if (modalConfig.action === 'cancelar') {
+          await api.post(`/cobrancas/${cobrancaId}/cancelar/`);
+        }
       }
       fecharModal();
       carregarDados();
     } catch (error) {
       console.error('Erro na ação:', error);
-      alert(modalConfig.action === 'confirmar' ? 'Erro ao confirmar pagamento' : modalConfig.action === 'isentar' ? 'Erro ao isentar cobrança' : 'Erro ao cancelar cobrança');
+      alert(modalConfig.action === 'confirmar' ? 'Erro ao confirmar pagamento' : modalConfig.action === 'isentar' ? 'Erro ao isentar' : 'Erro ao cancelar');
     } finally {
-      setProcessando(null);
+      if (item) setProcessandoItem(null);
+      else setProcessando(null);
     }
   };
 
   const getModalConfig = () => {
     const c = modalConfig.cobranca;
+    const item = modalConfig.item;
     if (!c) return { title: '', message: '', type: 'confirm', confirmText: '' };
-    const valor = formatarValor(c.valor);
+    const valor = item ? formatarValor(item.valor) : formatarValor(c.valor);
+    const nomeAlvo = item ? item.membro_nome : c.membro_nome;
+
     if (modalConfig.action === 'confirmar') {
       return {
-        title: 'Confirmar Pagamento',
-        message: `Deseja confirmar o pagamento de ${valor} da cobrança de ${c.membro_nome} (${c.evento_titulo})?`,
+        title: item ? 'Confirmar pagamento do participante' : 'Confirmar Pagamento',
+        message: item
+          ? `Confirmar pagamento de ${valor} de ${nomeAlvo} (${c.evento_titulo})?`
+          : `Deseja confirmar o pagamento de ${valor} da cobrança de ${c.membro_nome} (${c.evento_titulo})?`,
         type: 'success',
         confirmText: 'Confirmar Pagamento',
       };
     }
     if (modalConfig.action === 'isentar') {
       return {
-        title: 'Isentar Cobrança',
-        message: `Deseja isentar a cobrança de ${valor} de ${c.membro_nome}? Nenhum valor será cobrado.`,
+        title: item ? 'Isentar participante' : 'Isentar Cobrança',
+        message: item
+          ? `Isentar ${nomeAlvo} (${valor})? Nenhum valor será cobrado para este participante.`
+          : `Deseja isentar a cobrança de ${valor} de ${c.membro_nome}? Nenhum valor será cobrado.`,
         type: 'info',
         confirmText: 'Isentar',
       };
     }
     if (modalConfig.action === 'cancelar') {
       return {
-        title: 'Cancelar Cobrança',
-        message: `Deseja cancelar esta cobrança? As inscrições vinculadas serão canceladas. (${c.membro_nome} - ${c.evento_titulo})`,
+        title: item ? 'Cancelar participante' : 'Cancelar Cobrança',
+        message: item
+          ? `Cancelar a inscrição de ${nomeAlvo} nesta cobrança?`
+          : `Deseja cancelar esta cobrança? As inscrições vinculadas serão canceladas. (${c.membro_nome} - ${c.evento_titulo})`,
         type: 'danger',
-        confirmText: 'Cancelar Cobrança',
+        confirmText: 'Cancelar',
       };
     }
     return { title: '', message: '', type: 'confirm', confirmText: '' };
@@ -207,7 +248,7 @@ function AdminCobrancas() {
       </div>
 
       {/* Cards de Totais */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-yellow-50 rounded-lg p-4 border border-yellow-200">
           <div className="flex items-center justify-between">
             <div>
@@ -235,7 +276,16 @@ function AdminCobrancas() {
             <Gift className="w-10 h-10 text-blue-500" />
           </div>
         </div>
-        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+        <div className="bg-red-50 rounded-lg p-4 border border-red-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-red-600 text-sm font-medium">Cancelado</p>
+              <p className="text-2xl font-bold text-red-800">{formatarValor(totais.cancelado)}</p>
+            </div>
+            <X className="w-10 h-10 text-red-500" />
+          </div>
+        </div>
+        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200 col-span-2 lg:col-span-1">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-gray-600 text-sm font-medium">Total</p>
@@ -355,13 +405,17 @@ function AdminCobrancas() {
                 {expandido[cobranca.id] && (
                   <div className="bg-gray-50 px-4 pb-4">
                     <div className="pl-10">
-                      <h4 className="text-sm font-medium text-gray-700 mb-2">Itens da Cobrança:</h4>
+                      <h4 className="text-sm font-medium text-gray-700 mb-2">Itens da Cobrança (ações por participante):</h4>
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="text-left text-gray-500">
                             <th className="pb-2">Participante</th>
                             <th className="pb-2">Categoria</th>
                             <th className="pb-2 text-right">Valor</th>
+                            <th className="pb-2">Status</th>
+                            {cobranca.status === 'pendente' && (
+                              <th className="pb-2 text-right">Ações</th>
+                            )}
                           </tr>
                         </thead>
                         <tbody>
@@ -370,13 +424,56 @@ function AdminCobrancas() {
                               <td className="py-2">{item.membro_nome}</td>
                               <td className="py-2">{item.categoria || 'Adulto'}</td>
                               <td className="py-2 text-right">{formatarValor(item.valor)}</td>
+                              <td className="py-2">{getStatusBadge(item.status_inscricao || 'pendente')}</td>
+                              {cobranca.status === 'pendente' && (
+                                <td className="py-2 text-right">
+                                  {(item.status_inscricao === 'pendente' || !item.status_inscricao) ? (
+                                    <div className="flex flex-wrap gap-1 justify-end">
+                                      <button
+                                        type="button"
+                                        onClick={() => confirmarPagamento(cobranca, item)}
+                                        disabled={processandoItem === `${cobranca.id}-${item.id}`}
+                                        className="text-xs px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded flex items-center gap-0.5 disabled:opacity-50"
+                                        title="Confirmar pagamento deste participante"
+                                      >
+                                        <Check className="w-3 h-3" />
+                                        Confirmar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => isentarCobranca(cobranca, item)}
+                                        disabled={processandoItem === `${cobranca.id}-${item.id}`}
+                                        className="text-xs px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded flex items-center gap-0.5 disabled:opacity-50"
+                                        title="Isentar este participante"
+                                      >
+                                        <Gift className="w-3 h-3" />
+                                        Isentar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => cancelarCobranca(cobranca, item)}
+                                        disabled={processandoItem === `${cobranca.id}-${item.id}`}
+                                        className="text-xs px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded flex items-center gap-0.5 disabled:opacity-50"
+                                        title="Cancelar inscrição deste participante"
+                                      >
+                                        <X className="w-3 h-3" />
+                                        Cancelar
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <span className="text-gray-400 text-xs">—</span>
+                                  )}
+                                </td>
+                              )}
                             </tr>
                           ))}
                         </tbody>
                         <tfoot>
                           <tr className="border-t-2 border-gray-300 font-semibold">
-                            <td colSpan="2" className="py-2">Total</td>
+                            <td colSpan={2} className="py-2">Total</td>
                             <td className="py-2 text-right">{formatarValor(cobranca.valor)}</td>
+                            <td />
+                            {cobranca.status === 'pendente' && <td />}
                           </tr>
                         </tfoot>
                       </table>
@@ -414,15 +511,25 @@ function AdminCobrancas() {
         type={getModalConfig().type}
         confirmText={getModalConfig().confirmText}
         cancelText="Voltar"
-        loading={processando === modalConfig.cobranca?.id}
+        loading={modalConfig.item ? processandoItem === `${modalConfig.cobranca?.id}-${modalConfig.item?.id}` : processando === modalConfig.cobranca?.id}
       >
         {modalConfig.cobranca && (
           <div className="bg-gray-50 rounded-lg p-4 text-left">
             <div className="space-y-2 text-sm">
-              <p><span className="text-gray-500">Membro:</span> <span className="font-medium text-gray-800">{modalConfig.cobranca.membro_nome}</span></p>
-              <p><span className="text-gray-500">Evento:</span> <span className="text-gray-800">{modalConfig.cobranca.evento_titulo}</span></p>
-              <p><span className="text-gray-500">Valor:</span> <span className="font-bold text-gray-900">{formatarValor(modalConfig.cobranca.valor)}</span></p>
-              <p><span className="text-gray-500">Pessoas:</span> <span className="text-gray-800">{modalConfig.cobranca.itens?.length || 0}</span></p>
+              {modalConfig.item ? (
+                <>
+                  <p><span className="text-gray-500">Participante:</span> <span className="font-medium text-gray-800">{modalConfig.item.membro_nome}</span></p>
+                  <p><span className="text-gray-500">Valor deste item:</span> <span className="font-bold text-gray-900">{formatarValor(modalConfig.item.valor)}</span></p>
+                  <p><span className="text-gray-500">Evento:</span> <span className="text-gray-800">{modalConfig.cobranca.evento_titulo}</span></p>
+                </>
+              ) : (
+                <>
+                  <p><span className="text-gray-500">Membro:</span> <span className="font-medium text-gray-800">{modalConfig.cobranca.membro_nome}</span></p>
+                  <p><span className="text-gray-500">Evento:</span> <span className="text-gray-800">{modalConfig.cobranca.evento_titulo}</span></p>
+                  <p><span className="text-gray-500">Valor:</span> <span className="font-bold text-gray-900">{formatarValor(modalConfig.cobranca.valor)}</span></p>
+                  <p><span className="text-gray-500">Pessoas:</span> <span className="text-gray-800">{modalConfig.cobranca.itens?.length || 0}</span></p>
+                </>
+              )}
             </div>
           </div>
         )}

@@ -8,7 +8,7 @@ import api from '../services/api'
 
 function MeusIngressos() {
   const navigate = useNavigate()
-  const { participante, ingressos, isLoggedIn, loading, login, logout, atualizarIngressos } = useParticipante()
+  const { participante, ingressos, isLoggedIn, loading, loadError, login, logout, atualizarIngressos, tentarCarregarNovamente, getToken } = useParticipante()
   const [telefone, setTelefone] = useState('')
   const [senha, setSenha] = useState('')
   const [loginLoading, setLoginLoading] = useState(false)
@@ -17,6 +17,82 @@ function MeusIngressos() {
   const [esqueciSenhaLoading, setEsqueciSenhaLoading] = useState(false)
   const [esqueciSenhaMsg, setEsqueciSenhaMsg] = useState('')
   const [telefoneEncontrado, setTelefoneEncontrado] = useState(false) // true só quando a API confirma que o telefone está cadastrado
+  const [mostrarEventosPassados, setMostrarEventosPassados] = useState(false) // filtro: exibir eventos já realizados
+  const [filtroAno, setFiltroAno] = useState('') // '' = todos, '2026', '2025'...
+  const [filtroMes, setFiltroMes] = useState('') // '' = todos, '1' a '12'
+  const [tentandoNovamente, setTentandoNovamente] = useState(false)
+
+  // Extrai ano da data de início do evento
+  const getAnoEvento = (ingresso) => {
+    const ev = ingresso?.evento
+    if (!ev) return null
+    const iso = ev.data_inicio_iso || ev.data_inicio
+    if (iso && typeof iso === 'string' && iso.length >= 4) {
+      if (iso.startsWith('20') || iso.startsWith('19')) return iso.slice(0, 4)
+      const [parteData] = (ev.data_inicio || '').split(' ')
+      const partes = (parteData || '').split('/')
+      if (partes.length >= 3) return partes[2]
+    }
+    return null
+  }
+
+  // Extrai mês (1-12) da data de início do evento
+  const getMesEvento = (ingresso) => {
+    const ev = ingresso?.evento
+    if (!ev) return null
+    const iso = ev.data_inicio_iso || ev.data_inicio
+    if (iso && typeof iso === 'string') {
+      if (iso.length >= 7 && (iso.startsWith('20') || iso.startsWith('19'))) return parseInt(iso.slice(5, 7), 10)
+      const [parteData] = (ev.data_inicio || '').split(' ')
+      const partes = (parteData || '').split('/')
+      if (partes.length >= 2) return parseInt(partes[1], 10)
+    }
+    return null
+  }
+
+  // Retorna true se o evento já acabou (baseado na data/hora de TÉRMINO do evento, ou início se não tiver término)
+  const isEventoPassado = (ingresso) => {
+    const ev = ingresso?.evento
+    if (!ev) return false
+    // Usar data_fim do evento quando existir; senão data_inicio
+    const iso = ev.data_fim_iso || ev.data_inicio_iso
+    if (iso) {
+      const fimEvento = new Date(iso)
+      const agora = new Date()
+      return fimEvento < agora
+    }
+    // Fallback: parse "DD/MM/YYYY HH:MM" (data_fim ou data_inicio)
+    const s = ev.data_fim || ev.data_inicio || ''
+    const [parteData, parteHora] = s.split(' ')
+    const [dia, mes, ano] = (parteData || '').split('/').map(Number)
+    const [h = 0, min = 0] = (parteHora || '').split(':').map(Number)
+    if (!ano || !mes || !dia) return false
+    const fimEvento = new Date(ano, mes - 1, dia, h, min, 0, 0)
+    const agora = new Date()
+    return fimEvento < agora
+  }
+
+  // Lista filtrada: eventos passados (checkbox) + ano + mês
+  const ingressosPorPassados = mostrarEventosPassados
+    ? ingressos
+    : ingressos.filter((i) => !isEventoPassado(i))
+  const anosDisponiveis = [...new Set(ingressosPorPassados.map(getAnoEvento).filter(Boolean))].sort((a, b) => (b || '').localeCompare(a || ''))
+  const ingressosFiltrados = ingressosPorPassados.filter((i) => {
+    if (filtroAno) {
+      const ano = getAnoEvento(i)
+      if (ano !== filtroAno) return false
+      if (filtroMes) {
+        const mes = getMesEvento(i)
+        if (!mes || String(mes) !== filtroMes) return false
+      }
+    } else if (filtroMes) {
+      const mes = getMesEvento(i)
+      if (!mes || String(mes) !== filtroMes) return false
+    }
+    return true
+  })
+
+  const MESES = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
 
   // Buscar se o telefone está cadastrado (para exibir "Esqueci minha senha" somente quando encontrar)
   useEffect(() => {
@@ -36,35 +112,39 @@ function MeusIngressos() {
     return () => clearTimeout(timer)
   }, [telefone])
 
-  // Atualizar ao montar a página se logado
+  // Ao entrar na página logado: resetar filtros. Só buscar da API se ainda não tiver ingressos (evita 401 logo após login).
   useEffect(() => {
-    if (isLoggedIn && !loading) {
-      console.log('[MeusIngressos] Página montada, atualizando ingressos...')
-      atualizarIngressos()
+    if (isLoggedIn) {
+      setFiltroAno('')
+      setFiltroMes('')
+      if (ingressos.length === 0) atualizarIngressos()
     }
-  }, []) // Executar apenas na montagem
+  }, [isLoggedIn])
+
+  // Quando a lista de ingressos é atualizada (ex.: após inscrição ou atualizar), resetar filtros para o novo ingresso aparecer
+  useEffect(() => {
+    if (ingressos.length > 0) {
+      setFiltroAno('')
+      setFiltroMes('')
+    }
+  }, [ingressos])
 
   // Listener para quando a página voltar a ficar visível (voltou de outra aba/MP)
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && isLoggedIn) {
-        console.log('[MeusIngressos] Página visível novamente, atualizando...')
         atualizarIngressos()
       }
     }
-    
     document.addEventListener('visibilitychange', handleVisibilityChange)
-    
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [isLoggedIn, atualizarIngressos])
 
-  // Função para atualizar manualmente
+  // Função para atualizar manualmente (força busca no servidor e atualiza a lista)
   const handleAtualizar = async () => {
     setAtualizando(true)
     try {
-      await atualizarIngressos()
+      await atualizarIngressos({ forcar: true })
     } finally {
       setAtualizando(false)
     }
@@ -210,6 +290,43 @@ function MeusIngressos() {
         <div className="max-w-4xl mx-auto px-3 sm:px-6 lg:px-8">
           
           {!isLoggedIn ? (
+            loadError && getToken() ? (
+              /* Tem token mas a carga falhou (ex.: após F5) – Tentar novamente sem pedir senha */
+              <div className="bg-white rounded-xl shadow-lg p-4 sm:p-6 md:p-8 max-w-md mx-auto">
+                <div className="text-center mb-6">
+                  <div className="inline-flex items-center justify-center w-16 h-16 bg-amber-100 rounded-full mb-4">
+                    <RefreshCw className="h-8 w-8 text-amber-600" />
+                  </div>
+                  <h2 className="text-xl font-bold text-church-navy">Recarregar seus dados</h2>
+                  <p className="text-gray-600 text-sm mt-2">
+                    Não foi possível carregar seus ingressos. Tente novamente ou saia para fazer login.
+                  </p>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setTentandoNovamente(true)
+                      await tentarCarregarNovamente()
+                      setTentandoNovamente(false)
+                    }}
+                    disabled={tentandoNovamente}
+                    className="btn-primary flex-1 min-h-[44px] py-2.5 flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${tentandoNovamente ? 'animate-spin' : ''}`} />
+                    {tentandoNovamente ? 'Carregando...' : 'Tentar novamente'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={logout}
+                    className="btn-outline min-h-[44px] py-2.5 flex items-center justify-center gap-2"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Sair e fazer login
+                  </button>
+                </div>
+              </div>
+            ) : (
             /* Formulário de Login */
             <div className="bg-white rounded-xl shadow-lg p-4 sm:p-6 md:p-8 max-w-md mx-auto">
               <div className="text-center mb-6">
@@ -304,6 +421,7 @@ function MeusIngressos() {
                 </Link>
               </div>
             </div>
+            )
           ) : (
             /* Área Logada */
             <div>
@@ -346,12 +464,67 @@ function MeusIngressos() {
               {/* Lista de Ingressos */}
               {ingressos.length > 0 ? (
                 <div className="space-y-4 sm:space-y-6">
-                  <h2 className="text-lg sm:text-xl font-bold text-church-navy flex items-center">
-                    <Ticket className="h-5 w-5 mr-2 flex-shrink-0" />
-                    Seus Ingressos ({ingressos.length})
-                  </h2>
+                  <div>
+                    <h2 className="text-lg sm:text-xl font-bold text-church-navy flex items-center">
+                      <Ticket className="h-5 w-5 mr-2 flex-shrink-0" />
+                      Seus Ingressos ({ingressosFiltrados.length}{!mostrarEventosPassados && ingressos.length !== ingressosFiltrados.length ? ` de ${ingressos.length}` : ''})
+                    </h2>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Por padrão exibindo apenas eventos futuros e de hoje. Use os filtros para encontrar por data.
+                    </p>
+                    {/* Filtros: eventos passados + ano + mês */}
+                    <div className="mt-3 space-y-3">
+                      <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={mostrarEventosPassados}
+                          onChange={(e) => setMostrarEventosPassados(e.target.checked)}
+                          className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                        />
+                        <span>Mostrar eventos já realizados</span>
+                      </label>
+                      <div className="flex flex-wrap items-center gap-3 text-sm">
+                        <label className="flex items-center gap-2">
+                          <span className="text-gray-600">Ano:</span>
+                          <select
+                            value={filtroAno}
+                            onChange={(e) => { setFiltroAno(e.target.value); if (!e.target.value) setFiltroMes('') }}
+                            className="rounded border border-gray-300 px-2 py-1.5 text-gray-800 focus:ring-primary-500 focus:border-primary-500"
+                          >
+                            <option value="">Todos</option>
+                            {anosDisponiveis.map((a) => (
+                              <option key={a} value={a}>{a}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <span className="text-gray-600">Mês:</span>
+                          <select
+                            value={filtroMes}
+                            onChange={(e) => setFiltroMes(e.target.value)}
+                            className="rounded border border-gray-300 px-2 py-1.5 text-gray-800 focus:ring-primary-500 focus:border-primary-500"
+                          >
+                            <option value="">Todos</option>
+                            {MESES.slice(1).map((nome, idx) => (
+                              <option key={idx} value={String(idx + 1)}>{nome}</option>
+                            ))}
+                          </select>
+                        </label>
+                        {(filtroAno || filtroMes) && (
+                          <button
+                            type="button"
+                            onClick={() => { setFiltroAno(''); setFiltroMes('') }}
+                            className="text-primary-600 hover:text-primary-700 font-medium"
+                          >
+                            Limpar filtros
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                   
-                  {ingressos.map((ingresso) => (
+                  {ingressosFiltrados.length > 0 ? (
+                  ingressosFiltrados.map((ingresso) => (
                     <div 
                       key={ingresso.id}
                       className="bg-white rounded-xl shadow-lg overflow-hidden"
@@ -517,7 +690,15 @@ function MeusIngressos() {
                         </div>
                       </div>
                     </div>
-                  ))}
+                  ))
+                  ) : (
+                    <p className="text-gray-500 text-sm py-4">
+                      Nenhum ingresso com o filtro atual.
+                      {!mostrarEventosPassados && ingressos.some(isEventoPassado) && (
+                        <> Marque &quot;Mostrar eventos já realizados&quot; para ver eventos passados.</>
+                      )}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="bg-white rounded-xl shadow-lg p-6 sm:p-12 text-center">

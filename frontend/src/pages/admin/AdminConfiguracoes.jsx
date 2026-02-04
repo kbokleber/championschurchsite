@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Save, Upload, X, Church, Mail, Phone, MapPin, Facebook, Instagram, Youtube, Twitter, Globe, Webhook, ToggleLeft, ToggleRight, CreditCard, AlertTriangle, CheckCircle } from 'lucide-react'
+import { Save, Upload, X, Church, Mail, Phone, MapPin, Facebook, Instagram, Youtube, Twitter, Globe, Webhook, ToggleLeft, ToggleRight, CreditCard, AlertTriangle, CheckCircle, Eye, EyeOff } from 'lucide-react'
 import api from '../../services/api'
 import LoadingSpinner from '../../components/LoadingSpinner'
 
@@ -42,6 +42,8 @@ function AdminConfiguracoes() {
   const [logoBrancoPreview, setLogoBrancoPreview] = useState(null)
   const [newLogo, setNewLogo] = useState(null)
   const [newLogoBranco, setNewLogoBranco] = useState(null)
+  const [showAccessTokenSandbox, setShowAccessTokenSandbox] = useState(false)
+  const [showAccessTokenProduction, setShowAccessTokenProduction] = useState(false)
 
   useEffect(() => {
     fetchConfiguracao()
@@ -831,14 +833,24 @@ function AdminConfiguracoes() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Access Token (Sandbox)
                     </label>
-                    <input
-                      type="password"
-                      name="mp_access_token_sandbox"
-                      value={formData.mp_access_token_sandbox}
-                      onChange={handleChange}
-                      className="input-field font-mono text-sm"
-                      placeholder="APP_USR-..."
-                    />
+                    <div className="relative">
+                      <input
+                        type={showAccessTokenSandbox ? 'text' : 'password'}
+                        name="mp_access_token_sandbox"
+                        value={formData.mp_access_token_sandbox}
+                        onChange={handleChange}
+                        className="input-field font-mono text-sm pr-10"
+                        placeholder="APP_USR-..."
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowAccessTokenSandbox((s) => !s)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 rounded"
+                        title={showAccessTokenSandbox ? 'Ocultar token' : 'Mostrar token'}
+                      >
+                        {showAccessTokenSandbox ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                     <p className="text-xs text-gray-500 mt-1">
                       Mantenha este token em segredo
                     </p>
@@ -870,14 +882,24 @@ function AdminConfiguracoes() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Access Token (Produção)
                     </label>
-                    <input
-                      type="password"
-                      name="mp_access_token_production"
-                      value={formData.mp_access_token_production}
-                      onChange={handleChange}
-                      className="input-field font-mono text-sm"
-                      placeholder="APP_USR-..."
-                    />
+                    <div className="relative">
+                      <input
+                        type={showAccessTokenProduction ? 'text' : 'password'}
+                        name="mp_access_token_production"
+                        value={formData.mp_access_token_production}
+                        onChange={handleChange}
+                        className="input-field font-mono text-sm pr-10"
+                        placeholder="APP_USR-..."
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowAccessTokenProduction((s) => !s)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 rounded"
+                        title={showAccessTokenProduction ? 'Ocultar token' : 'Mostrar token'}
+                      >
+                        {showAccessTokenProduction ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                     <p className="text-xs text-gray-500 mt-1">
                       Mantenha este token em segredo
                     </p>

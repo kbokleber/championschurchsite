@@ -4,6 +4,7 @@ Serializers para a API REST da Champions Church.
 
 from rest_framework import serializers
 from django.contrib.auth.models import User
+from django.utils import timezone
 from .models import Membro, Evento, Inscricao, Contato, ConfiguracaoSite, CategoriaParticipante, Cobranca, CobrancaItem
 
 
@@ -89,14 +90,12 @@ class EventoSerializer(serializers.ModelSerializer):
         return super().to_internal_value(data)
     
     def _formatar_data(self, data):
-        """Formata data no padrão brasileiro DD/MM/YYYY HH:MM:SS com fuso horário local"""
+        """Formata data no padrão brasileiro DD/MM/YYYY HH:MM:SS com fuso horário local."""
         if data is None:
             return None
         from django.utils import timezone
-        # Converter para fuso horário local antes de formatar
-        if timezone.is_aware(data):
-            data = timezone.localtime(data)
-        return data.strftime('%d/%m/%Y %H:%M:%S')
+        dt = timezone.localtime(data)
+        return dt.strftime('%d/%m/%Y %H:%M:%S')
     
     def get_data_inicio_formatada(self, obj):
         return self._formatar_data(obj.data_inicio)
@@ -143,7 +142,7 @@ class EventoListaSerializer(serializers.ModelSerializer):
     def get_data_inicio_formatada(self, obj):
         if obj.data_inicio is None:
             return None
-        return obj.data_inicio.strftime('%d/%m/%Y %H:%M:%S')
+        return timezone.localtime(obj.data_inicio).strftime('%d/%m/%Y %H:%M:%S')
     
     def get_valor_inscricao_formatado(self, obj):
         """Formata valor no padrão brasileiro R$ X.XXX,XX"""
@@ -188,22 +187,22 @@ class InscricaoSerializer(serializers.ModelSerializer):
     
     def get_evento_data(self, obj):
         if obj.evento and obj.evento.data_inicio:
-            return obj.evento.data_inicio.strftime('%d/%m/%Y %H:%M')
+            return timezone.localtime(obj.evento.data_inicio).strftime('%d/%m/%Y %H:%M')
         return None
     
     def get_data_inscricao_formatada(self, obj):
         if obj.data_inscricao:
-            return obj.data_inscricao.strftime('%d/%m/%Y %H:%M:%S')
+            return timezone.localtime(obj.data_inscricao).strftime('%d/%m/%Y %H:%M:%S')
         return None
     
     def get_data_checkin_formatada(self, obj):
         if obj.data_checkin:
-            return obj.data_checkin.strftime('%d/%m/%Y %H:%M:%S')
+            return timezone.localtime(obj.data_checkin).strftime('%d/%m/%Y %H:%M:%S')
         return None
     
     def get_data_pagamento_formatada(self, obj):
         if obj.data_pagamento:
-            return obj.data_pagamento.strftime('%d/%m/%Y %H:%M:%S')
+            return timezone.localtime(obj.data_pagamento).strftime('%d/%m/%Y %H:%M:%S')
         return None
     
     def get_valor_inscricao_formatado(self, obj):
@@ -327,11 +326,7 @@ class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'atualizado_em', 'mp_public_key', 'mp_is_sandbox',
                            'mp_access_token_sandbox_masked', 'mp_access_token_production_masked']
-        # Tornar tokens write-only (não aparecem na leitura)
-        extra_kwargs = {
-            'mp_access_token_sandbox': {'write_only': True},
-            'mp_access_token_production': {'write_only': True},
-        }
+        # Tokens retornados na leitura para o admin poder ver/copiar (endpoint já é restrito)
     
     def get_mp_access_token_sandbox_masked(self, obj):
         """Retorna token de sandbox mascarado."""
@@ -351,10 +346,11 @@ class CobrancaItemSerializer(serializers.ModelSerializer):
     
     membro_nome = serializers.CharField(source='inscricao.membro.nome', read_only=True)
     categoria = serializers.CharField(source='inscricao.categoria.nome', read_only=True, allow_null=True)
+    status_inscricao = serializers.CharField(source='inscricao.status_pagamento', read_only=True)
     
     class Meta:
         model = CobrancaItem
-        fields = ['id', 'inscricao', 'membro_nome', 'categoria', 'valor', 'descricao']
+        fields = ['id', 'inscricao', 'membro_nome', 'categoria', 'valor', 'descricao', 'status_inscricao']
         read_only_fields = ['id']
 
 

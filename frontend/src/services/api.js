@@ -8,12 +8,16 @@ const api = axios.create({
   },
 })
 
-// Interceptor para adicionar token de autenticação
+// Interceptor para adicionar token de autenticação (apenas para rotas do admin)
+// Rotas /participante/ usam o token do participante passado no header de cada requisição
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('access_token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
+    const isParticipante = config.url && config.url.includes('/participante/')
+    if (!isParticipante) {
+      const token = localStorage.getItem('access_token')
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`
+      }
     }
     return config
   },
@@ -28,8 +32,9 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config
 
-    // Se o erro for 401 e não for uma tentativa de refresh
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Se o erro for 401 e não for uma tentativa de refresh (só refresh para rotas do admin)
+    const isParticipante = originalRequest.url && originalRequest.url.includes('/participante/')
+    if (error.response?.status === 401 && !originalRequest._retry && !isParticipante) {
       originalRequest._retry = true
 
       const refreshToken = localStorage.getItem('refresh_token')

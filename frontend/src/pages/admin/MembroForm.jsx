@@ -38,7 +38,7 @@ function MembroForm() {
       setFormData({
         nome: membro.nome || '',
         email: membro.email || '',
-        telefone: membro.telefone || '',
+        telefone: formatarTelefone(membro.telefone || ''),
         data_nascimento: membro.data_nascimento || '',
         sexo: membro.sexo || '',
         endereco: membro.endereco || '',
@@ -53,17 +53,31 @@ function MembroForm() {
     }
   }
 
+  // Formata telefone brasileiro: (XX) XXXXX-XXXX (11 dígitos) ou (XX) XXXX-XXXX (10 dígitos). Máx 11 dígitos.
+  const formatarTelefone = (valor) => {
+    const numeros = (valor || '').replace(/\D/g, '').slice(0, 11)
+    if (numeros.length <= 2) return numeros ? `(${numeros}` : ''
+    if (numeros.length <= 7) return `(${numeros.slice(0, 2)}) ${numeros.slice(2)}`
+    return `(${numeros.slice(0, 2)}) ${numeros.slice(2, 7)}-${numeros.slice(7)}`
+  }
+
   const handleChange = (e) => {
     const { name, value } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }))
+    if (name === 'telefone') {
+      setFormData(prev => ({ ...prev, telefone: formatarTelefone(value) }))
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }))
+    }
     setError('')
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    const apenasNumeros = (formData.telefone || '').replace(/\D/g, '')
+    if (formData.telefone && (apenasNumeros.length < 10 || apenasNumeros.length > 11)) {
+      setError('Telefone deve ter 10 ou 11 dígitos (DDD + número).')
+      return
+    }
     setSaving(true)
     setError('')
 
@@ -145,7 +159,7 @@ function MembroForm() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label htmlFor="email" className="label">
-                E-mail *
+                E-mail
               </label>
               <input
                 type="email"
@@ -153,7 +167,6 @@ function MembroForm() {
                 name="email"
                 value={formData.email}
                 onChange={handleChange}
-                required
                 className="input-field"
                 placeholder="email@exemplo.com"
               />
@@ -171,7 +184,10 @@ function MembroForm() {
                 onChange={handleChange}
                 className="input-field"
                 placeholder="(11) 99999-9999"
+                maxLength={15}
+                autoComplete="tel"
               />
+              <p className="text-xs text-gray-500 mt-1">10 ou 11 dígitos (DDD + número). Ex.: (11) 99999-9999</p>
             </div>
           </div>
 

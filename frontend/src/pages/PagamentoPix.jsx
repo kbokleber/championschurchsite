@@ -19,7 +19,7 @@ function PagamentoPix() {
   const { cobrancaId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { atualizarIngressos, isLoggedIn } = useParticipante();
+  const { atualizarIngressos } = useParticipante();
   
   const [loading, setLoading] = useState(true);
   const [gerando, setGerando] = useState(false);
@@ -140,15 +140,8 @@ function PagamentoPix() {
           console.log('[Pagamento] Pagamento confirmado!');
           setStatus('pago');
           clearInterval(pollingRef.current);
-          
-          // Recarregar cobrança para ter dados atualizados
           carregarCobranca();
-          
-          // Atualizar ingressos no contexto do participante
-          if (isLoggedIn) {
-            console.log('[Pagamento] Atualizando ingressos no contexto...');
-            atualizarIngressos();
-          }
+          await atualizarIngressos({ forcar: true });
         }
       } catch (error) {
         console.error('Erro ao verificar status:', error);
@@ -216,7 +209,10 @@ function PagamentoPix() {
           
           <div className="space-y-3">
             <button
-              onClick={() => navigate('/meus-ingressos')}
+              onClick={async () => {
+                await atualizarIngressos({ forcar: true })
+                navigate('/meus-ingressos')
+              }}
               className="w-full btn btn-primary flex items-center justify-center gap-2"
             >
               <Ticket className="w-5 h-5" />

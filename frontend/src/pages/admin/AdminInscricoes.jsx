@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Search, FileText, Check, X, UserCheck, Calendar, Trash2, DollarSign, Tag } from 'lucide-react'
+import { Search, FileText, Check, X, Calendar, Trash2, Tag } from 'lucide-react'
 import api from '../../services/api'
 import { formatDateTimeBR } from '../../services/utils'
 import LoadingSpinner from '../../components/LoadingSpinner'
@@ -20,7 +20,7 @@ function AdminInscricoes() {
     message: '',
     confirmText: '',
     inscricao: null,
-    action: null, // 'cancelar' | 'deletar' | 'isentar'
+    action: null, // 'cancelar' | 'deletar'
   })
   const [actionLoading, setActionLoading] = useState(false)
 
@@ -77,16 +77,6 @@ function AdminInscricoes() {
     }
   }
 
-  const handleMarcarPresenca = async (id) => {
-    try {
-      await api.post(`/inscricoes/${id}/marcar_presenca/`)
-      fetchInscricoes()
-    } catch (error) {
-      console.error('Erro ao marcar presença:', error)
-      alert('Erro ao marcar presença.')
-    }
-  }
-
   // Abre o modal para deletar
   const handleDeletar = (inscricao) => {
     setModalConfig({
@@ -115,44 +105,6 @@ function AdminInscricoes() {
     }
   }
 
-  const handleConfirmarPagamento = async (id) => {
-    try {
-      await api.post(`/inscricoes/${id}/confirmar_pagamento/`)
-      fetchInscricoes()
-    } catch (error) {
-      console.error('Erro ao confirmar pagamento:', error)
-      alert('Erro ao confirmar pagamento.')
-    }
-  }
-
-  // Abre o modal para isentar pagamento
-  const handleIsentarPagamento = (inscricao) => {
-    setModalConfig({
-      isOpen: true,
-      type: 'info',
-      title: 'Isentar Pagamento',
-      message: `Deseja isentar a inscrição de "${inscricao.membro_nome}" do pagamento? Isso também isenta os acompanhantes vinculados.`,
-      confirmText: 'Isentar Pagamento',
-      inscricao,
-      action: 'isentar',
-    })
-  }
-  
-  // Executa a isenção
-  const executarIsentar = async (id) => {
-    setActionLoading(true)
-    try {
-      await api.post(`/inscricoes/${id}/isentar_pagamento/`)
-      fetchInscricoes()
-      fecharModal()
-    } catch (error) {
-      console.error('Erro ao isentar pagamento:', error)
-      alert('Erro ao isentar pagamento.')
-    } finally {
-      setActionLoading(false)
-    }
-  }
-  
   // Fechar modal
   const fecharModal = () => {
     setModalConfig(prev => ({ ...prev, isOpen: false }))
@@ -170,9 +122,6 @@ function AdminInscricoes() {
         break
       case 'deletar':
         executarDeletar(inscricao.id)
-        break
-      case 'isentar':
-        executarIsentar(inscricao.id)
         break
       default:
         fecharModal()
@@ -347,17 +296,8 @@ function AdminInscricoes() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-1">
-                        {!inscricao.is_acompanhante && inscricao.status_pagamento === 'pendente' && (
-                          <>
-                            <button onClick={() => handleConfirmarPagamento(inscricao.id)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Confirmar Pagamento"><DollarSign className="h-5 w-5" /></button>
-                            <button onClick={() => handleIsentarPagamento(inscricao)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="Isentar"><Tag className="h-5 w-5" /></button>
-                          </>
-                        )}
                         {inscricao.status === 'pendente' && inscricao.status_pagamento !== 'pendente' && (
                           <button onClick={() => handleConfirmar(inscricao.id)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Confirmar"><Check className="h-5 w-5" /></button>
-                        )}
-                        {inscricao.status === 'confirmada' && !inscricao.presente && (
-                          <button onClick={() => handleMarcarPresenca(inscricao.id)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="Marcar Presença"><UserCheck className="h-5 w-5" /></button>
                         )}
                         {inscricao.status !== 'cancelada' && (
                           <button onClick={() => handleCancelar(inscricao)} className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg" title="Cancelar"><X className="h-5 w-5" /></button>
@@ -394,17 +334,8 @@ function AdminInscricoes() {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-1 flex-shrink-0">
-                    {!inscricao.is_acompanhante && inscricao.status_pagamento === 'pendente' && (
-                      <>
-                        <button onClick={() => handleConfirmarPagamento(inscricao.id)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Confirmar Pagamento"><DollarSign className="h-5 w-5" /></button>
-                        <button onClick={() => handleIsentarPagamento(inscricao)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="Isentar"><Tag className="h-5 w-5" /></button>
-                      </>
-                    )}
                     {inscricao.status === 'pendente' && inscricao.status_pagamento !== 'pendente' && (
                       <button onClick={() => handleConfirmar(inscricao.id)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Confirmar"><Check className="h-5 w-5" /></button>
-                    )}
-                    {inscricao.status === 'confirmada' && !inscricao.presente && (
-                      <button onClick={() => handleMarcarPresenca(inscricao.id)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="Marcar Presença"><UserCheck className="h-5 w-5" /></button>
                     )}
                     {inscricao.status !== 'cancelada' && (
                       <button onClick={() => handleCancelar(inscricao)} className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg" title="Cancelar"><X className="h-5 w-5" /></button>

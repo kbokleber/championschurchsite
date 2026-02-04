@@ -81,12 +81,11 @@ O Vite Preview tem limitações com proxy em containers separados. **Recomendo u
 No Coolify → **Frontend** → **Environment Variables**, adicione:
 
 **Nome:** `BACKEND_URL`  
-**Valor:** `http://s8o8s80sw0gswkockswkw084.154.12.227.87.sslip.io:8000` (URL do backend com porta)
+**Valor:** `http://s8o8s80sw0gswkockswkw084.154.12.227.87.sslip.io` (URL do backend SEM porta)
 
-**OU** se os containers estão na mesma rede Docker:
-
-**Nome:** `BACKEND_URL`  
-**Valor:** `http://s8o8s80sw0gswkockswkw084:8000` (nome do serviço backend)
+**Importante:** 
+- Não inclua a porta `:8000` pois o Coolify já faz o roteamento
+- O Coolify roteia automaticamente na porta padrão (80/443)
 
 ### Passo 3: Atualizar nginx.conf (se necessário)
 

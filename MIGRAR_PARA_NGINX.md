@@ -21,11 +21,12 @@ No Coolify → **Frontend** → **Settings** (ou **Configuration**)
 No Coolify → **Frontend** → **Environment Variables**, adicione:
 
 **Nome:** `BACKEND_URL`  
-**Valor:** `http://s8o8s80sw0gswkockswkw084.154.12.227.87.sslip.io:8000`
+**Valor:** `http://s8o8s80sw0gswkockswkw084.154.12.227.87.sslip.io`
 
 **Importante:** 
-- Use a URL completa do seu backend (com `http://` e porta `:8000`)
-- Se os containers estão na mesma rede Docker do Coolify, você pode usar o nome do serviço: `http://s8o8s80sw0gswkockswkw084:8000`
+- Use a URL completa do seu backend (com `http://` mas SEM porta, pois o Coolify faz o roteamento)
+- Exemplo: `http://s8o8s80sw0gswkockswkw084.154.12.227.87.sslip.io` (sem `:8000`)
+- O Coolify já faz o roteamento na porta padrão (80/443)
 
 ### 4. Limpar Comandos de Build/Start
 

@@ -22,20 +22,16 @@ ENVIRONMENT = os.environ.get('DJANGO_ENVIRONMENT', 'development')  # development
 
 # Hosts permitidos
 # Aceitar localhost (com ou sem porta) e hosts configurados via variável de ambiente
-default_hosts = ['localhost', '127.0.0.1', '0.0.0.0']
 env_hosts_str = os.environ.get('DJANGO_ALLOWED_HOSTS', '').strip()
 env_hosts = [h.strip() for h in env_hosts_str.split(',') if h.strip()] if env_hosts_str else []
 
 # Se há hosts configurados via ambiente, usar esses + localhost para health checks
 if env_hosts:
     ALLOWED_HOSTS = env_hosts + ['localhost', '127.0.0.1', '0.0.0.0']
-# Se não há hosts configurados explicitamente, aceitar qualquer host
-# Isso é necessário para Coolify e outros ambientes onde o host pode variar
-elif not env_hosts:
-    ALLOWED_HOSTS = ['*']  # Aceitar qualquer host quando não há hosts específicos configurados
-# Caso contrário (não deveria chegar aqui), usar hosts padrão
 else:
-    ALLOWED_HOSTS = default_hosts
+    # Se não há hosts configurados explicitamente, aceitar qualquer host
+    # Isso é necessário para Coolify e outros ambientes onde o host pode variar
+    ALLOWED_HOSTS = ['*']  # Aceitar qualquer host quando não há hosts específicos configurados
 
 # Remover duplicatas mantendo ordem
 ALLOWED_HOSTS = list(dict.fromkeys(ALLOWED_HOSTS))

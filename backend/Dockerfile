@@ -71,7 +71,7 @@ EXPOSE 8000
 
 # Health check - usar endpoint específico que não redirecione
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import urllib.request, urllib.error; req = urllib.request.Request('http://localhost:8000/api/configuracao/'); req.add_header('User-Agent', 'HealthCheck'); opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler()); opener.addheaders = [('User-Agent', 'HealthCheck')]; resp = opener.open(req, timeout=5); exit(0 if resp.getcode() < 400 else 1)" || exit 1
+    CMD python -c "import socket; s = socket.socket(); s.settimeout(5); result = s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"
 
 # Usar entrypoint script que executa migrações e cria admin antes de iniciar
 ENTRYPOINT ["/app/entrypoint.sh"]

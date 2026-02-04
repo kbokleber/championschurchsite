@@ -14,9 +14,15 @@ echo "🔧 Configurando Nginx com BACKEND_URL: ${BACKEND_URL}"
 # Extrair host e porta do BACKEND_URL para teste de conectividade e header Host
 # Exemplo: http://host:port ou http://host
 BACKEND_URL_CLEAN=$(echo "$BACKEND_URL" | sed -E 's|^https?://||' | sed -E 's|/.*$||')
-BACKEND_HOST=$(echo "$BACKEND_URL_CLEAN" | cut -d: -f1)
-BACKEND_PORT=$(echo "$BACKEND_URL_CLEAN" | cut -d: -f2)
-BACKEND_PORT=${BACKEND_PORT:-80}
+if echo "$BACKEND_URL_CLEAN" | grep -q ':'; then
+    # Tem porta explícita
+    BACKEND_HOST=$(echo "$BACKEND_URL_CLEAN" | cut -d: -f1)
+    BACKEND_PORT=$(echo "$BACKEND_URL_CLEAN" | cut -d: -f2)
+else
+    # Não tem porta, usar padrão 80
+    BACKEND_HOST="$BACKEND_URL_CLEAN"
+    BACKEND_PORT=80
+fi
 
 # Exportar BACKEND_HOST e BACKEND_URL para uso no envsubst (também usado pelo entrypoint padrão)
 export BACKEND_HOST

@@ -55,16 +55,8 @@ EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --quiet --tries=1 --spider http://localhost/health || exit 1
 
-# Script de entrada para substituir variáveis antes de iniciar Nginx
-COPY <<EOF /docker-entrypoint-custom.sh
-#!/bin/sh
-set -e
-# Substituir variável BACKEND_URL no template
-envsubst '\$BACKEND_URL' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
-# Executar entrypoint padrão do Nginx
-exec /docker-entrypoint.sh nginx -g "daemon off;"
-EOF
-
+# Copiar script de entrada customizado
+COPY docker-entrypoint-custom.sh /docker-entrypoint-custom.sh
 RUN chmod +x /docker-entrypoint-custom.sh
 
 # Comando padrão

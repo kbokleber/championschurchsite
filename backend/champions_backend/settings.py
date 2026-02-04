@@ -212,6 +212,10 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # Definido pelo Dockerfile: cópia de frontend/dist para frontend_dist
 _frontend_root = BASE_DIR / 'frontend_dist'
 FRONTEND_ROOT = _frontend_root if _frontend_root.is_dir() else None
+if FRONTEND_ROOT:
+    print(f"[SETTINGS] Frontend encontrado em: {FRONTEND_ROOT}")
+else:
+    print(f"[SETTINGS] Frontend NÃO encontrado (procurou em: {_frontend_root})")
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

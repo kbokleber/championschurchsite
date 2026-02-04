@@ -19,8 +19,12 @@ if settings.DEBUG and settings.STATICFILES_DIRS:
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATICFILES_DIRS[0])
 
 # Quando o backend serve o frontend (produção single-app): /assets/* e SPA fallback (por último)
-if get_frontend_root():
+frontend_root = get_frontend_root()
+if frontend_root:
+    print(f"[URLS] Frontend detectado, adicionando rotas SPA. Root: {frontend_root}")
     urlpatterns += [
         path('assets/<path:path>', serve_frontend_asset),
         re_path(r'^.*$', ServeSPAView.as_view()),
     ]
+else:
+    print("[URLS] Frontend NÃO detectado, rotas SPA não serão adicionadas")

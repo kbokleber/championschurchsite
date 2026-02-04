@@ -14,9 +14,14 @@ def get_frontend_root():
     """Diretório onde está o build do frontend (ex: frontend_dist)."""
     root = getattr(settings, 'FRONTEND_ROOT', None)
     if root is None:
+        print("[SPA] FRONTEND_ROOT não configurado em settings")
         return None
     path = Path(root)
-    return path if path.is_dir() else None
+    if not path.is_dir():
+        print(f"[SPA] FRONTEND_ROOT não é um diretório: {path}")
+        return None
+    print(f"[SPA] FRONTEND_ROOT encontrado: {path}")
+    return path
 
 
 class ServeSPAView(View):

@@ -22,8 +22,8 @@ RUN npm run build
 # Stage 2: Runtime com Nginx
 FROM nginx:alpine
 
-# Instalar gettext para envsubst (substituição de variáveis)
-RUN apk add --no-cache gettext
+# Instalar gettext para envsubst e wget para healthcheck
+RUN apk add --no-cache gettext wget
 
 # Criar diretório de templates do Nginx
 RUN mkdir -p /etc/nginx/templates
@@ -56,9 +56,9 @@ RUN chown -R nginx:nginx /usr/share/nginx/html && \
 # Expor porta
 EXPOSE 80
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --quiet --tries=1 --spider http://localhost/health || exit 1
+# Health check - usar curl que já vem no nginx:alpine ou verificar se o processo está rodando
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD wget --spider --quiet http://localhost/health 2>/dev/null || wget --spider --quiet http://127.0.0.1/health 2>/dev/null || exit 1
 
 # Comando padrão
 ENTRYPOINT ["/docker-entrypoint-custom.sh"]

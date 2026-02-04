@@ -975,12 +975,13 @@ function EventoDetalhe() {
                                   <UserPlus className="h-5 w-5" />
                                 </button>
                               </div>
-                              {/* Categoria para o novo acompanhante (para eventos pagos) */}
-                              {evento.evento_pago && categorias.length > 0 && novoAcompanhante && (
+                              {/* Categoria do acompanhante (sempre visível em eventos pagos para escolher antes de adicionar) */}
+                              {evento.evento_pago && categorias.length > 0 && (
                                 <select
                                   value={novoAcompanhanteCategoria}
                                   onChange={(e) => setNovoAcompanhanteCategoria(e.target.value)}
                                   className="input-field text-sm"
+                                  title="Selecione a categoria do acompanhante"
                                 >
                                   {categorias.map(cat => (
                                     <option key={cat.id} value={cat.id}>

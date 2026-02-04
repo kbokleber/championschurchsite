@@ -56,4 +56,5 @@ if [ ! -f /etc/nginx/templates/default.conf.template ]; then
     echo "⚠️ Template não encontrado em /etc/nginx/templates/default.conf.template"
 fi
 
+# Executar entrypoint padrão do Nginx
 exec /docker-entrypoint.sh nginx -g "daemon off;"

@@ -2,9 +2,11 @@
  * Utilitários para o frontend
  */
 
-// URL base do backend para arquivos de mídia
-// Usar variável de ambiente se disponível, caso contrário usar localhost
-const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// URL base para arquivos de mídia
+// Em produção com Nginx: usar '' (mesma origem) para /media/ ser proxyado - evita ERR_CERT_AUTHORITY_INVALID
+// Em dev: usar localhost:8000 ou deixar o proxy do Vite tratar
+const isProduction = import.meta.env.MODE === 'production' || import.meta.env.PROD
+const BACKEND_URL = isProduction ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:8000')
 
 /**
  * Retorna a URL completa para um arquivo de mídia

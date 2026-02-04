@@ -13,7 +13,8 @@ function Home() {
     const fetchEventos = async () => {
       try {
         const response = await api.get('/eventos/destaques/')
-        setEventosDestaque(response.data.slice(0, 3))
+        const data = response.data
+        setEventosDestaque(Array.isArray(data) ? data.slice(0, 3) : [])
       } catch (error) {
         console.error('Erro ao carregar eventos:', error)
         setEventosDestaque([])

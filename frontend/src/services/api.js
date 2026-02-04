@@ -1,30 +1,16 @@
 import axios from 'axios'
 
-// Usar variável de ambiente se disponível, caso contrário usar proxy relativo
-// Remover barra final da URL base para evitar dupla barra
-const baseUrl = import.meta.env.VITE_API_URL 
-  ? import.meta.env.VITE_API_URL.replace(/\/+$/, '') // Remove barras no final
+// Em produção atrás do Nginx: usar sempre URL relativa '/api' (mesma origem) para evitar
+// ERR_CERT_AUTHORITY_INVALID e CORS - o Nginx faz proxy para o backend
+const isProduction = import.meta.env.MODE === 'production' || import.meta.env.PROD
+const baseUrl = !isProduction && import.meta.env.VITE_API_URL
+  ? import.meta.env.VITE_API_URL.replace(/\/+$/, '')
   : ''
 
-// Em produção (preview/build), VITE_API_URL DEVE estar definida
-// Em desenvolvimento, pode usar proxy relativo '/api'
-const isProduction = import.meta.env.MODE === 'production' || import.meta.env.PROD
-const API_BASE_URL = baseUrl 
-  ? `${baseUrl}/api` 
-  : (isProduction ? '' : '/api') // Em produção sem VITE_API_URL, vai dar erro (esperado)
+const API_BASE_URL = baseUrl ? `${baseUrl}/api` : '/api'
 
 // Debug: log da URL da API sendo usada
-console.log('🔍 API Configuration:')
-console.log('  VITE_API_URL:', import.meta.env.VITE_API_URL || '(não definida)')
-console.log('  API Base URL:', API_BASE_URL || '(ERRO: não configurada)')
-console.log('  Mode:', import.meta.env.MODE)
-console.log('  Is Production:', isProduction)
-
-// Aviso se em produção sem VITE_API_URL
-if (isProduction && !baseUrl) {
-  console.error('❌ ERRO: VITE_API_URL não está definida em produção!')
-  console.error('   Configure VITE_API_URL no Coolify antes do build')
-}
+console.log('API Configuration:', { API_BASE_URL, isProduction, mode: import.meta.env.MODE })
 
 const api = axios.create({
   baseURL: API_BASE_URL,

@@ -18,14 +18,14 @@ No Coolify → **Frontend** → **Settings** (ou **Configuration**)
 
 ### 3. Configurar Variável de Ambiente
 
-No Coolify → **Frontend** → **Environment Variables**, adicione:
+No Coolify → **Frontend** → **Environment Variables**, adicione **apenas**:
 
 **Nome:** `BACKEND_URL`  
 **Valor:** `http://s8o8s80sw0gswkockswkw084.154.12.227.87.sslip.io`
 
 **Importante:** 
 - Use a URL completa do seu backend (com `http://` mas SEM porta, pois o Coolify faz o roteamento)
-- Exemplo: `http://s8o8s80sw0gswkockswkw084.154.12.227.87.sslip.io` (sem `:8000`)
+- **Não defina** `VITE_API_URL` no frontend: o código usa `/api` na mesma origem e o Nginx faz proxy. Isso evita `ERR_CERT_AUTHORITY_INVALID` (certificado HTTPS inválido no backend)
 - O Coolify já faz o roteamento na porta padrão (80/443)
 
 ### 4. Limpar Comandos de Build/Start
@@ -76,3 +76,7 @@ Clique em **"Deploy"** ou **"Redeploy"**
 ### Erro: "Connection refused" no proxy
 - ✅ Verifique se `BACKEND_URL` aponta para o backend correto
 - ✅ Se usar nome de serviço, verifique se está na mesma rede Docker
+
+### Erro: "ERR_CERT_AUTHORITY_INVALID" ou "Network Error" nas chamadas da API
+- ✅ **Não defina** `VITE_API_URL` no frontend: o build já usa URL relativa `/api` (mesma origem). O Nginx faz proxy para o backend, então o navegador não acessa o backend diretamente e não há problema de certificado.
+- ✅ Faça um **novo build e deploy** do frontend após essa alteração.

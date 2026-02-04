@@ -37,16 +37,17 @@ ENV BACKEND_URL=http://backend:8000
 # Copiar build do React do stage anterior
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Criar usuário não-root
+# Criar usuário não-root e configurar permissões
 RUN chown -R nginx:nginx /usr/share/nginx/html && \
     chown -R nginx:nginx /var/cache/nginx && \
     chown -R nginx:nginx /var/log/nginx && \
     chown -R nginx:nginx /etc/nginx/conf.d && \
+    chown root:root /docker-entrypoint-custom.sh && \
     touch /var/run/nginx.pid && \
     chown -R nginx:nginx /var/run/nginx.pid
 
-# Mudar para usuário não-root
-USER nginx
+# O entrypoint precisa rodar como root para escrever em /etc/nginx/conf.d
+# O Nginx em si roda como nginx (configurado no entrypoint padrão)
 
 # Expor porta
 EXPOSE 80

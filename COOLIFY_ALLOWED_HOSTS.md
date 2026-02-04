@@ -23,6 +23,15 @@ No Coolify → **Backend** → **Environment Variables**, adicione:
 - O ponto no início (`.154.12.227.87.sslip.io`) faz o Django aceitar qualquer subdomínio
 - Isso permite que o Coolify gere subdomínios dinâmicos como `s8o8s80sw0gswkockswkw084.154.12.227.87.sslip.io`
 
+### Evitar ERR_CERT_AUTHORITY_INVALID (backend atrás do proxy)
+
+Se o frontend faz proxy de `/api` para o backend e o backend redireciona para HTTPS, o navegador pode tentar acessar o backend direto e falhar com certificado inválido. Configure:
+
+**Nome:** `DJANGO_BEHIND_PROXY`  
+**Valor:** `true`
+
+Com isso, o Django não redireciona para HTTPS e não define cookies seguros; o browser só fala com o frontend.
+
 ### Opção 3: Configurar CSRF_TRUSTED_ORIGINS (Opcional, mas recomendado)
 
 Se você fizer POSTs (formulários/admin) a partir do frontend, configure:

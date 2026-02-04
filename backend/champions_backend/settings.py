@@ -25,8 +25,8 @@ ENVIRONMENT = os.environ.get('DJANGO_ENVIRONMENT', 'development')  # development
 env_hosts_str = os.environ.get('DJANGO_ALLOWED_HOSTS', '').strip()
 env_hosts = [h.strip() for h in env_hosts_str.split(',') if h.strip()] if env_hosts_str else []
 
-# Log para debug
-print(f"🔧 DEBUG ALLOWED_HOSTS:")
+# Log para debug (ASCII para compatibilidade com Windows)
+print("[DEBUG] ALLOWED_HOSTS:")
 print(f"   DJANGO_ALLOWED_HOSTS: '{env_hosts_str}'")
 print(f"   env_hosts: {env_hosts}")
 print(f"   len(env_hosts): {len(env_hosts)}")
@@ -48,37 +48,42 @@ print(f"   ALLOWED_HOSTS final: {ALLOWED_HOSTS}")
 
 # Log para debug (apenas em desenvolvimento)
 if DEBUG:
-    print(f"🔧 ALLOWED_HOSTS configurado: {ALLOWED_HOSTS}")
-    print(f"🔧 ENVIRONMENT: {ENVIRONMENT}")
-    print(f"🔧 DEBUG: {DEBUG}")
-    print(f"🔧 DJANGO_ALLOWED_HOSTS: {env_hosts_str or '(não definida)'}")
+    print(f"[DEBUG] ALLOWED_HOSTS configurado: {ALLOWED_HOSTS}")
+    print(f"[DEBUG] ENVIRONMENT: {ENVIRONMENT}")
+    print(f"[DEBUG] DEBUG: {DEBUG}")
+    print(f"[DEBUG] DJANGO_ALLOWED_HOSTS: {env_hosts_str or '(nao definida)'}")
 
 # ==============================================
 # CONFIGURAÇÕES DE SEGURANÇA
 # ==============================================
+# Quando o backend é acessado só via proxy (ex.: Nginx do frontend no Coolify),
+# NÃO redirecionar para HTTPS - senão o navegador segue o redirect e tenta
+# acessar o backend direto, gerando ERR_CERT_AUTHORITY_INVALID
+BEHIND_PROXY = os.environ.get('DJANGO_BEHIND_PROXY', 'false').lower() in ('true', '1', 'yes')
+
 if ENVIRONMENT == 'production':
-    # HTTPS obrigatório em produção
-    SECURE_SSL_REDIRECT = True
+    # Só redirecionar para HTTPS se o backend for acessado diretamente pelo browser
+    SECURE_SSL_REDIRECT = not BEHIND_PROXY
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-    
-    # HTTP Strict Transport Security
-    SECURE_HSTS_SECONDS = 31536000  # 1 ano
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
-    
-    # Cookies seguros
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
+
+    # HTTP Strict Transport Security (só quando não está atrás de proxy)
+    SECURE_HSTS_SECONDS = 0 if BEHIND_PROXY else 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = not BEHIND_PROXY
+    SECURE_HSTS_PRELOAD = not BEHIND_PROXY
+
+    # Cookies seguros (em proxy, o browser não fala com o backend direto)
+    SESSION_COOKIE_SECURE = not BEHIND_PROXY
+    CSRF_COOKIE_SECURE = not BEHIND_PROXY
     SESSION_COOKIE_HTTPONLY = True
     CSRF_COOKIE_HTTPONLY = True
-    
+
     # Proteção contra clickjacking
     X_FRAME_OPTIONS = 'DENY'
-    
+
     # Proteção contra XSS
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
-    
+
     # Referrer Policy
     SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 else:
@@ -235,7 +240,7 @@ else:
     # Se não configurado, usar os mesmos do CORS
     CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS.copy()
 
-print(f"🔧 CSRF_TRUSTED_ORIGINS: {CSRF_TRUSTED_ORIGINS}")
+print(f"[DEBUG] CSRF_TRUSTED_ORIGINS: {CSRF_TRUSTED_ORIGINS}")
 
 # Headers permitidos
 CORS_ALLOW_HEADERS = [

@@ -208,6 +208,11 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# Frontend SPA (build React/Vite) quando o backend serve o app em produção (single-app)
+# Definido pelo Dockerfile: cópia de frontend/dist para frontend_dist
+_frontend_root = BASE_DIR / 'frontend_dist'
+FRONTEND_ROOT = _frontend_root if _frontend_root.is_dir() else None
+
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

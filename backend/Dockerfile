@@ -1,77 +1,56 @@
-# Dockerfile para Backend Django - Champions Church
-# Multi-stage build para otimizar tamanho da imagem
+# Dockerfile para Backend Django + Frontend React (single app) - Champions Church
+# Build a partir da RAIZ do repositório: docker build -f backend/Dockerfile .
 
-# Stage 1: Build
-FROM python:3.11-slim as builder
+# Stage 1: Build do frontend (Vite/React)
+FROM node:20-alpine AS frontend-build
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
 
-# Variáveis de ambiente para Python
+# Stage 2: Build dependências Python
+FROM python:3.11-slim AS builder
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
-
-# Instalar dependências do sistema necessárias para compilação
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    postgresql-client \
-    libpq-dev \
+    gcc libpq-dev postgresql-client \
     && rm -rf /var/lib/apt/lists/*
-
-# Criar diretório de trabalho
 WORKDIR /app
-
-# Copiar requirements e instalar dependências Python
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --user --no-warn-script-location -r requirements.txt
 
-# Stage 2: Runtime
+# Stage 3: Runtime
 FROM python:3.11-slim
-
-# Variáveis de ambiente
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH=/usr/local/bin:/home/django/.local/bin:$PATH \
     DJANGO_SETTINGS_MODULE=champions_backend.settings
 
-# Instalar apenas dependências runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 \
-    postgresql-client \
+    libpq5 postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Criar usuário não-root para segurança
 RUN useradd -m -u 1000 django && \
     mkdir -p /app /app/staticfiles /app/media /app/logs /home/django/.local && \
-    chown -R django:django /app && \
-    # Criar symlink python -> python3 para facilitar uso
     ln -s /usr/local/bin/python3 /usr/local/bin/python || true
 
-# Copiar dependências Python do stage builder para local acessível ao usuário django
 COPY --from=builder /root/.local /home/django/.local
 RUN chown -R django:django /home/django/.local
 
-# Definir diretório de trabalho
 WORKDIR /app
+COPY --chown=django:django backend/ .
+COPY --from=frontend-build /app/frontend/dist /app/frontend_dist
+RUN chown -R django:django /app/frontend_dist
 
-# Copiar código da aplicação
-COPY --chown=django:django . .
-
-# Criar diretórios necessários
 RUN mkdir -p staticfiles media logs
-
-# Copiar e configurar entrypoint script
-COPY --chown=django:django entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
-
-# Mudar para usuário não-root
 USER django
-
-# Expor porta
 EXPOSE 8000
 
-# Health check - usar endpoint específico que não redirecione
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python -c "import socket; s = socket.socket(); s.settimeout(5); result = s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"
 
-# Usar entrypoint script que executa migrações e cria admin antes de iniciar
 ENTRYPOINT ["/app/entrypoint.sh"]

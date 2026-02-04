@@ -26,9 +26,9 @@ default_hosts = ['localhost', '127.0.0.1', '0.0.0.0']
 env_hosts_str = os.environ.get('DJANGO_ALLOWED_HOSTS', '').strip()
 env_hosts = [h.strip() for h in env_hosts_str.split(',') if h.strip()] if env_hosts_str else []
 
-# Se há hosts configurados via ambiente, usar apenas esses (produção)
+# Se há hosts configurados via ambiente, usar esses + localhost para health checks
 if env_hosts:
-    ALLOWED_HOSTS = env_hosts
+    ALLOWED_HOSTS = env_hosts + ['localhost', '127.0.0.1']
 # Se não há hosts configurados e estamos em desenvolvimento, aceitar qualquer host
 elif DEBUG or ENVIRONMENT != 'production':
     ALLOWED_HOSTS = ['*']  # Aceitar qualquer host em desenvolvimento
@@ -194,9 +194,15 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # CORS SETTINGS
 # ==============================================
 # URLs permitidas para requisições cross-origin
-CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', 
+cors_origins_str = os.environ.get('CORS_ALLOWED_ORIGINS', 
     'http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,http://localhost:5177,http://127.0.0.1:5173,http://localhost:3000'
-).split(',')
+)
+# Filtrar apenas URLs válidas (com http:// ou https://)
+CORS_ALLOWED_ORIGINS = [
+    origin.strip() 
+    for origin in cors_origins_str.split(',') 
+    if origin.strip() and (origin.strip().startswith('http://') or origin.strip().startswith('https://'))
+]
 
 CORS_ALLOW_CREDENTIALS = True
 

@@ -3,11 +3,33 @@ set -e
 
 echo "Iniciando entrypoint do backend..."
 
+# Verificar conexão com banco de dados
+echo "Verificando conexão com banco de dados..."
+python manage.py shell << 'PYEOF'
+import os
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'champions_backend.settings')
+import django
+django.setup()
+
+from django.db import connection
+try:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT 1")
+        print("✓ Conexão com banco de dados OK")
+except Exception as e:
+    print(f"✗ ERRO na conexão com banco: {e}")
+    import traceback
+    traceback.print_exc()
+    exit(1)
+PYEOF
+
 # Executar migrações
 echo "Executando migrações do banco de dados..."
 python manage.py migrate --noinput || {
     echo "ERRO: Falha ao executar migrações!"
-    echo "Continuando mesmo assim para verificar outros problemas..."
+    echo "Detalhes do erro:"
+    python manage.py migrate --noinput --verbosity 3
+    exit 1
 }
 
 # Criar configuração padrão do site se não existir

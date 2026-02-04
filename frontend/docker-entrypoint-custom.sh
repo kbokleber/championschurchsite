@@ -18,8 +18,9 @@ BACKEND_HOST=$(echo "$BACKEND_URL_CLEAN" | cut -d: -f1)
 BACKEND_PORT=$(echo "$BACKEND_URL_CLEAN" | cut -d: -f2)
 BACKEND_PORT=${BACKEND_PORT:-80}
 
-# Exportar BACKEND_HOST para uso no envsubst
+# Exportar BACKEND_HOST e BACKEND_URL para uso no envsubst (também usado pelo entrypoint padrão)
 export BACKEND_HOST
+export BACKEND_URL
 
 echo "📡 Testando conectividade com backend:"
 echo "   Host: ${BACKEND_HOST}"
@@ -37,26 +38,16 @@ else
     echo "⚠️ nc (netcat) não disponível, pulando teste de conectividade"
 fi
 
-# Substituir variáveis BACKEND_URL e BACKEND_HOST no template do Nginx
-if [ -f /etc/nginx/templates/default.conf.template ]; then
-    echo "🔧 Substituindo variáveis: BACKEND_URL=${BACKEND_URL}, BACKEND_HOST=${BACKEND_HOST}"
-    envsubst '${BACKEND_URL} ${BACKEND_HOST}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
-    echo "✓ Configuração do Nginx gerada com sucesso"
-    
-    # Mostrar configuração do proxy para debug
-    echo "📄 Configuração do proxy gerada:"
-    grep -A 8 "location /api/" /etc/nginx/conf.d/default.conf || true
-    echo ""
-    
-    # Verificar se BACKEND_HOST foi substituído corretamente
-    if grep -q '\${BACKEND_HOST}' /etc/nginx/conf.d/default.conf; then
-        echo "⚠️ AVISO: BACKEND_HOST não foi substituído! Verifique se está exportado."
-    else
-        echo "✓ BACKEND_HOST substituído corretamente"
-    fi
-else
-    echo "⚠️ Template não encontrado, usando configuração padrão"
+# IMPORTANTE: Não substituir o template aqui - deixar o entrypoint padrão do Nginx fazer isso
+# Ele vai usar as variáveis BACKEND_URL e BACKEND_HOST que exportamos acima
+echo "🔧 Variáveis exportadas para o entrypoint padrão do Nginx:"
+echo "   BACKEND_URL=${BACKEND_URL}"
+echo "   BACKEND_HOST=${BACKEND_HOST}"
+
+# Executar entrypoint padrão do Nginx (ele vai fazer o envsubst automaticamente)
+# Mas primeiro, vamos verificar se o template existe
+if [ ! -f /etc/nginx/templates/default.conf.template ]; then
+    echo "⚠️ Template não encontrado em /etc/nginx/templates/default.conf.template"
 fi
 
-# Executar entrypoint padrão do Nginx
 exec /docker-entrypoint.sh nginx -g "daemon off;"

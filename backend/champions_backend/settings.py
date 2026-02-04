@@ -38,7 +38,8 @@ if env_hosts:
 else:
     # Se não há hosts configurados explicitamente, aceitar qualquer host
     # Isso é necessário para Coolify e outros ambientes onde o host pode variar
-    ALLOWED_HOSTS = ['*']  # Aceitar qualquer host quando não há hosts específicos configurados
+    # Usar '*' permite qualquer host (útil para ambientes dinâmicos como sslip.io)
+    ALLOWED_HOSTS = ['*']
     print(f"   Nenhum host configurado, aceitando qualquer host: {ALLOWED_HOSTS}")
 
 # Remover duplicatas mantendo ordem
@@ -220,6 +221,21 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+# CSRF Trusted Origins (necessário para Django 4.0+)
+# Aceitar requisições CSRF do frontend
+csrf_origins_str = os.environ.get('CSRF_TRUSTED_ORIGINS', '').strip()
+if csrf_origins_str:
+    CSRF_TRUSTED_ORIGINS = [
+        origin.strip()
+        for origin in csrf_origins_str.split(',')
+        if origin.strip() and (origin.strip().startswith('http://') or origin.strip().startswith('https://'))
+    ]
+else:
+    # Se não configurado, usar os mesmos do CORS
+    CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS.copy()
+
+print(f"🔧 CSRF_TRUSTED_ORIGINS: {CSRF_TRUSTED_ORIGINS}")
 
 # Headers permitidos
 CORS_ALLOW_HEADERS = [

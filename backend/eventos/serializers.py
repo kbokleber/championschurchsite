@@ -118,6 +118,13 @@ class EventoSerializer(serializers.ModelSerializer):
             return 'Gratuito'
         return f'R$ {obj.valor_inscricao:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
 
+    def to_representation(self, instance):
+        """Garantir que a URL da imagem sempre comece com / para o frontend resolver corretamente."""
+        data = super().to_representation(instance)
+        if data.get('imagem') and not data['imagem'].startswith(('http://', 'https://', '/')):
+            data['imagem'] = '/' + data['imagem']
+        return data
+
 
 class EventoListaSerializer(serializers.ModelSerializer):
     """Serializer resumido para listagem de eventos."""
@@ -149,6 +156,12 @@ class EventoListaSerializer(serializers.ModelSerializer):
         if obj.valor_inscricao is None or not obj.evento_pago:
             return 'Gratuito'
         return f'R$ {obj.valor_inscricao:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if data.get('imagem') and not data['imagem'].startswith(('http://', 'https://', '/')):
+            data['imagem'] = '/' + data['imagem']
+        return data
 
 
 class InscricaoSerializer(serializers.ModelSerializer):

@@ -282,39 +282,52 @@ def buscar_participante_por_telefone(request):
     Busca participante pelo telefone para auto-preenchimento no formulário de inscrição.
     Retorna apenas dados públicos (nome e email), sem senha.
     """
-    telefone = request.query_params.get('telefone', '')
-    
-    if not telefone:
-        return Response(
-            {'error': 'Telefone é obrigatório'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
-    # Normalizar telefone (apenas números)
-    telefone_normalizado = Membro.normalizar_telefone(telefone)
-    
-    if len(telefone_normalizado) < 10:
-        return Response(
-            {'encontrado': False, 'message': 'Telefone incompleto'},
-            status=status.HTTP_200_OK
-        )
-    
-    # Buscar membro pelo telefone (titular ou acompanhante com telefone cadastrado)
     try:
-        membro = Membro.objects.get(telefone=telefone_normalizado)
-        return Response({
-            'encontrado': True,
-            'participante': {
-                'id': membro.id,
-                'nome': membro.nome,
-                'email': membro.email or '',
-            }
-        })
-    except Membro.DoesNotExist:
-        return Response({
-            'encontrado': False,
-            'message': 'Participante não encontrado'
-        })
+        telefone = request.query_params.get('telefone', '')
+        
+        if not telefone:
+            return Response(
+                {'error': 'Telefone é obrigatório'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Normalizar telefone (apenas números)
+        telefone_normalizado = Membro.normalizar_telefone(telefone)
+        
+        if len(telefone_normalizado) < 10:
+            return Response(
+                {'encontrado': False, 'message': 'Telefone incompleto'},
+                status=status.HTTP_200_OK
+            )
+        
+        # Buscar membro pelo telefone (titular ou acompanhante com telefone cadastrado)
+        try:
+            membro = Membro.objects.get(telefone=telefone_normalizado)
+            return Response({
+                'encontrado': True,
+                'participante': {
+                    'id': membro.id,
+                    'nome': membro.nome,
+                    'email': membro.email or '',
+                }
+            })
+        except Membro.DoesNotExist:
+            return Response({
+                'encontrado': False,
+                'message': 'Participante não encontrado'
+            })
+        except Exception as e:
+            logger.error(f"Erro ao buscar participante: {e}", exc_info=True)
+            return Response(
+                {'error': 'Erro ao buscar participante'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    except Exception as e:
+        logger.error(f"Erro geral em buscar_participante_por_telefone: {e}", exc_info=True)
+        return Response(
+            {'error': 'Erro ao processar requisição'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 
 @api_view(['POST'])

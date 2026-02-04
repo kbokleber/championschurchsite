@@ -22,8 +22,16 @@ RUN npm run build
 # Stage 2: Runtime com Nginx
 FROM nginx:alpine
 
+# Variável de ambiente para URL do backend (pode ser sobrescrita)
+ARG BACKEND_URL=http://backend:8000
+ENV BACKEND_URL=${BACKEND_URL}
+
 # Copiar configuração customizada do Nginx
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/templates/default.conf.template
+
+# Substituir variável no template durante inicialização
+RUN envsubst '${BACKEND_URL}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf || \
+    cp /etc/nginx/templates/default.conf.template /etc/nginx/conf.d/default.conf
 
 # Copiar build do React do stage anterior
 COPY --from=builder /app/dist /usr/share/nginx/html

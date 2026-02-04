@@ -37,6 +37,10 @@ ENV BACKEND_URL=http://backend:8000
 # Copiar build do React do stage anterior
 COPY --from=builder /app/dist /usr/share/nginx/html
 
+# Copiar script de entrada customizado ANTES de fazer chown
+COPY docker-entrypoint-custom.sh /docker-entrypoint-custom.sh
+RUN chmod +x /docker-entrypoint-custom.sh
+
 # Criar usuário não-root e configurar permissões
 RUN chown -R nginx:nginx /usr/share/nginx/html && \
     chown -R nginx:nginx /var/cache/nginx && \
@@ -55,10 +59,6 @@ EXPOSE 80
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --quiet --tries=1 --spider http://localhost/health || exit 1
-
-# Copiar script de entrada customizado
-COPY docker-entrypoint-custom.sh /docker-entrypoint-custom.sh
-RUN chmod +x /docker-entrypoint-custom.sh
 
 # Comando padrão
 ENTRYPOINT ["/docker-entrypoint-custom.sh"]

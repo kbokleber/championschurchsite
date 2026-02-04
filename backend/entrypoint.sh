@@ -25,12 +25,16 @@ PYEOF
 
 # Executar migrações
 echo "Executando migrações do banco de dados..."
-python manage.py migrate --noinput || {
-    echo "ERRO: Falha ao executar migrações!"
-    echo "Detalhes do erro:"
-    python manage.py migrate --noinput --verbosity 3
-    exit 1
-}
+if python manage.py migrate --noinput; then
+    echo "✓ Migrações executadas com sucesso!"
+else
+    echo "✗ ERRO: Falha ao executar migrações!"
+    echo "Tentando novamente com verbosidade para debug..."
+    python manage.py migrate --verbosity 3 || {
+        echo "✗ ERRO CRÍTICO: Não foi possível executar migrações!"
+        exit 1
+    }
+fi
 
 # Criar configuração padrão do site se não existir
 echo "Verificando/criando configuração do site..."

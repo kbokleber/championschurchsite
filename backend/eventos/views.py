@@ -136,13 +136,19 @@ def enviar_webhook_reset_senha(dados_webhook):
     """
     Envia webhook de "esqueci minha senha" de forma assíncrona.
     Chamado quando o participante solicita lembrete de senha na tela Meus Ingressos.
+    Usa webhook_reset_senha se configurado; senão usa webhook_inscricao (mesma URL com tipo=reset_senha).
     """
     try:
         config = ConfiguracaoSite.get_config()
-        if not config.webhook_ativo or not getattr(config, 'webhook_reset_senha', None) or not config.webhook_reset_senha.strip():
-            logger.info('Webhook reset senha não configurado ou inativo')
+        if not config.webhook_ativo:
+            logger.info('Webhook inativo - reset senha não enviado')
             return
-        url = config.webhook_reset_senha.strip()
+        url = (getattr(config, 'webhook_reset_senha', None) or '').strip()
+        if not url:
+            url = (getattr(config, 'webhook_inscricao', None) or '').strip()
+        if not url:
+            logger.info('Nenhuma URL de webhook configurada (reset_senha nem webhook_inscricao)')
+            return
         payload = {
             'tipo': 'reset_senha',
             'timestamp': timezone.now().isoformat(),
@@ -153,6 +159,7 @@ def enviar_webhook_reset_senha(dados_webhook):
             'email': dados_webhook.get('email'),
             'senha': dados_webhook.get('senha'),
         }
+        print(f'>>> WEBHOOK RESET SENHA: Enviando para {url}')
         response = requests.post(
             url,
             json=payload,
@@ -163,8 +170,10 @@ def enviar_webhook_reset_senha(dados_webhook):
             timeout=30
         )
         logger.info(f'Webhook reset senha enviado: {response.status_code} - {url}')
+        print(f'>>> WEBHOOK RESET SENHA: Resposta {response.status_code}')
     except Exception as e:
         logger.error(f'Erro ao enviar webhook reset senha: {str(e)}')
+        print(f'>>> WEBHOOK RESET SENHA: Erro {e}')
 
 
 @api_view(['GET'])

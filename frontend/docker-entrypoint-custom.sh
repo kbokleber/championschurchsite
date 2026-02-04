@@ -11,11 +11,14 @@ fi
 
 echo "🔧 Configurando Nginx com BACKEND_URL: ${BACKEND_URL}"
 
-# Extrair host e porta do BACKEND_URL para teste de conectividade
+# Extrair host e porta do BACKEND_URL para teste de conectividade e header Host
 # Exemplo: http://host:port ou http://host
 BACKEND_HOST=$(echo "$BACKEND_URL" | sed -E 's|^https?://||' | sed -E 's|/.*$||' | cut -d: -f1)
 BACKEND_PORT=$(echo "$BACKEND_URL" | sed -E 's|^https?://||' | sed -E 's|/.*$||' | cut -d: -f2)
 BACKEND_PORT=${BACKEND_PORT:-80}
+
+# Exportar BACKEND_HOST para uso no envsubst
+export BACKEND_HOST
 
 echo "📡 Testando conectividade com backend:"
 echo "   Host: ${BACKEND_HOST}"
@@ -33,9 +36,9 @@ else
     echo "⚠️ nc (netcat) não disponível, pulando teste de conectividade"
 fi
 
-# Substituir variável BACKEND_URL no template do Nginx
+# Substituir variáveis BACKEND_URL e BACKEND_HOST no template do Nginx
 if [ -f /etc/nginx/templates/default.conf.template ]; then
-    envsubst '${BACKEND_URL}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
+    envsubst '${BACKEND_URL} ${BACKEND_HOST}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
     echo "✓ Configuração do Nginx gerada com sucesso"
     
     # Mostrar configuração do proxy para debug

@@ -56,11 +56,12 @@ COPY --chown=django:django . .
 # Criar diretórios necessários
 RUN mkdir -p staticfiles media logs
 
+# Copiar e configurar entrypoint script
+COPY --chown=django:django entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # Mudar para usuário não-root
 USER django
-
-# Coletar arquivos estáticos (será executado no build)
-RUN python manage.py collectstatic --noinput || true
 
 # Expor porta
 EXPOSE 8000
@@ -69,5 +70,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8000/api/', timeout=5)" || exit 1
 
-# Comando padrão: rodar com Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "4", "--threads", "2", "--timeout", "60", "--access-logfile", "-", "--error-logfile", "-", "champions_backend.wsgi:application"]
+# Usar entrypoint script que executa migrações e cria admin antes de iniciar
+ENTRYPOINT ["/app/entrypoint.sh"]

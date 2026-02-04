@@ -44,45 +44,30 @@ else
     echo "⚠️ nc (netcat) não disponível, pulando teste de conectividade"
 fi
 
-# IMPORTANTE: Não substituir o template aqui - deixar o entrypoint padrão do Nginx fazer isso
-# Ele vai usar as variáveis BACKEND_URL e BACKEND_HOST que exportamos acima
-echo "🔧 Variáveis exportadas para o entrypoint padrão do Nginx:"
-echo "   BACKEND_URL=${BACKEND_URL}"
-echo "   BACKEND_HOST=${BACKEND_HOST}"
-
-# Executar entrypoint padrão do Nginx (ele vai fazer o envsubst automaticamente)
-# Mas primeiro, vamos verificar se o template existe
-if [ ! -f /etc/nginx/templates/default.conf.template ]; then
-    echo "⚠️ Template não encontrado em /etc/nginx/templates/default.conf.template"
-fi
-
-# Criar um script wrapper que verifica a configuração após o envsubst
-cat > /tmp/check-nginx-config.sh << 'EOF'
-#!/bin/sh
-# Aguardar o envsubst ser executado pelo entrypoint padrão
-sleep 1
-if [ -f /etc/nginx/conf.d/default.conf ]; then
-    echo "📄 Verificando configuração gerada do Nginx:"
+# Executar envsubst manualmente para garantir que BACKEND_HOST seja substituído
+# O entrypoint padrão também vai executar, mas vamos fazer antes para verificar
+if [ -f /etc/nginx/templates/default.conf.template ]; then
+    echo "🔧 Executando envsubst manualmente:"
+    envsubst '${BACKEND_URL} ${BACKEND_HOST}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
+    
+    # Verificar se BACKEND_HOST foi substituído
     if grep -q '\${BACKEND_HOST}' /etc/nginx/conf.d/default.conf; then
         echo "⚠️ ERRO: BACKEND_HOST não foi substituído!"
-        echo "   Configuração atual:"
+        echo "   BACKEND_HOST=${BACKEND_HOST}"
+        echo "   Verificando configuração:"
         grep "proxy_set_header Host" /etc/nginx/conf.d/default.conf || true
     else
-        echo "✓ BACKEND_HOST foi substituído corretamente"
+        echo "✓ BACKEND_HOST substituído corretamente"
         echo "   Configuração do proxy Host:"
         grep "proxy_set_header Host" /etc/nginx/conf.d/default.conf | head -1 || true
     fi
+else
+    echo "⚠️ Template não encontrado em /etc/nginx/templates/default.conf.template"
 fi
-EOF
-chmod +x /tmp/check-nginx-config.sh
 
-# Executar entrypoint padrão do Nginx em background e verificar depois
-/docker-entrypoint.sh nginx -g "daemon off;" &
-NGINX_PID=$!
+# Exportar variáveis para o entrypoint padrão (caso ele execute envsubst novamente)
+export BACKEND_URL
+export BACKEND_HOST
 
-# Aguardar um pouco e verificar a configuração
-sleep 2
-/tmp/check-nginx-config.sh || true
-
-# Aguardar o Nginx
-wait $NGINX_PID
+# Executar entrypoint padrão do Nginx
+exec /docker-entrypoint.sh nginx -g "daemon off;"

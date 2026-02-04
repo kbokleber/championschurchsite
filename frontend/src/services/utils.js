@@ -3,7 +3,8 @@
  */
 
 // URL base do backend para arquivos de mídia
-const BACKEND_URL = 'http://localhost:8000'
+// Usar variável de ambiente se disponível, caso contrário usar localhost
+const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 /**
  * Retorna a URL completa para um arquivo de mídia

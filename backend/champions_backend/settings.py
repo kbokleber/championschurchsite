@@ -28,16 +28,24 @@ env_hosts = [h.strip() for h in env_hosts_str.split(',') if h.strip()] if env_ho
 
 # Se há hosts configurados via ambiente, usar esses + localhost para health checks
 if env_hosts:
-    ALLOWED_HOSTS = env_hosts + ['localhost', '127.0.0.1']
-# Se não há hosts configurados e estamos em desenvolvimento, aceitar qualquer host
-elif DEBUG or ENVIRONMENT != 'production':
-    ALLOWED_HOSTS = ['*']  # Aceitar qualquer host em desenvolvimento
-# Caso contrário, usar hosts padrão
+    ALLOWED_HOSTS = env_hosts + ['localhost', '127.0.0.1', '0.0.0.0']
+# Se não há hosts configurados explicitamente, aceitar qualquer host
+# Isso é necessário para Coolify e outros ambientes onde o host pode variar
+elif not env_hosts:
+    ALLOWED_HOSTS = ['*']  # Aceitar qualquer host quando não há hosts específicos configurados
+# Caso contrário (não deveria chegar aqui), usar hosts padrão
 else:
     ALLOWED_HOSTS = default_hosts
 
 # Remover duplicatas mantendo ordem
 ALLOWED_HOSTS = list(dict.fromkeys(ALLOWED_HOSTS))
+
+# Log para debug (apenas em desenvolvimento)
+if DEBUG:
+    print(f"🔧 ALLOWED_HOSTS configurado: {ALLOWED_HOSTS}")
+    print(f"🔧 ENVIRONMENT: {ENVIRONMENT}")
+    print(f"🔧 DEBUG: {DEBUG}")
+    print(f"🔧 DJANGO_ALLOWED_HOSTS: {env_hosts_str or '(não definida)'}")
 
 # ==============================================
 # CONFIGURAÇÕES DE SEGURANÇA

@@ -3,7 +3,16 @@
 # Garantir que o build existe antes de iniciar o preview
 if [ ! -d "dist" ] || [ -z "$(ls -A dist)" ]; then
   echo "Build não encontrado. Executando build..."
+  # VITE_API_URL deve estar disponível durante o build
+  echo "VITE_API_URL durante build: ${VITE_API_URL:-não definida}"
   npm run build
+fi
+
+# Verificar se VITE_API_URL está definida
+if [ -z "$VITE_API_URL" ]; then
+  echo "⚠️  AVISO: VITE_API_URL não está definida!"
+  echo "   Configure a variável de ambiente VITE_API_URL no Coolify"
+  echo "   Exemplo: VITE_API_URL=http://seu-backend.com"
 fi
 
 # Iniciar preview com configurações para SPA

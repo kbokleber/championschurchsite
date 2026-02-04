@@ -180,7 +180,9 @@ USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = 'static/'
-STATICFILES_DIRS = [BASE_DIR.parent / 'static']
+# Apenas adicionar diretório se existir (evitar warnings)
+static_dir = BASE_DIR.parent / 'static'
+STATICFILES_DIRS = [static_dir] if static_dir.exists() else []
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Media files

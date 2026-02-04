@@ -30,7 +30,7 @@ ENV PYTHONUNBUFFERED=1 \
     DJANGO_SETTINGS_MODULE=champions_backend.settings
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 postgresql-client \
+    libpq5 postgresql-client gosu \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u 1000 django && \
@@ -49,7 +49,7 @@ COPY --from=frontend-build /app/frontend/dist /app/frontend_dist
 RUN mkdir -p /app/staticfiles /app/media /app/logs && \
     chown -R django:django /app && \
     chmod +x /app/entrypoint.sh
-USER django
+# Não usar USER django aqui: entrypoint roda como root, ajusta permissão de /app/media (volume) e depois exec como django
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \

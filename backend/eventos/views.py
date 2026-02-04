@@ -1338,6 +1338,17 @@ class EventoViewSet(viewsets.ModelViewSet):
     queryset = Evento.objects.all()
     serializer_class = EventoSerializer
     
+    def create(self, request, *args, **kwargs):
+        """Override create para capturar e logar erros 500 (ex.: permissão em /media)."""
+        try:
+            return super().create(request, *args, **kwargs)
+        except Exception as e:
+            logger.exception("Erro ao criar evento: %s", e)
+            return Response(
+                {'error': 'Erro ao criar evento.', 'detail': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
     def get_permissions(self):
         """
         Permite leitura para todos, mas exige autenticação para criar/editar/excluir.
@@ -2180,9 +2191,18 @@ def configuracao_publica(request):
         serializer = ConfiguracaoSitePublicSerializer(config)
         return Response(serializer.data)
     except Exception as e:
-        logger.error(f"Erro ao buscar configuração pública: {e}", exc_info=True)
+        import traceback
+        error_detail = traceback.format_exc()
+        logger.error(f"Erro ao buscar configuração pública: {e}\n{error_detail}", exc_info=True)
+        # Em desenvolvimento, retornar detalhes do erro para debug
+        error_response = {
+            'error': 'Erro ao carregar configurações',
+            'detail': str(e)
+        }
+        if settings.DEBUG:
+            error_response['traceback'] = error_detail
         return Response(
-            {'error': 'Erro ao carregar configurações'},
+            error_response,
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 

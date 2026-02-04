@@ -1,6 +1,13 @@
 #!/bin/bash
 set -e
 
+# Se estiver rodando como root (ex.: container sem USER django), ajustar permissão do volume de mídia e reexecutar como django
+if [ "$(id -u)" = "0" ]; then
+  chown -R django:django /app/media 2>/dev/null || true
+  exec gosu django "$0" "$@"
+  exit 0
+fi
+
 echo "Iniciando entrypoint do backend..."
 
 # Verificar se o frontend foi buildado

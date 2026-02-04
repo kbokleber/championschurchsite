@@ -15,12 +15,12 @@ export default defineConfig({
   },
   preview: {
     port: 80,
-    host: '0.0.0.0',
+    host: true, // true permite todos os hosts
     strictPort: false,
-    // Permitir todos os hosts - usar array vazio para desabilitar verificação
-    allowedHosts: [],
+    // Desabilitar completamente a verificação de host
+    // Usar função que sempre retorna true para permitir qualquer host
+    allowedHosts: (host) => true,
     cors: true,
-    // O Vite Preview já faz fallback para index.html automaticamente em rotas não encontradas
   },
   build: {
     // Garantir que o build gere arquivos estáticos corretos

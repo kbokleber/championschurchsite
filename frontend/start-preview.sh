@@ -7,5 +7,7 @@ if [ ! -d "dist" ] || [ -z "$(ls -A dist)" ]; then
 fi
 
 # Iniciar preview com configurações para SPA
+# Usar variável de ambiente para desabilitar verificação de host
 export VITE_PREVIEW_ALLOWED_HOSTS=all
-exec npx vite preview --host 0.0.0.0 --port 80
+# Forçar host 0.0.0.0 e desabilitar verificação de host
+exec npx vite preview --host 0.0.0.0 --port 80 --strictPort false

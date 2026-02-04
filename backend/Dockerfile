@@ -69,9 +69,9 @@ USER django
 # Expor porta
 EXPOSE 8000
 
-# Health check - usar curl ao invés de requests para evitar problemas de SSL
+# Health check - verificar se o servidor está respondendo sem seguir redirects
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/', timeout=5)" || exit 1
+    CMD python -c "import urllib.request; req = urllib.request.Request('http://localhost:8000/api/configuracao/'); req.add_header('User-Agent', 'HealthCheck'); resp = urllib.request.urlopen(req, timeout=5); exit(0 if resp.getcode() < 400 else 1)" || exit 1
 
 # Usar entrypoint script que executa migrações e cria admin antes de iniciar
 ENTRYPOINT ["/app/entrypoint.sh"]

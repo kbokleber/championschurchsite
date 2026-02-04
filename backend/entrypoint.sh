@@ -3,6 +3,21 @@ set -e
 
 echo "Iniciando entrypoint do backend..."
 
+# Verificar se o frontend foi buildado
+echo "Verificando build do frontend..."
+if [ -d "/app/frontend_dist" ]; then
+    echo "✓ Diretório frontend_dist encontrado"
+    echo "  Conteúdo:"
+    ls -la /app/frontend_dist/ | head -10
+    if [ -f "/app/frontend_dist/index.html" ]; then
+        echo "✓ index.html encontrado"
+    else
+        echo "✗ AVISO: index.html NÃO encontrado em frontend_dist"
+    fi
+else
+    echo "✗ AVISO: Diretório frontend_dist NÃO encontrado - frontend não será servido"
+fi
+
 # Verificar conexão com banco de dados
 echo "Verificando conexão com banco de dados..."
 python manage.py shell << 'PYEOF'

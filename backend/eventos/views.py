@@ -1340,36 +1340,51 @@ class EventoViewSet(viewsets.ModelViewSet):
             return EventoListaSerializer
         return EventoSerializer
     
-    def get_queryset(self):
-        queryset = Evento.objects.all()
-        
-        # Filtro por tipo
-        tipo = self.request.query_params.get('tipo')
-        if tipo:
-            queryset = queryset.filter(tipo=tipo)
-        
-        # Filtro por status
-        status_param = self.request.query_params.get('status')
-        if status_param:
-            queryset = queryset.filter(status=status_param)
-        
-        # Apenas eventos em destaque
-        destaque = self.request.query_params.get('destaque')
-        if destaque and destaque.lower() == 'true':
-            queryset = queryset.filter(destaque=True)
-        
-        # Apenas eventos futuros (que ainda não terminaram)
-        futuros = self.request.query_params.get('futuros')
-        if futuros and futuros.lower() == 'true':
-            from django.db.models import Q
-            agora = timezone.now()
-            # Se tem data_fim: mostra se ainda não terminou
-            # Se não tem data_fim: mostra se ainda não começou
-            queryset = queryset.filter(
-                Q(data_fim__gte=agora) | Q(data_fim__isnull=True, data_inicio__gte=agora)
+    def list(self, request, *args, **kwargs):
+        """Override list para adicionar tratamento de erros."""
+        try:
+            return super().list(request, *args, **kwargs)
+        except Exception as e:
+            logger.error(f"Erro ao listar eventos: {e}", exc_info=True)
+            return Response(
+                {'error': 'Erro ao carregar eventos', 'detail': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        
-        return queryset
+    
+    def get_queryset(self):
+        try:
+            queryset = Evento.objects.all()
+            
+            # Filtro por tipo
+            tipo = self.request.query_params.get('tipo')
+            if tipo:
+                queryset = queryset.filter(tipo=tipo)
+            
+            # Filtro por status
+            status_param = self.request.query_params.get('status')
+            if status_param:
+                queryset = queryset.filter(status=status_param)
+            
+            # Apenas eventos em destaque
+            destaque = self.request.query_params.get('destaque')
+            if destaque and destaque.lower() == 'true':
+                queryset = queryset.filter(destaque=True)
+            
+            # Apenas eventos futuros (que ainda não terminaram)
+            futuros = self.request.query_params.get('futuros')
+            if futuros and futuros.lower() == 'true':
+                from django.db.models import Q
+                agora = timezone.now()
+                # Se tem data_fim: mostra se ainda não terminou
+                # Se não tem data_fim: mostra se ainda não começou
+                queryset = queryset.filter(
+                    Q(data_fim__gte=agora) | Q(data_fim__isnull=True, data_inicio__gte=agora)
+                )
+            
+            return queryset
+        except Exception as e:
+            logger.error(f"Erro ao filtrar eventos: {e}", exc_info=True)
+            return Evento.objects.none()
     
     @action(detail=False, methods=['get'])
     def proximos(self, request):
@@ -1390,17 +1405,24 @@ class EventoViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def destaques(self, request):
         """Retorna eventos em destaque (que ainda não terminaram)."""
-        from django.db.models import Q
-        agora = timezone.now()
-        
-        # Eventos em destaque que ainda não terminaram
-        eventos = Evento.objects.filter(
-            Q(data_fim__gte=agora) | Q(data_fim__isnull=True, data_inicio__gte=agora),
-            destaque=True,
-            status__in=['agendado', 'em_andamento']
-        ).order_by('data_inicio')
-        serializer = EventoListaSerializer(eventos, many=True)
-        return Response(serializer.data)
+        try:
+            from django.db.models import Q
+            agora = timezone.now()
+            
+            # Eventos em destaque que ainda não terminaram
+            eventos = Evento.objects.filter(
+                Q(data_fim__gte=agora) | Q(data_fim__isnull=True, data_inicio__gte=agora),
+                destaque=True,
+                status__in=['agendado', 'em_andamento']
+            ).order_by('data_inicio')
+            serializer = EventoListaSerializer(eventos, many=True)
+            return Response(serializer.data)
+        except Exception as e:
+            logger.error(f"Erro ao buscar eventos em destaque: {e}", exc_info=True)
+            return Response(
+                {'error': 'Erro ao carregar eventos em destaque'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def em_andamento(self, request):

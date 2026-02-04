@@ -5,11 +5,16 @@ import axios from 'axios'
 const baseUrl = import.meta.env.VITE_API_URL 
   ? import.meta.env.VITE_API_URL.replace(/\/+$/, '') // Remove barras no final
   : ''
+
+// Se não há VITE_API_URL, usar proxy relativo (só funciona em dev)
+// Em produção, VITE_API_URL DEVE estar definida
 const API_BASE_URL = baseUrl ? `${baseUrl}/api` : '/api'
 
 // Debug: log da URL da API sendo usada
-console.log('API Base URL:', API_BASE_URL)
-console.log('VITE_API_URL:', import.meta.env.VITE_API_URL)
+console.log('🔍 API Configuration:')
+console.log('  VITE_API_URL:', import.meta.env.VITE_API_URL || '(não definida)')
+console.log('  API Base URL:', API_BASE_URL)
+console.log('  Mode:', import.meta.env.MODE)
 
 const api = axios.create({
   baseURL: API_BASE_URL,

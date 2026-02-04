@@ -20,8 +20,8 @@ export default defineConfig({
     // Permitir todos os hosts - usar true para desabilitar verificação
     allowedHosts: true,
     cors: true,
-    // Nota: Proxy no preview pode não funcionar bem
-    // É melhor usar VITE_API_URL no código do frontend
+    // Não usar proxy no preview - o código usa VITE_API_URL diretamente
+    // O proxy só funciona no modo dev (server)
   },
   build: {
     // Garantir que o build gere arquivos estáticos corretos

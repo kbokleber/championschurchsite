@@ -55,13 +55,26 @@ function EventoDetalhe() {
     fetchEvento()
   }, [id])
   
+  const normalizarListaCategorias = (data) => {
+    if (Array.isArray(data)) return data
+    if (data && Array.isArray(data.results)) return data.results
+    return []
+  }
+
   const fetchCategorias = async () => {
     try {
-      const response = await api.get('/categorias/ativas/')
-      setCategorias(response.data)
-      // Selecionar primeira categoria por padrão para acompanhantes
-      if (response.data.length > 0) {
-        setNovoAcompanhanteCategoria(response.data[0].id)
+      let lista = []
+      try {
+        const response = await api.get('/categorias/ativas/')
+        lista = normalizarListaCategorias(response.data)
+      } catch (_) {
+        // Fallback: endpoint ativas pode não estar disponível em alguns deploys
+        const response = await api.get('/categorias/', { params: { ativo: 'true' } })
+        lista = normalizarListaCategorias(response.data)
+      }
+      setCategorias(lista)
+      if (lista.length > 0) {
+        setNovoAcompanhanteCategoria(lista[0].id)
       }
     } catch (error) {
       console.error('Erro ao carregar categorias:', error)

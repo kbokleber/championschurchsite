@@ -78,5 +78,6 @@ Clique em **"Deploy"** ou **"Redeploy"**
 - ✅ Se usar nome de serviço, verifique se está na mesma rede Docker
 
 ### Erro: "ERR_CERT_AUTHORITY_INVALID" ou "Network Error" nas chamadas da API
-- ✅ **Não defina** `VITE_API_URL` no frontend: o build já usa URL relativa `/api` (mesma origem). O Nginx faz proxy para o backend, então o navegador não acessa o backend diretamente e não há problema de certificado.
-- ✅ Faça um **novo build e deploy** do frontend após essa alteração.
+- ✅ **Backend:** No Coolify → Backend → Environment Variables, defina **`DJANGO_BEHIND_PROXY`** = **`true`** e faça **redeploy do backend**. Assim o Django não redireciona para HTTPS e o navegador não tenta acessar o backend direto.
+- ✅ **Frontend:** Não defina `VITE_API_URL`; o build usa `/api` (mesma origem). O Nginx tem `proxy_redirect off` e `proxy_ssl_verify off` para não repassar redirects e aceitar HTTPS no backend se precisar.
+- ✅ Se ainda falhar: no frontend use **`BACKEND_URL`** com **`https://`** (ex.: `https://s8o8s80sw0gswkockswkw084.154.12.227.87.sslip.io`) e redeploy; o Nginx conecta ao backend em HTTPS sem validar o certificado.

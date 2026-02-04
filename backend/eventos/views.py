@@ -226,20 +226,31 @@ def _serializar_ingressos(membro):
         valor_responsavel = float(inscricao.valor_inscricao) if inscricao.valor_inscricao else 0
         valor_total = valor_responsavel + valor_total_acompanhantes
         
-        # Verificar se pagamento está pendente
+        # Verificar se pagamento está pendente (responsável OU cobrança de acompanhantes)
         pagamento_pendente = inscricao.status_pagamento == 'pendente'
-        
-        # Buscar cobrança pendente para esta inscrição
         cobranca_id = None
-        if pagamento_pendente:
-            # Buscar através do CobrancaItem
-            cobranca_item = CobrancaItem.objects.filter(
-                inscricao=inscricao,
-                cobranca__status='pendente'
-            ).select_related('cobranca').first()
-            
-            if cobranca_item:
-                cobranca_id = cobranca_item.cobranca.id
+        
+        # Cobrança ligada à inscrição do responsável
+        cobranca_item = CobrancaItem.objects.filter(
+            inscricao=inscricao,
+            cobranca__status='pendente'
+        ).select_related('cobranca').first()
+        if cobranca_item:
+            cobranca_id = cobranca_item.cobranca.id
+            pagamento_pendente = True
+        
+        # Cobrança só de acompanhantes (ex.: adicionou Nilma depois; responsável já pagou)
+        if cobranca_id is None:
+            cobranca_acomp = Cobranca.objects.filter(
+                membro=membro,
+                evento=inscricao.evento,
+                status='pendente'
+            ).first()
+            if cobranca_acomp:
+                cobranca_id = cobranca_acomp.id
+                pagamento_pendente = True
+                # Incluir valor da cobrança no total exibido
+                valor_total = valor_total + float(cobranca_acomp.valor)
         
         dt_inicio = timezone.localtime(inscricao.evento.data_inicio)
         dt_fim = timezone.localtime(inscricao.evento.data_fim) if inscricao.evento.data_fim else None
@@ -625,6 +636,14 @@ def participante_registro(request):
                     'categoria': categoria_acomp,
                     'valor': valor_acomp
                 })
+        
+        # Se responsável já pagou e evento é pago mas valor ficou 0 (ex.: categoria não enviada), usar valor do evento por acompanhante
+        if (inscricao_existente.status_pagamento == 'pago' and evento.evento_pago and
+                len(acompanhantes_para_criar) > 0 and valor_novos_acompanhantes == 0 and evento.valor_inscricao):
+            valor_unitario = float(evento.valor_inscricao)
+            valor_novos_acompanhantes = valor_unitario * len(acompanhantes_para_criar)
+            for a in acompanhantes_para_criar:
+                a['valor'] = valor_unitario
         
         # Definir status baseado no pagamento atual
         # Se a inscrição original já foi paga, os novos acompanhantes ficam pendentes

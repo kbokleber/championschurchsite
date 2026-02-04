@@ -9,6 +9,7 @@ function Checkin() {
   const [resultado, setResultado] = useState(null)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
+  const [erroPermissao, setErroPermissao] = useState('')
   const [codigoManual, setCodigoManual] = useState('')
   const scannerRef = useRef(null)
   const html5QrcodeScannerRef = useRef(null)
@@ -86,29 +87,52 @@ function Checkin() {
     }
   }, [modo, eventoSelecionado, nomeBusca, buscarInscritos])
 
-  const iniciarScanner = () => {
-    setScanning(true)
+  const criarScanner = () => {
+    if (!scannerRef.current || html5QrcodeScannerRef.current) return
+    html5QrcodeScannerRef.current = new Html5QrcodeScanner(
+      'qr-reader',
+      {
+        fps: 10,
+        qrbox: { width: 250, height: 250 },
+        supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA],
+        rememberLastUsedCamera: true,
+      },
+      false
+    )
+    html5QrcodeScannerRef.current.render(
+      (decodedText) => realizarCheckin(decodedText),
+      () => {}
+    )
+  }
+
+  const solicitarPermissaoEIniciar = () => {
+    setErroPermissao('')
     setResultado(null)
     setErro('')
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setErroPermissao('Seu navegador não suporta acesso à câmera. Use Chrome ou Safari atualizado.')
+      return
+    }
+    navigator.mediaDevices
+      .getUserMedia({ video: { facingMode: 'environment' } })
+      .then((stream) => {
+        stream.getTracks().forEach((t) => t.stop())
+        setScanning(true)
+        setTimeout(criarScanner, 100)
+      })
+      .catch((err) => {
+        const msg =
+          err.name === 'NotAllowedError'
+            ? 'Permissão da câmera negada. Clique no botão abaixo para tentar novamente ou permita o acesso nas configurações do navegador.'
+            : err.name === 'NotFoundError'
+              ? 'Nenhuma câmera encontrada neste dispositivo.'
+              : 'Não foi possível acessar a câmera. Tente em outro navegador ou dispositivo.'
+        setErroPermissao(msg)
+      })
+  }
 
-    setTimeout(() => {
-      if (scannerRef.current && !html5QrcodeScannerRef.current) {
-        html5QrcodeScannerRef.current = new Html5QrcodeScanner(
-          "qr-reader",
-          {
-            fps: 10,
-            qrbox: { width: 250, height: 250 },
-            supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA],
-            rememberLastUsedCamera: true,
-          },
-          false
-        )
-        html5QrcodeScannerRef.current.render(
-          (decodedText) => realizarCheckin(decodedText),
-          () => {}
-        )
-      }
-    }, 100)
+  const iniciarScanner = () => {
+    solicitarPermissaoEIniciar()
   }
 
   const pararScanner = () => {
@@ -117,6 +141,7 @@ function Checkin() {
       html5QrcodeScannerRef.current = null
     }
     setScanning(false)
+    setErroPermissao('')
   }
 
   const realizarCheckin = async (codigo) => {
@@ -284,7 +309,28 @@ function Checkin() {
       <div className="bg-white rounded-b-xl rounded-tr-xl shadow-lg p-6 mb-6 border border-t-0 border-gray-200">
         {modo === 'qr' && (
           <>
-            {!scanning && !resultado && !loading && (
+            {erroPermissao && (
+              <div className="text-center py-6">
+                <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mb-4">
+                  <AlertCircle className="h-8 w-8 text-red-600" />
+                </div>
+                <p className="text-red-600 mb-4 max-w-md mx-auto">{erroPermissao}</p>
+                <button
+                  type="button"
+                  onClick={solicitarPermissaoEIniciar}
+                  className="btn-primary inline-flex items-center"
+                >
+                  <QrCode className="h-5 w-5 mr-2" />
+                  Solicitar permissão da câmera
+                </button>
+                <button type="button" onClick={() => setErroPermissao('')} className="btn-outline ml-3">
+                  <X className="h-5 w-5 mr-2" />
+                  Cancelar
+                </button>
+              </div>
+            )}
+
+            {!scanning && !resultado && !loading && !erroPermissao && (
               <div className="text-center">
                 <button
                   onClick={iniciarScanner}

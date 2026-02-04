@@ -43,10 +43,12 @@ RUN chown -R django:django /home/django/.local
 WORKDIR /app
 COPY --chown=django:django backend/ .
 COPY --from=frontend-build /app/frontend/dist /app/frontend_dist
-RUN chown -R django:django /app/frontend_dist
 
-RUN mkdir -p staticfiles media logs
-RUN chmod +x /app/entrypoint.sh
+# Garantir que todos os diretórios tenham permissões corretas antes de mudar para usuário django
+# Criar diretórios e garantir propriedade do usuário django
+RUN mkdir -p /app/staticfiles /app/media /app/logs && \
+    chown -R django:django /app && \
+    chmod +x /app/entrypoint.sh
 USER django
 EXPOSE 8000
 

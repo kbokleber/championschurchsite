@@ -249,8 +249,8 @@ def _serializar_ingressos(membro):
             if cobranca_acomp:
                 cobranca_id = cobranca_acomp.id
                 pagamento_pendente = True
-                # Incluir valor da cobrança no total exibido
-                valor_total = valor_total + float(cobranca_acomp.valor)
+                # Mostrar só o valor que falta pagar (esta cobrança), não somar ao que já foi pago
+                valor_total = float(cobranca_acomp.valor)
         
         dt_inicio = timezone.localtime(inscricao.evento.data_inicio)
         dt_fim = timezone.localtime(inscricao.evento.data_fim) if inscricao.evento.data_fim else None

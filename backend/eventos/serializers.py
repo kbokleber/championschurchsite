@@ -76,7 +76,7 @@ class EventoSerializer(serializers.ModelSerializer):
         # Campos que podem ser nulos e devem aceitar string vazia como null
         nullable_fields = [
             'data_fim', 'inscricao_inicio', 'inscricao_fim', 
-            'vagas', 'valor_inscricao', 'endereco'
+            'vagas', 'valor_inscricao', 'endereco', 'imagem'
         ]
         
         # Criar cópia mutável dos dados

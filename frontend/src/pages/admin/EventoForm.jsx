@@ -17,6 +17,7 @@ function EventoForm() {
   const [error, setError] = useState('')
   const [imagemPreview, setImagemPreview] = useState(null)
   const [imagemFile, setImagemFile] = useState(null)
+  const [imagemRemovida, setImagemRemovida] = useState(false)
   
   // Estados para as datas (objetos Date)
   const [dataInicio, setDataInicio] = useState(null)
@@ -95,6 +96,7 @@ function EventoForm() {
       if (evento.imagem) {
         setImagemPreview(getMediaUrl(evento.imagem))
       }
+      setImagemRemovida(false)
     } catch (error) {
       console.error('Erro ao carregar evento:', error)
       setError('Erro ao carregar evento. Tente novamente.')
@@ -129,13 +131,17 @@ function EventoForm() {
 
       setImagemFile(file)
       setImagemPreview(URL.createObjectURL(file))
+      setImagemRemovida(false)
       setError('')
     }
   }
 
-  const handleRemoverImagem = () => {
+  const handleRemoverImagem = (e) => {
+    e?.preventDefault()
+    e?.stopPropagation()
     setImagemFile(null)
     setImagemPreview(null)
+    setImagemRemovida(true)
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
@@ -151,6 +157,11 @@ function EventoForm() {
     e.preventDefault()
     setSaving(true)
     setError('')
+
+    // Debug: ver no F12 > Console se o submit foi acionado
+    if (typeof console !== 'undefined' && console.debug) {
+      console.debug('[EventoForm] Submit acionado', { isEditing, id, imagemRemovida, temArquivo: !!imagemFile })
+    }
 
     // Validar data de início obrigatória
     if (!dataInicio) {
@@ -208,21 +219,20 @@ function EventoForm() {
         data.append('inscricao_fim', '')
       }
       
-      // Adicionar imagem se foi selecionada
+      // Imagem: nova arquivo, ou sinalizar remoção ao editar
       if (imagemFile) {
         data.append('imagem', imagemFile)
+      } else if (isEditing && imagemRemovida) {
+        data.append('imagem', '')
       }
 
-      const config = {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+      if (typeof console !== 'undefined' && console.debug) {
+        console.debug('[EventoForm] Enviando requisição', isEditing ? 'PUT' : 'POST', isEditing ? id : '')
       }
-
       if (isEditing) {
-        await api.put(`/eventos/${id}/`, data, config)
+        await api.put(`/eventos/${id}/`, data)
       } else {
-        await api.post('/eventos/', data, config)
+        await api.post('/eventos/', data)
       }
 
       navigate('/admin/eventos')
@@ -307,6 +317,7 @@ function EventoForm() {
                   <button
                     type="button"
                     onClick={handleRemoverImagem}
+                    aria-label="Remover imagem"
                     className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
                   >
                     <X className="h-4 w-4" />

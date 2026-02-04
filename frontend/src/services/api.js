@@ -31,6 +31,10 @@ api.interceptors.request.use(
         config.headers.Authorization = `Bearer ${token}`
       }
     }
+    // FormData: não enviar Content-Type para o axios/navegador definir multipart/form-data com boundary
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type']
+    }
     return config
   },
   (error) => {

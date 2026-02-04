@@ -15,8 +15,9 @@ export default defineConfig({
   },
   preview: {
     port: 80,
-    host: '0.0.0.0',
-    // Permitir todos os hosts em produção (servido por proxy reverso)
-    allowedHosts: ['all'],
+    host: true, // Permite todos os hosts automaticamente
+    strictPort: false,
+    // Desabilitar verificação de host - permitir qualquer host
+    allowedHosts: 'all',
   },
 })

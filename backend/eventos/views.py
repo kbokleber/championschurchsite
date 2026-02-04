@@ -20,7 +20,7 @@ from .serializers import (
     MembroSerializer, MembroResumoSerializer,
     EventoSerializer, EventoListaSerializer,
     InscricaoSerializer, ContatoSerializer,
-    UserSerializer, ConfiguracaoSiteSerializer,
+    UserSerializer, ConfiguracaoSiteSerializer, ConfiguracaoSitePublicSerializer,
     CategoriaParticipanteSerializer, CobrancaSerializer
 )
 
@@ -2140,9 +2140,16 @@ def configuracao_publica(request):
     Retorna as configurações públicas do site.
     Endpoint público para uso no frontend.
     """
-    config = ConfiguracaoSite.get_config()
-    serializer = ConfiguracaoSiteSerializer(config)
-    return Response(serializer.data)
+    try:
+        config = ConfiguracaoSite.get_config()
+        serializer = ConfiguracaoSitePublicSerializer(config)
+        return Response(serializer.data)
+    except Exception as e:
+        logger.error(f"Erro ao buscar configuração pública: {e}", exc_info=True)
+        return Response(
+            {'error': 'Erro ao carregar configurações'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 
 @api_view(['GET', 'PUT', 'PATCH'])

@@ -13,8 +13,9 @@ echo "🔧 Configurando Nginx com BACKEND_URL: ${BACKEND_URL}"
 
 # Extrair host e porta do BACKEND_URL para teste de conectividade e header Host
 # Exemplo: http://host:port ou http://host
-BACKEND_HOST=$(echo "$BACKEND_URL" | sed -E 's|^https?://||' | sed -E 's|/.*$||' | cut -d: -f1)
-BACKEND_PORT=$(echo "$BACKEND_URL" | sed -E 's|^https?://||' | sed -E 's|/.*$||' | cut -d: -f2)
+BACKEND_URL_CLEAN=$(echo "$BACKEND_URL" | sed -E 's|^https?://||' | sed -E 's|/.*$||')
+BACKEND_HOST=$(echo "$BACKEND_URL_CLEAN" | cut -d: -f1)
+BACKEND_PORT=$(echo "$BACKEND_URL_CLEAN" | cut -d: -f2)
 BACKEND_PORT=${BACKEND_PORT:-80}
 
 # Exportar BACKEND_HOST para uso no envsubst
@@ -38,13 +39,21 @@ fi
 
 # Substituir variáveis BACKEND_URL e BACKEND_HOST no template do Nginx
 if [ -f /etc/nginx/templates/default.conf.template ]; then
+    echo "🔧 Substituindo variáveis: BACKEND_URL=${BACKEND_URL}, BACKEND_HOST=${BACKEND_HOST}"
     envsubst '${BACKEND_URL} ${BACKEND_HOST}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
     echo "✓ Configuração do Nginx gerada com sucesso"
     
     # Mostrar configuração do proxy para debug
     echo "📄 Configuração do proxy gerada:"
-    grep -A 5 "location /api/" /etc/nginx/conf.d/default.conf || true
+    grep -A 8 "location /api/" /etc/nginx/conf.d/default.conf || true
     echo ""
+    
+    # Verificar se BACKEND_HOST foi substituído corretamente
+    if grep -q '\${BACKEND_HOST}' /etc/nginx/conf.d/default.conf; then
+        echo "⚠️ AVISO: BACKEND_HOST não foi substituído! Verifique se está exportado."
+    else
+        echo "✓ BACKEND_HOST substituído corretamente"
+    fi
 else
     echo "⚠️ Template não encontrado, usando configuração padrão"
 fi

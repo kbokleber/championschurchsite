@@ -1,9 +1,11 @@
 import axios from 'axios'
 
 // Usar variável de ambiente se disponível, caso contrário usar proxy relativo
-const API_BASE_URL = import.meta.env.VITE_API_URL 
-  ? `${import.meta.env.VITE_API_URL}/api`
-  : '/api'
+// Remover barra final da URL base para evitar dupla barra
+const baseUrl = import.meta.env.VITE_API_URL 
+  ? import.meta.env.VITE_API_URL.replace(/\/+$/, '') // Remove barras no final
+  : ''
+const API_BASE_URL = baseUrl ? `${baseUrl}/api` : '/api'
 
 // Debug: log da URL da API sendo usada
 console.log('API Base URL:', API_BASE_URL)

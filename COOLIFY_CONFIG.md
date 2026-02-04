@@ -66,8 +66,10 @@ python manage.py collectstatic --noinput
   ```
 - **Start Command:** 
   ```
-  npx vite preview --host 0.0.0.0 --port 80
+  npx vite preview --host 0.0.0.0 --port 80 --allowedHosts all
   ```
+  
+  **⚠️ IMPORTANTE:** Adicione a flag `--allowedHosts all` no comando de start para permitir todos os hosts!
 
 **Nota:** Um arquivo `nixpacks.toml` foi criado na pasta `frontend/` para ajudar o Nixpacks a detectar corretamente a aplicação.
 

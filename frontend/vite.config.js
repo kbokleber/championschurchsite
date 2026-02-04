@@ -15,9 +15,9 @@ export default defineConfig({
   },
   preview: {
     port: 80,
-    host: true, // Permite todos os hosts automaticamente
+    host: '0.0.0.0',
     strictPort: false,
-    // Desabilitar verificação de host - permitir qualquer host
-    allowedHosts: 'all',
+    // Permitir todos os hosts - usar array vazio para desabilitar verificação
+    allowedHosts: [],
   },
 })

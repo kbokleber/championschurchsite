@@ -21,7 +21,12 @@ DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('true', '1', 'yes')
 ENVIRONMENT = os.environ.get('DJANGO_ENVIRONMENT', 'development')  # development, staging, production
 
 # Hosts permitidos
-ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+# Aceitar localhost (com ou sem porta) e hosts configurados via variável de ambiente
+default_hosts = ['localhost', '127.0.0.1', '0.0.0.0']
+env_hosts = os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if os.environ.get('DJANGO_ALLOWED_HOSTS') else []
+ALLOWED_HOSTS = default_hosts + [h.strip() for h in env_hosts if h.strip()]
+# Remover duplicatas mantendo ordem
+ALLOWED_HOSTS = list(dict.fromkeys(ALLOWED_HOSTS))
 
 # ==============================================
 # CONFIGURAÇÕES DE SEGURANÇA

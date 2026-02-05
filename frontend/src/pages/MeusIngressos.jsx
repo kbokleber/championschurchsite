@@ -540,6 +540,11 @@ function MeusIngressos() {
                                 alt="QR Code"
                                 className="w-36 h-36 sm:w-40 sm:h-40 mb-2 sm:mb-3"
                               />
+                              {participante?.nome && (
+                                <p className="text-sm sm:text-base font-bold text-church-navy mb-2 sm:mb-3 text-center">
+                                  {participante.nome}
+                                </p>
+                              )}
                               <a
                                 href={getMediaUrl(ingresso.qrcode)}
                                 download={`ingresso-${ingresso.evento.titulo.replace(/\s+/g, '-')}.png`}

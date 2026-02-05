@@ -72,9 +72,30 @@ export function ParticipanteProvider({ children }) {
     carregarPerfil(token)
   }, [])
 
+  // Verifica se o token está próximo de expirar (menos de 30 dias)
+  const isTokenProximoExpiracao = (token) => {
+    if (!token) return true
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]))
+      const exp = payload.exp * 1000 // Converter para milissegundos
+      const agora = Date.now()
+      const diasRestantes = (exp - agora) / (1000 * 60 * 60 * 24)
+      return diasRestantes < 30 // Considerar próximo de expirar se faltar menos de 30 dias
+    } catch {
+      return false // Se não conseguir decodificar, considerar válido (será validado no backend)
+    }
+  }
+
   const carregarPerfil = async (token, options = {}) => {
     const { isRefresh = false, silent = false } = options
     if (!silent) setLoadError(false)
+    
+    // Verificar se o token está próximo de expirar e tentar renovar
+    if (isTokenProximoExpiracao(token)) {
+      console.log('Token próximo de expirar, tentando renovar...')
+      // Por enquanto, apenas logamos - a renovação será feita no backend se necessário
+    }
+    
     try {
       const response = await api.get('/participante/perfil/', {
         headers: {
@@ -93,14 +114,42 @@ export function ParticipanteProvider({ children }) {
     } catch (error) {
       console.error('Erro ao carregar perfil:', error)
       const isUnauthorized = error.response?.status === 401
+      
       if (isUnauthorized) {
-        localStorage.removeItem('participante_token')
-        setParticipante(null)
-        setIngressos([])
-        limparCache()
+        // Verificar se é erro de token expirado ou inválido
+        const errorMsg = error.response?.data?.error || ''
+        const isTokenExpirado = errorMsg.includes('expirado') || errorMsg.includes('expired')
+        
+        // Se o token expirou e temos cache, manter logado usando o cache
+        // O usuário continuará logado visualmente, mas precisará fazer login novamente
+        // apenas quando tentar fazer uma ação que requer token válido
+        if (isTokenExpirado) {
+          const cache = lerCache()
+          if (cache.participante) {
+            // Manter dados do cache e não fazer logout imediato
+            // O usuário permanecerá logado visualmente
+            console.warn('Token expirado, mas mantendo sessão com cache. Faça login novamente para atualizar.')
+            if (!silent) setLoadError(false)
+            return { success: false, tokenExpirado: true }
+          }
+        }
+        
+        // Só fazer logout se realmente não tiver cache ou se o token for inválido (não apenas expirado)
+        // Mas mesmo assim, tentar manter o cache se existir
+        const cache = lerCache()
+        if (!cache.participante) {
+          localStorage.removeItem('participante_token')
+          setParticipante(null)
+          setIngressos([])
+          limparCache()
+        } else {
+          // Manter cache mesmo com erro 401, para não deslogar o usuário
+          console.warn('Erro de autenticação, mas mantendo sessão com cache')
+        }
         if (!silent) setLoadError(false)
         return { success: false }
       }
+      
       const temCache = !!lerCache().participante
       if (temCache) {
         if (!silent) setLoadError(false)

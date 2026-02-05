@@ -416,6 +416,7 @@ def participante_login(request):
     
     # Gerar token JWT customizado para participante
     # Usamos um token simples baseado no ID do membro
+    # Token válido por 1 ano para evitar logout automático
     import jwt
     from django.conf import settings
     from datetime import datetime, timedelta
@@ -425,7 +426,7 @@ def participante_login(request):
         'participante_id': membro.id,
         'telefone': membro.telefone,
         'nome': membro.nome,
-        'exp': int((now + timedelta(days=30)).timestamp()),
+        'exp': int((now + timedelta(days=365)).timestamp()),  # Token válido por 1 ano
         'iat': int(now.timestamp()),
         'type': 'participante'
     }
@@ -834,7 +835,7 @@ def participante_registro(request):
             'participante_id': membro.id,
             'telefone': membro.telefone,
             'nome': membro.nome,
-            'exp': int((now + timedelta(days=30)).timestamp()),
+            'exp': int((now + timedelta(days=365)).timestamp()),  # Token válido por 1 ano
             'iat': int(now.timestamp()),
             'type': 'participante'
         }
@@ -980,7 +981,7 @@ def participante_registro(request):
                 'participante_id': membro.id,
                 'telefone': membro.telefone,
                 'nome': membro.nome,
-                'exp': int((now + timedelta(days=30)).timestamp()),
+                'exp': int((now + timedelta(days=365)).timestamp()),  # Token válido por 1 ano
                 'iat': int(now.timestamp()),
                 'type': 'participante'
             },
@@ -1111,13 +1112,14 @@ def participante_registro(request):
                 descricao=f"{acomp_data['nome']} - {acomp_data['categoria'] or 'Adulto'}"
             )
     
-    # Gerar token de login (exp/iat em timestamp numérico para sessão de 30 dias)
+    # Gerar token de login (exp/iat em timestamp numérico para sessão de 1 ano)
+    # Token válido por 1 ano para evitar logout automático
     now = datetime.utcnow()
     payload = {
         'participante_id': membro.id,
         'telefone': membro.telefone,
         'nome': membro.nome,
-        'exp': int((now + timedelta(days=30)).timestamp()),
+        'exp': int((now + timedelta(days=365)).timestamp()),  # Token válido por 1 ano
         'iat': int(now.timestamp()),
         'type': 'participante'
     }

@@ -6,12 +6,13 @@ from django.utils import timezone as tz
 def gerar_token_participante(membro):
     """
     Gera um token JWT para um participante.
+    Token válido por 1 ano para evitar logout automático.
     """
     payload = {
         'participante_id': membro.id,
         'telefone': membro.telefone,
         'nome': membro.nome,
-        'exp': datetime.utcnow() + timedelta(days=30),
+        'exp': datetime.utcnow() + timedelta(days=365),  # Token válido por 1 ano
         'iat': datetime.utcnow(),
         'type': 'participante'
     }

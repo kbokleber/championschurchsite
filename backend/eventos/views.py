@@ -1562,6 +1562,19 @@ class MembroViewSet(viewsets.ModelViewSet):
         return queryset
 
 
+def _aplicar_imagem_padrao_evento(evento):
+    """Aplica a imagem padrão ao evento quando não possui imagem."""
+    if evento.imagem:
+        return
+    from pathlib import Path
+    from django.core.files import File
+    default_path = Path(__file__).resolve().parent / 'evento-default.png'
+    if default_path.exists():
+        ext = default_path.suffix or '.png'
+        with open(default_path, 'rb') as f:
+            evento.imagem.save(f'evento-{evento.id}{ext}', File(f), save=True)
+
+
 class EventoViewSet(viewsets.ModelViewSet):
     """ViewSet para operações CRUD de Eventos."""
     
@@ -1570,7 +1583,9 @@ class EventoViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         serializer.save()
-        thread = threading.Thread(target=enviar_webhook_evento, args=(serializer.instance, 'criado'))
+        evento = serializer.instance
+        _aplicar_imagem_padrao_evento(evento)
+        thread = threading.Thread(target=enviar_webhook_evento, args=(evento, 'criado'))
         thread.start()
     
     def perform_update(self, serializer):

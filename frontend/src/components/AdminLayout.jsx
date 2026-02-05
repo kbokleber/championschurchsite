@@ -1,29 +1,71 @@
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { 
   Church, LayoutDashboard, Calendar, Users, 
   FileText, Mail, LogOut, Menu, X, ChevronDown,
-  Home, QrCode, Settings, Tags, DollarSign
+  Home, QrCode, Settings, Tags, DollarSign, Shield
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import api from '../services/api'
+
+// Mapeamento de códigos de menu para paths (fora do componente para evitar recriação)
+const MENU_MAPPING = {
+  'dashboard': { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
+  'eventos': { path: '/admin/eventos', label: 'Eventos', icon: Calendar },
+  'membros': { path: '/admin/membros', label: 'Membros', icon: Users },
+  'inscricoes': { path: '/admin/inscricoes', label: 'Inscrições', icon: FileText },
+  'cobrancas': { path: '/admin/cobrancas', label: 'Cobranças', icon: DollarSign },
+  'checkin': { path: '/admin/checkin', label: 'Check-in', icon: QrCode },
+  'contatos': { path: '/admin/contatos', label: 'Contatos', icon: Mail },
+  'categorias': { path: '/admin/categorias', label: 'Categorias', icon: Tags },
+  'configuracoes': { path: '/admin/configuracoes', label: 'Configurações', icon: Settings },
+  'usuarios': { path: '/admin/usuarios', label: 'Usuários', icon: Shield },
+  'grupos': { path: '/admin/grupos', label: 'Grupos', icon: Users },
+}
 
 function AdminLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { user, logout } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
+  const [menusPermitidos, setMenusPermitidos] = useState([])
 
-  const menuItems = [
-    { path: '/admin', label: 'Dashboard', icon: <LayoutDashboard className="h-5 w-5" /> },
-    { path: '/admin/eventos', label: 'Eventos', icon: <Calendar className="h-5 w-5" /> },
-    { path: '/admin/membros', label: 'Membros', icon: <Users className="h-5 w-5" /> },
-    { path: '/admin/inscricoes', label: 'Inscrições', icon: <FileText className="h-5 w-5" /> },
-    { path: '/admin/cobrancas', label: 'Cobranças', icon: <DollarSign className="h-5 w-5" /> },
-    { path: '/admin/checkin', label: 'Check-in', icon: <QrCode className="h-5 w-5" /> },
-    { path: '/admin/contatos', label: 'Contatos', icon: <Mail className="h-5 w-5" /> },
-    { path: '/admin/categorias', label: 'Categorias', icon: <Tags className="h-5 w-5" /> },
-    { path: '/admin/configuracoes', label: 'Configurações', icon: <Settings className="h-5 w-5" /> },
-  ]
+  useEffect(() => {
+    // Carregar menus permitidos do usuário
+    if (user) {
+      if (user.is_superuser) {
+        // Super usuário tem acesso a tudo
+        setMenusPermitidos(Object.keys(MENU_MAPPING))
+      } else if (user.menus_permitidos) {
+        // Usuário comum: usar menus permitidos do backend
+        setMenusPermitidos(user.menus_permitidos)
+      } else {
+        // Fallback: buscar do backend
+        fetchMenusPermitidos()
+      }
+    }
+  }, [user])
+
+  const fetchMenusPermitidos = async () => {
+    try {
+      const response = await api.get('/auth/menus-permitidos/')
+      setMenusPermitidos(response.data.codigos || [])
+    } catch (error) {
+      console.error('Erro ao carregar menus permitidos:', error)
+      // Em caso de erro, mostrar todos os menus (fallback)
+      setMenusPermitidos(Object.keys(MENU_MAPPING))
+    }
+  }
+
+  // Filtrar menuItems baseado nas permissões
+  const menuItems = useMemo(() => {
+    return Object.entries(MENU_MAPPING)
+      .filter(([codigo]) => menusPermitidos.includes(codigo))
+      .map(([codigo, item]) => ({
+        ...item,
+        icon: <item.icon className="h-5 w-5" />
+      }))
+  }, [menusPermitidos])
 
   const isActive = (path) => {
     if (path === '/admin') {
@@ -48,11 +90,11 @@ function AdminLayout({ children }) {
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed top-0 left-0 z-50 h-full w-64 bg-church-navy transform transition-transform duration-300 lg:translate-x-0 ${
+      <aside className={`fixed top-0 left-0 z-50 h-full w-64 bg-church-navy transform transition-transform duration-300 lg:translate-x-0 flex flex-col ${
         sidebarOpen ? 'translate-x-0' : '-translate-x-full'
       }`}>
         {/* Logo */}
-        <div className="h-16 flex items-center justify-between px-4 border-b border-gray-700">
+        <div className="h-16 flex-shrink-0 flex items-center justify-between px-4 border-b border-gray-700">
           <Link to="/admin" className="flex items-center space-x-2">
             <Church className="h-8 w-8 text-church-gold" />
             <span className="text-lg font-serif font-bold text-white">Champions</span>
@@ -65,8 +107,8 @@ function AdminLayout({ children }) {
           </button>
         </div>
 
-        {/* Navigation */}
-        <nav className="p-4 space-y-1">
+        {/* Navigation - Scrollable */}
+        <nav className="flex-1 overflow-y-auto p-4 space-y-1 min-h-0">
           {menuItems.map((item) => (
             <Link
               key={item.path}
@@ -84,11 +126,12 @@ function AdminLayout({ children }) {
           ))}
         </nav>
 
-        {/* Footer */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-700">
+        {/* Footer - Fixed at bottom */}
+        <div className="flex-shrink-0 p-4 border-t border-gray-700 bg-church-navy">
           <Link
             to="/"
             className="flex items-center space-x-3 px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-lg transition-colors mb-2"
+            onClick={() => setSidebarOpen(false)}
           >
             <Home className="h-5 w-5" />
             <span>Ver Site</span>

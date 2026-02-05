@@ -20,7 +20,23 @@ export function AuthProvider({ children }) {
   const loadUser = async () => {
     try {
       const response = await api.get('/auth/me/')
-      setUser(response.data)
+      const userData = response.data
+      
+      // Se não for superusuário, buscar menus permitidos
+      if (!userData.is_superuser) {
+        try {
+          const menusResponse = await api.get('/auth/menus-permitidos/')
+          userData.menus_permitidos = menusResponse.data.codigos || []
+        } catch (error) {
+          console.error('Erro ao carregar menus permitidos:', error)
+          userData.menus_permitidos = []
+        }
+      } else {
+        // Superusuário tem acesso a tudo
+        userData.menus_permitidos = ['dashboard', 'eventos', 'membros', 'inscricoes', 'cobrancas', 'checkin', 'contatos', 'categorias', 'configuracoes', 'usuarios', 'grupos']
+      }
+      
+      setUser(userData)
     } catch (error) {
       console.error('Erro ao carregar usuário:', error)
       logout()

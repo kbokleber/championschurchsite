@@ -8,10 +8,12 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from .views import (
     MembroViewSet, EventoViewSet, InscricaoViewSet, ContatoViewSet,
     CategoriaParticipanteViewSet, CobrancaViewSet,
+    PermissaoMenuViewSet, GrupoViewSet, UsuarioAdminViewSet,
     get_current_user, dashboard_stats, meus_ingressos,
     participante_login, participante_esqueci_senha, participante_registro, participante_perfil,
     buscar_participante_por_telefone,
     configuracao_publica, configuracao_admin,
+    verificar_permissao_menu, menus_permitidos,
     # Mercado Pago
     criar_pagamento_pix, mercadopago_webhook, verificar_pagamento, mercadopago_config_publica
 )
@@ -24,12 +26,19 @@ router.register(r'inscricoes', InscricaoViewSet, basename='inscricao')
 router.register(r'contatos', ContatoViewSet, basename='contato')
 router.register(r'categorias', CategoriaParticipanteViewSet, basename='categoria')
 router.register(r'cobrancas', CobrancaViewSet, basename='cobranca')
+router.register(r'permissoes-menu', PermissaoMenuViewSet, basename='permissaomenu')
+router.register(r'grupos', GrupoViewSet, basename='grupo')
+router.register(r'usuarios', UsuarioAdminViewSet, basename='usuario')
 
 urlpatterns = [
     # Autenticação JWT
     path('auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('auth/me/', get_current_user, name='current_user'),
+    
+    # Permissões e Menus
+    path('auth/menus-permitidos/', menus_permitidos, name='menus_permitidos'),
+    path('auth/verificar-permissao/<str:codigo_menu>/', verificar_permissao_menu, name='verificar_permissao'),
     
     # Dashboard
     path('dashboard/stats/', dashboard_stats, name='dashboard_stats'),

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Save, Upload, X, Church, Mail, Phone, MapPin, Facebook, Instagram, Youtube, Twitter, Globe, Webhook, ToggleLeft, ToggleRight, CreditCard, AlertTriangle, CheckCircle, Eye, EyeOff } from 'lucide-react'
+import { Save, Upload, X, Church, Mail, Phone, MapPin, Facebook, Instagram, Youtube, Twitter, Globe, Webhook, ToggleLeft, ToggleRight, CreditCard, AlertTriangle, CheckCircle, Eye, EyeOff, MessageSquare } from 'lucide-react'
 import api from '../../services/api'
 import LoadingSpinner from '../../components/LoadingSpinner'
 
@@ -35,7 +35,11 @@ function AdminConfiguracoes() {
     mp_public_key_sandbox: '',
     mp_access_token_sandbox: '',
     mp_public_key_production: '',
-    mp_access_token_production: ''
+    mp_access_token_production: '',
+    // WhatsApp Evolution API
+    evolution_api_url: '',
+    evolution_api_key: '',
+    evolution_api_instance: ''
   })
 
   const [logoPreview, setLogoPreview] = useState(null)
@@ -44,6 +48,7 @@ function AdminConfiguracoes() {
   const [newLogoBranco, setNewLogoBranco] = useState(null)
   const [showAccessTokenSandbox, setShowAccessTokenSandbox] = useState(false)
   const [showAccessTokenProduction, setShowAccessTokenProduction] = useState(false)
+  const [showEvolutionApiKey, setShowEvolutionApiKey] = useState(false)
 
   useEffect(() => {
     fetchConfiguracao()
@@ -80,7 +85,11 @@ function AdminConfiguracoes() {
         mp_public_key_sandbox: data.mp_public_key_sandbox || '',
         mp_access_token_sandbox: data.mp_access_token_sandbox || '',
         mp_public_key_production: data.mp_public_key_production || '',
-        mp_access_token_production: data.mp_access_token_production || ''
+        mp_access_token_production: data.mp_access_token_production || '',
+        // WhatsApp Evolution API
+        evolution_api_url: data.evolution_api_url || '',
+        evolution_api_key: data.evolution_api_key || '',
+        evolution_api_instance: data.evolution_api_instance || ''
       })
 
       if (data.logo) {
@@ -183,6 +192,7 @@ function AdminConfiguracoes() {
     { id: 'redes', label: 'Redes Sociais', icon: Globe },
     { id: 'visual', label: 'Logo e Visual', icon: Upload },
     { id: 'integracoes', label: 'Integrações', icon: Webhook },
+    { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare },
     { id: 'mercadopago', label: 'Mercado Pago', icon: CreditCard }
   ]
 
@@ -691,6 +701,91 @@ function AdminConfiguracoes() {
   }
 }`}
                 </pre>
+              </div>
+            </div>
+          )}
+
+          {/* Tab: WhatsApp Evolution API */}
+          {activeTab === 'whatsapp' && (
+            <div className="space-y-6">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                <h3 className="font-medium text-blue-800 mb-2">Integração com WhatsApp via Evolution API</h3>
+                <p className="text-sm text-blue-700">
+                  Configure a integração com WhatsApp usando a Evolution API para envio automático de mensagens,
+                  notificações de inscrições e outras funcionalidades.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  URL da API Evolution *
+                </label>
+                <input
+                  type="url"
+                  name="evolution_api_url"
+                  value={formData.evolution_api_url}
+                  onChange={handleChange}
+                  className="input-field"
+                  placeholder="https://api.evolution.com.br"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  URL base da API Evolution (sem barra no final)
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Chave de API *
+                </label>
+                <div className="relative">
+                  <input
+                    type={showEvolutionApiKey ? 'text' : 'password'}
+                    name="evolution_api_key"
+                    value={formData.evolution_api_key}
+                    onChange={handleChange}
+                    className="input-field font-mono text-sm pr-10"
+                    placeholder="Sua chave de API da Evolution"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowEvolutionApiKey((s) => !s)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 rounded"
+                    title={showEvolutionApiKey ? 'Ocultar chave' : 'Mostrar chave'}
+                  >
+                    {showEvolutionApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Chave de autenticação fornecida pela Evolution API
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Instância *
+                </label>
+                <input
+                  type="text"
+                  name="evolution_api_instance"
+                  value={formData.evolution_api_instance}
+                  onChange={handleChange}
+                  className="input-field"
+                  placeholder="nome-da-instancia"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Nome da instância configurada na Evolution API
+                </p>
+              </div>
+
+              {/* Instruções */}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <h4 className="font-medium text-gray-800 mb-2">Como obter as credenciais</h4>
+                <ol className="text-sm text-gray-700 list-decimal list-inside space-y-1">
+                  <li>Acesse o painel da Evolution API</li>
+                  <li>Vá em "Instâncias" e crie ou selecione uma instância</li>
+                  <li>Copie a URL da API, a chave de API e o nome da instância</li>
+                  <li>Certifique-se de que a instância está conectada e ativa</li>
+                </ol>
               </div>
             </div>
           )}

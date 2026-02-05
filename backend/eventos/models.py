@@ -888,6 +888,25 @@ class ConfiguracaoSite(models.Model):
         help_text='Token de acesso do Mercado Pago para produção'
     )
     
+    # WhatsApp Evolution API
+    evolution_api_url = models.URLField(
+        verbose_name='URL da API Evolution',
+        blank=True,
+        help_text='URL base da API Evolution (ex: https://api.evolution.com.br)'
+    )
+    evolution_api_key = models.CharField(
+        max_length=200,
+        verbose_name='Chave de API Evolution',
+        blank=True,
+        help_text='Chave de autenticação da API Evolution'
+    )
+    evolution_api_instance = models.CharField(
+        max_length=100,
+        verbose_name='Instância Evolution',
+        blank=True,
+        help_text='Nome da instância configurada na Evolution API'
+    )
+    
     # Metadata
     atualizado_em = models.DateTimeField(auto_now=True, verbose_name='Atualizado em')
     
@@ -934,3 +953,131 @@ class ConfiguracaoSite(models.Model):
     def mp_is_sandbox(self):
         """Verifica se está em ambiente sandbox."""
         return self.mp_ambiente == 'sandbox'
+
+
+class PermissaoMenu(models.Model):
+    """Modelo para definir permissões de acesso a menus do sistema administrativo."""
+    
+    codigo = models.CharField(
+        max_length=50,
+        unique=True,
+        verbose_name='Código',
+        help_text='Código único do menu (ex: eventos, membros, inscricoes)'
+    )
+    nome = models.CharField(
+        max_length=100,
+        verbose_name='Nome do Menu',
+        help_text='Nome exibido do menu (ex: Eventos, Membros, Inscrições)'
+    )
+    descricao = models.TextField(
+        verbose_name='Descrição',
+        blank=True,
+        help_text='Descrição opcional da funcionalidade do menu'
+    )
+    ordem = models.PositiveIntegerField(
+        default=0,
+        verbose_name='Ordem',
+        help_text='Ordem de exibição do menu (menor = primeiro)'
+    )
+    ativo = models.BooleanField(
+        default=True,
+        verbose_name='Ativo',
+        help_text='Se inativo, o menu não aparecerá para nenhum grupo'
+    )
+    criado_em = models.DateTimeField(auto_now_add=True, verbose_name='Criado em')
+    
+    class Meta:
+        verbose_name = 'Permissão de Menu'
+        verbose_name_plural = 'Permissões de Menu'
+        ordering = ['ordem', 'nome']
+    
+    def __str__(self):
+        return f"{self.nome} ({self.codigo})"
+
+
+class Grupo(models.Model):
+    """Modelo para grupos de usuários com permissões de acesso a menus."""
+    
+    nome = models.CharField(
+        max_length=100,
+        unique=True,
+        verbose_name='Nome do Grupo',
+        help_text='Nome do grupo (ex: Administradores, Secretaria, Financeiro)'
+    )
+    descricao = models.TextField(
+        verbose_name='Descrição',
+        blank=True,
+        help_text='Descrição do grupo e suas responsabilidades'
+    )
+    permissoes = models.ManyToManyField(
+        PermissaoMenu,
+        related_name='grupos',
+        verbose_name='Permissões',
+        help_text='Menus que este grupo pode acessar',
+        blank=True
+    )
+    usuarios = models.ManyToManyField(
+        'auth.User',
+        related_name='grupos_admin',
+        verbose_name='Usuários',
+        help_text='Usuários que pertencem a este grupo',
+        blank=True
+    )
+    ativo = models.BooleanField(
+        default=True,
+        verbose_name='Ativo',
+        help_text='Grupos inativos não concedem permissões'
+    )
+    criado_em = models.DateTimeField(auto_now_add=True, verbose_name='Criado em')
+    atualizado_em = models.DateTimeField(auto_now=True, verbose_name='Atualizado em')
+    
+    class Meta:
+        verbose_name = 'Grupo'
+        verbose_name_plural = 'Grupos'
+        ordering = ['nome']
+    
+    def __str__(self):
+        return self.nome
+    
+    def tem_permissao_menu(self, codigo_menu):
+        """Verifica se o grupo tem permissão para acessar um menu específico."""
+        if not self.ativo:
+            return False
+        return self.permissoes.filter(codigo=codigo_menu, ativo=True).exists()
+    
+    @staticmethod
+    def usuario_tem_permissao_menu(usuario, codigo_menu):
+        """Verifica se um usuário tem permissão para acessar um menu através de seus grupos."""
+        if not usuario or not usuario.is_authenticated:
+            return False
+        
+        # Superusuários têm acesso a tudo
+        if usuario.is_superuser:
+            return True
+        
+        # Verifica se algum grupo ativo do usuário tem a permissão
+        grupos_ativos = usuario.grupos_admin.filter(ativo=True)
+        for grupo in grupos_ativos:
+            if grupo.tem_permissao_menu(codigo_menu):
+                return True
+        
+        return False
+    
+    @staticmethod
+    def get_menus_permitidos_usuario(usuario):
+        """Retorna lista de códigos de menus que o usuário pode acessar."""
+        if not usuario or not usuario.is_authenticated:
+            return []
+        
+        # Superusuários têm acesso a tudo
+        if usuario.is_superuser:
+            return PermissaoMenu.objects.filter(ativo=True).values_list('codigo', flat=True)
+        
+        # Coletar permissões de todos os grupos ativos do usuário
+        grupos_ativos = usuario.grupos_admin.filter(ativo=True)
+        permissoes = PermissaoMenu.objects.filter(
+            grupos__in=grupos_ativos,
+            ativo=True
+        ).distinct().values_list('codigo', flat=True)
+        
+        return list(permissoes)

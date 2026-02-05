@@ -5,16 +5,155 @@ Serializers para a API REST da Champions Church.
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from django.utils import timezone
-from .models import Membro, Evento, Inscricao, Contato, ConfiguracaoSite, CategoriaParticipante, Cobranca, CobrancaItem
+from .models import (
+    Membro, Evento, Inscricao, Contato, ConfiguracaoSite, 
+    CategoriaParticipante, Cobranca, CobrancaItem,
+    PermissaoMenu, Grupo
+)
 
 
 class UserSerializer(serializers.ModelSerializer):
     """Serializer para o modelo User do Django."""
     
+    grupos = serializers.SerializerMethodField()
+    menus_permitidos = serializers.SerializerMethodField()
+    
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'is_staff']
-        read_only_fields = ['id', 'is_staff']
+        fields = [
+            'id', 'username', 'email', 'first_name', 'last_name', 
+            'is_staff', 'is_superuser', 'grupos', 'menus_permitidos'
+        ]
+        read_only_fields = ['id', 'is_staff', 'is_superuser', 'grupos', 'menus_permitidos']
+    
+    def get_grupos(self, obj):
+        """Retorna os grupos ativos do usuário."""
+        grupos = obj.grupos_admin.filter(ativo=True)
+        return [{'id': g.id, 'nome': g.nome} for g in grupos]
+    
+    def get_menus_permitidos(self, obj):
+        """Retorna os códigos de menus que o usuário pode acessar."""
+        return Grupo.get_menus_permitidos_usuario(obj)
+
+
+class PermissaoMenuSerializer(serializers.ModelSerializer):
+    """Serializer para o modelo PermissaoMenu."""
+    
+    class Meta:
+        model = PermissaoMenu
+        fields = [
+            'id', 'codigo', 'nome', 'descricao', 'ordem', 'ativo', 'criado_em'
+        ]
+        read_only_fields = ['id', 'criado_em']
+
+
+class GrupoSerializer(serializers.ModelSerializer):
+    """Serializer para o modelo Grupo."""
+    
+    permissoes_detalhes = PermissaoMenuSerializer(source='permissoes', many=True, read_only=True)
+    permissoes_ids = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=PermissaoMenu.objects.all(),
+        source='permissoes',
+        write_only=True,
+        required=False
+    )
+    usuarios_count = serializers.SerializerMethodField()
+    usuarios_detalhes = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Grupo
+        fields = [
+            'id', 'nome', 'descricao', 'permissoes', 'permissoes_ids',
+            'permissoes_detalhes', 'usuarios', 'usuarios_count', 'usuarios_detalhes',
+            'ativo', 'criado_em', 'atualizado_em'
+        ]
+        read_only_fields = ['id', 'criado_em', 'atualizado_em', 'usuarios_count', 'usuarios_detalhes']
+    
+    def get_usuarios_count(self, obj):
+        """Retorna a quantidade de usuários no grupo."""
+        return obj.usuarios.count()
+    
+    def get_usuarios_detalhes(self, obj):
+        """Retorna detalhes dos usuários do grupo."""
+        usuarios = obj.usuarios.all()
+        return [
+            {
+                'id': u.id,
+                'username': u.username,
+                'first_name': u.first_name,
+                'last_name': u.last_name,
+                'email': u.email
+            }
+            for u in usuarios
+        ]
+
+
+class UsuarioAdminSerializer(serializers.ModelSerializer):
+    """Serializer para criação/edição de usuários administrativos."""
+    
+    password = serializers.CharField(write_only=True, required=False)
+    grupos_ids = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Grupo.objects.all(),
+        source='grupos_admin',
+        write_only=True,
+        required=False
+    )
+    grupos = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = [
+            'id', 'username', 'email', 'first_name', 'last_name',
+            'password', 'is_staff', 'is_superuser', 'grupos_ids', 'grupos'
+        ]
+        read_only_fields = ['id']
+    
+    def get_grupos(self, obj):
+        """Retorna os grupos do usuário."""
+        grupos = obj.grupos_admin.all()
+        return [{'id': g.id, 'nome': g.nome} for g in grupos]
+    
+    def create(self, validated_data):
+        """Cria um novo usuário com senha criptografada."""
+        grupos_ids = validated_data.pop('grupos_admin', [])
+        password = validated_data.pop('password', None)
+        
+        if not password:
+            raise serializers.ValidationError({'password': 'Senha é obrigatória para criar usuário'})
+        
+        user = User.objects.create_user(
+            password=password,
+            **validated_data
+        )
+        
+        # Adicionar grupos
+        if grupos_ids:
+            user.grupos_admin.set(grupos_ids)
+        
+        return user
+    
+    def update(self, instance, validated_data):
+        """Atualiza um usuário existente."""
+        grupos_ids = validated_data.pop('grupos_admin', None)
+        password = validated_data.pop('password', None)
+        
+        # Atualizar senha se fornecida
+        if password:
+            instance.set_password(password)
+        
+        # Atualizar outros campos
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        
+        instance.save()
+        
+        # Atualizar grupos se fornecidos
+        if grupos_ids is not None:
+            instance.grupos_admin.set(grupos_ids)
+        
+        return instance
 
 
 class MembroSerializer(serializers.ModelSerializer):
@@ -335,6 +474,8 @@ class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
             'mp_public_key_production', 'mp_access_token_production',
             'mp_access_token_sandbox_masked', 'mp_access_token_production_masked',
             'mp_public_key', 'mp_is_sandbox',  # Campos computados
+            # WhatsApp Evolution API
+            'evolution_api_url', 'evolution_api_key', 'evolution_api_instance',
             'atualizado_em'
         ]
         read_only_fields = ['id', 'atualizado_em', 'mp_public_key', 'mp_is_sandbox',

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Search, Edit, Trash2, Users, Mail, Phone, Eye, EyeOff, Key } from 'lucide-react'
+import { Plus, Search, Edit, Trash2, Users, Phone, Eye, EyeOff, Key } from 'lucide-react'
 import api from '../../services/api'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ConfirmModal from '../../components/ConfirmModal'
@@ -89,7 +89,7 @@ function AdminMembros() {
   const membrosFiltrados = membros.filter(membro => {
     const matchBusca = 
       membro.nome?.toLowerCase().includes(busca.toLowerCase()) ||
-      membro.email?.toLowerCase().includes(busca.toLowerCase())
+      membro.telefone?.toLowerCase().includes(busca.toLowerCase())
     const matchStatus = filtroStatus === 'todos' || membro.status === filtroStatus
     return matchBusca && matchStatus
   })
@@ -123,7 +123,7 @@ function AdminMembros() {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Buscar por nome ou email..."
+              placeholder="Buscar por nome..."
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               className="input-field pl-10"
@@ -182,18 +182,14 @@ function AdminMembros() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="space-y-1">
+                      {membro.telefone ? (
                         <div className="flex items-center text-sm text-gray-600">
-                          <Mail className="h-4 w-4 mr-2 text-gray-400" />
-                          {membro.email || '-'}
+                          <Phone className="h-4 w-4 mr-2 text-gray-400" />
+                          {membro.telefone}
                         </div>
-                        {membro.telefone && (
-                          <div className="flex items-center text-sm text-gray-600">
-                            <Phone className="h-4 w-4 mr-2 text-gray-400" />
-                            {membro.telefone}
-                          </div>
-                        )}
-                      </div>
+                      ) : (
+                        <span className="text-sm text-gray-400">-</span>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       {membro.senha_texto ? (
@@ -283,12 +279,6 @@ function AdminMembros() {
               </div>
             </div>
             <div className="space-y-1 text-sm">
-              {modalConfig.membro.email && (
-                <p className="flex items-center text-gray-600">
-                  <Mail className="h-4 w-4 mr-2 text-gray-400" />
-                  {modalConfig.membro.email}
-                </p>
-              )}
               {modalConfig.membro.telefone && (
                 <p className="flex items-center text-gray-600">
                   <Phone className="h-4 w-4 mr-2 text-gray-400" />

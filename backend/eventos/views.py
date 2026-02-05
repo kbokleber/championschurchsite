@@ -10,18 +10,24 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly, AllowAny
+from rest_framework.exceptions import ValidationError
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.models import User
 from django.conf import settings
-from .models import Membro, Evento, Inscricao, Contato, ConfiguracaoSite, CategoriaParticipante, Cobranca, CobrancaItem
+from .models import (
+    Membro, Evento, Inscricao, Contato, ConfiguracaoSite, 
+    CategoriaParticipante, Cobranca, CobrancaItem,
+    PermissaoMenu, Grupo
+)
 from .serializers import (
     MembroSerializer, MembroResumoSerializer,
     EventoSerializer, EventoListaSerializer,
     InscricaoSerializer, ContatoSerializer,
     UserSerializer, ConfiguracaoSiteSerializer, ConfiguracaoSitePublicSerializer,
-    CategoriaParticipanteSerializer, CobrancaSerializer
+    CategoriaParticipanteSerializer, CobrancaSerializer,
+    PermissaoMenuSerializer, GrupoSerializer, UsuarioAdminSerializer
 )
 
 logger = logging.getLogger(__name__)
@@ -112,15 +118,26 @@ def enviar_webhook_inscricao(dados_webhook):
             }
         }
         
+        # Preparar headers com informações da Evolution API
+        headers = {
+            'Content-Type': 'application/json',
+            'User-Agent': 'ChampionsChurch-Webhook/1.0'
+        }
+        
+        # Adicionar informações da Evolution API nos headers
+        if config.evolution_api_url:
+            headers['X-Evolution-API-URL'] = config.evolution_api_url
+        if config.evolution_api_key:
+            headers['X-Evolution-API-Key'] = config.evolution_api_key
+        if config.evolution_api_instance:
+            headers['X-Evolution-Instance'] = config.evolution_api_instance
+        
         # Envia o webhook
         print(f'>>> WEBHOOK: Enviando para {config.webhook_inscricao}...')
         response = requests.post(
             config.webhook_inscricao,
             json=payload,
-            headers={
-                'Content-Type': 'application/json',
-                'User-Agent': 'ChampionsChurch-Webhook/1.0'
-            },
+            headers=headers,
             timeout=30
         )
         
@@ -159,14 +176,26 @@ def enviar_webhook_reset_senha(dados_webhook):
             'email': dados_webhook.get('email'),
             'senha': dados_webhook.get('senha'),
         }
+        
+        # Preparar headers com informações da Evolution API
+        headers = {
+            'Content-Type': 'application/json',
+            'User-Agent': 'ChampionsChurch-Webhook/1.0'
+        }
+        
+        # Adicionar informações da Evolution API nos headers
+        if config.evolution_api_url:
+            headers['X-Evolution-API-URL'] = config.evolution_api_url
+        if config.evolution_api_key:
+            headers['X-Evolution-API-Key'] = config.evolution_api_key
+        if config.evolution_api_instance:
+            headers['X-Evolution-Instance'] = config.evolution_api_instance
+        
         print(f'>>> WEBHOOK RESET SENHA: Enviando para {url}')
         response = requests.post(
             url,
             json=payload,
-            headers={
-                'Content-Type': 'application/json',
-                'User-Agent': 'ChampionsChurch-Webhook/1.0'
-            },
+            headers=headers,
             timeout=30
         )
         logger.info(f'Webhook reset senha enviado: {response.status_code} - {url}')
@@ -2999,11 +3028,25 @@ def _disparar_webhook_cobranca_confirmada(cobranca, tipo='pagamento_confirmado',
     
     def enviar():
         try:
+            # Preparar headers com informações da Evolution API
+            headers = {
+                'Content-Type': 'application/json',
+                'User-Agent': 'ChampionsChurch-Webhook/1.0'
+            }
+            
+            # Adicionar informações da Evolution API nos headers
+            if config.evolution_api_url:
+                headers['X-Evolution-API-URL'] = config.evolution_api_url
+            if config.evolution_api_key:
+                headers['X-Evolution-API-Key'] = config.evolution_api_key
+            if config.evolution_api_instance:
+                headers['X-Evolution-Instance'] = config.evolution_api_instance
+            
             print(f'[WEBHOOK] Enviando para: {config.webhook_inscricao} (tipo={tipo})')
             response = requests.post(
                 config.webhook_inscricao,
                 json=payload,
-                headers={'Content-Type': 'application/json'},
+                headers=headers,
                 timeout=30
             )
             print(f'[WEBHOOK] Status: {response.status_code} - {response.text}')
@@ -3134,4 +3177,124 @@ def mercadopago_config_publica(request):
         'public_key': config.mp_public_key if config.mp_ativo else None,
         'ambiente': config.mp_ambiente if config.mp_ativo else None,
         'is_sandbox': config.mp_is_sandbox if config.mp_ativo else None,
+    })
+
+
+# ============================================
+# GERENCIAMENTO DE USUÁRIOS E PERMISSÕES
+# ============================================
+
+class PermissaoMenuViewSet(viewsets.ModelViewSet):
+    """ViewSet para gerenciar permissões de menu."""
+    
+    queryset = PermissaoMenu.objects.all()
+    serializer_class = PermissaoMenuSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Retorna apenas permissões ativas por padrão, a menos que seja solicitado todas."""
+        queryset = super().get_queryset()
+        if self.request.query_params.get('incluir_inativos') != 'true':
+            queryset = queryset.filter(ativo=True)
+        return queryset.order_by('ordem', 'nome')
+
+
+class GrupoViewSet(viewsets.ModelViewSet):
+    """ViewSet para gerenciar grupos de usuários."""
+    
+    queryset = Grupo.objects.all()
+    serializer_class = GrupoSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Retorna apenas grupos ativos por padrão."""
+        queryset = super().get_queryset()
+        if self.request.query_params.get('incluir_inativos') != 'true':
+            queryset = queryset.filter(ativo=True)
+        return queryset.prefetch_related('permissoes', 'usuarios').order_by('nome')
+
+
+class UsuarioAdminViewSet(viewsets.ModelViewSet):
+    """ViewSet para gerenciar usuários administrativos."""
+    
+    queryset = User.objects.filter(is_staff=True).order_by('username')
+    serializer_class = UsuarioAdminSerializer
+    permission_classes = [IsAuthenticated]
+    
+    # Usuário admin padrão que não pode ser excluído
+    ADMIN_USERNAME = 'admin'
+    
+    def get_queryset(self):
+        """Retorna usuários administrativos com seus grupos."""
+        return super().get_queryset().prefetch_related('grupos_admin')
+    
+    def perform_create(self, serializer):
+        """Garante que usuários criados sejam staff."""
+        user = serializer.save(is_staff=True)
+        return user
+    
+    def perform_destroy(self, instance):
+        """Impede a exclusão do usuário admin padrão."""
+        if instance.username == self.ADMIN_USERNAME:
+            raise ValidationError(
+                {'detail': f'O usuário "{self.ADMIN_USERNAME}" não pode ser excluído por questões de segurança.'}
+            )
+        super().perform_destroy(instance)
+    
+    def perform_update(self, serializer):
+        """Protege o usuário admin de perder permissões críticas."""
+        instance = serializer.instance
+        if instance.username == self.ADMIN_USERNAME:
+            # Garante que o admin sempre seja superusuário e staff
+            serializer.save(is_superuser=True, is_staff=True)
+        else:
+            serializer.save()
+    
+    @action(detail=True, methods=['post'])
+    def alterar_senha(self, request, pk=None):
+        """Endpoint para alterar senha de um usuário."""
+        usuario = self.get_object()
+        nova_senha = request.data.get('password')
+        
+        if not nova_senha:
+            return Response(
+                {'error': 'Senha é obrigatória'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        usuario.set_password(nova_senha)
+        usuario.save()
+        
+        return Response({'message': 'Senha alterada com sucesso'})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def verificar_permissao_menu(request, codigo_menu):
+    """
+    Verifica se o usuário autenticado tem permissão para acessar um menu específico.
+    """
+    tem_permissao = Grupo.usuario_tem_permissao_menu(request.user, codigo_menu)
+    return Response({
+        'codigo_menu': codigo_menu,
+        'tem_permissao': tem_permissao
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def menus_permitidos(request):
+    """
+    Retorna lista de menus que o usuário autenticado pode acessar.
+    """
+    menus_codigos = Grupo.get_menus_permitidos_usuario(request.user)
+    menus = PermissaoMenu.objects.filter(
+        codigo__in=menus_codigos,
+        ativo=True
+    ).order_by('ordem', 'nome')
+    
+    serializer = PermissaoMenuSerializer(menus, many=True)
+    return Response({
+        'menus': serializer.data,
+        'codigos': menus_codigos
     })

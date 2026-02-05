@@ -29,6 +29,8 @@ import AdminConfiguracoes from './pages/admin/AdminConfiguracoes'
 import AdminCategorias from './pages/admin/AdminCategorias'
 import AdminCobrancas from './pages/admin/AdminCobrancas'
 import Checkin from './pages/admin/Checkin'
+import AdminUsuarios from './pages/admin/AdminUsuarios'
+import AdminGrupos from './pages/admin/AdminGrupos'
 
 function App() {
   return (
@@ -148,6 +150,16 @@ function App() {
         <Route path="/admin/cobrancas" element={
           <ProtectedRoute>
             <AdminLayout><AdminCobrancas /></AdminLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/usuarios" element={
+          <ProtectedRoute>
+            <AdminLayout><AdminUsuarios /></AdminLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/grupos" element={
+          <ProtectedRoute>
+            <AdminLayout><AdminGrupos /></AdminLayout>
           </ProtectedRoute>
         } />
       </Routes>

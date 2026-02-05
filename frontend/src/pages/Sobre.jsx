@@ -1,8 +1,23 @@
 import { Heart, Target, Eye, Users, BookOpen, Music, MapPin } from 'lucide-react'
 import { useConfiguracao } from '../contexts/ConfiguracaoContext'
+import { useMemo } from 'react'
 
 function Sobre() {
   const { configuracao } = useConfiguracao()
+  
+  // Extrair src do iframe do código embed
+  const mapaIframeSrc = useMemo(() => {
+    if (!configuracao?.google_maps_embed) return null
+    
+    // Tentar extrair o src do iframe
+    const match = configuracao.google_maps_embed.match(/src="([^"]+)"/)
+    if (match && match[1]) {
+      return match[1]
+    }
+    
+    // Se não conseguir extrair, retornar o HTML completo para usar com dangerouslySetInnerHTML
+    return null
+  }, [configuracao?.google_maps_embed])
   const valores = [
     {
       icon: <BookOpen className="h-8 w-8" />,
@@ -239,11 +254,25 @@ function Sobre() {
               )}
 
               {/* Mapa do Google Maps */}
-              <div className="w-full" style={{ minHeight: '450px' }}>
-                <div 
-                  className="w-full h-full"
-                  dangerouslySetInnerHTML={{ __html: configuracao.google_maps_embed }}
-                />
+              <div className="w-full overflow-hidden" style={{ minHeight: '450px' }}>
+                {mapaIframeSrc ? (
+                  <iframe
+                    src={mapaIframeSrc}
+                    width="100%"
+                    height="450"
+                    style={{ border: 0, display: 'block' }}
+                    allowFullScreen
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    title="Localização Champions Church"
+                  />
+                ) : (
+                  <div 
+                    className="w-full"
+                    style={{ minHeight: '450px' }}
+                    dangerouslySetInnerHTML={{ __html: configuracao.google_maps_embed }}
+                  />
+                )}
               </div>
             </div>
           </div>

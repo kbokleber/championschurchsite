@@ -13,7 +13,7 @@ from .views import (
     participante_login, participante_esqueci_senha, participante_registro, participante_perfil,
     buscar_participante_por_telefone,
     configuracao_publica, configuracao_admin,
-    verificar_permissao_menu, menus_permitidos,
+    verificar_permissao_menu, menus_permitidos, popular_permissoes_menu,
     # Mercado Pago
     criar_pagamento_pix, mercadopago_webhook, verificar_pagamento, mercadopago_config_publica
 )
@@ -39,6 +39,7 @@ urlpatterns = [
     # Permissões e Menus
     path('auth/menus-permitidos/', menus_permitidos, name='menus_permitidos'),
     path('auth/verificar-permissao/<str:codigo_menu>/', verificar_permissao_menu, name='verificar_permissao'),
+    path('admin/popular-permissoes/', popular_permissoes_menu, name='popular_permissoes_menu'),
     
     # Dashboard
     path('dashboard/stats/', dashboard_stats, name='dashboard_stats'),

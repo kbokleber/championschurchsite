@@ -108,6 +108,24 @@ except Exception as e:
     print(f"✗ ERRO ao verificar admin: {e}")
 PYEOF
 
+# Sincronizar permissões de menu automaticamente
+echo "Sincronizando permissões de menu..."
+python manage.py shell << 'PYEOF'
+import os
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'champions_backend.settings')
+import django
+django.setup()
+
+from eventos.models import PermissaoMenu
+try:
+    criados, atualizados = PermissaoMenu.garantir_sincronizacao()
+    print(f"✓ Permissões sincronizadas! Criadas: {criados}, Atualizadas: {atualizados}")
+except Exception as e:
+    print(f"✗ ERRO ao sincronizar permissões: {e}")
+    import traceback
+    traceback.print_exc()
+PYEOF
+
 # Iniciar servidor Gunicorn
 echo "Iniciando servidor Gunicorn..."
 exec gunicorn --bind 0.0.0.0:8000 --workers 4 --threads 2 --timeout 60 --access-logfile - --error-logfile - champions_backend.wsgi:application

@@ -958,6 +958,22 @@ class ConfiguracaoSite(models.Model):
 class PermissaoMenu(models.Model):
     """Modelo para definir permissões de acesso a menus do sistema administrativo."""
     
+    # Lista de menus disponíveis no sistema (fonte única da verdade)
+    # Esta lista deve ser sincronizada com o MENU_MAPPING do frontend
+    MENUS_DISPONIVEIS = [
+        {'codigo': 'dashboard', 'nome': 'Dashboard', 'ordem': 1, 'descricao': 'Painel principal com estatísticas'},
+        {'codigo': 'eventos', 'nome': 'Eventos', 'ordem': 2, 'descricao': 'Gerenciar eventos da igreja'},
+        {'codigo': 'membros', 'nome': 'Membros', 'ordem': 3, 'descricao': 'Gerenciar membros e participantes'},
+        {'codigo': 'inscricoes', 'nome': 'Inscrições', 'ordem': 4, 'descricao': 'Visualizar e gerenciar inscrições'},
+        {'codigo': 'cobrancas', 'nome': 'Cobranças', 'ordem': 5, 'descricao': 'Gerenciar cobranças e pagamentos'},
+        {'codigo': 'checkin', 'nome': 'Check-in', 'ordem': 6, 'descricao': 'Realizar check-in de participantes'},
+        {'codigo': 'contatos', 'nome': 'Contatos', 'ordem': 7, 'descricao': 'Visualizar mensagens de contato'},
+        {'codigo': 'categorias', 'nome': 'Categorias', 'ordem': 8, 'descricao': 'Gerenciar categorias de participantes'},
+        {'codigo': 'configuracoes', 'nome': 'Configurações', 'ordem': 9, 'descricao': 'Configurações gerais do sistema'},
+        {'codigo': 'usuarios', 'nome': 'Usuários', 'ordem': 10, 'descricao': 'Gerenciar usuários administrativos'},
+        {'codigo': 'grupos', 'nome': 'Grupos', 'ordem': 11, 'descricao': 'Gerenciar grupos e permissões'},
+    ]
+    
     codigo = models.CharField(
         max_length=50,
         unique=True,
@@ -993,6 +1009,42 @@ class PermissaoMenu(models.Model):
     
     def __str__(self):
         return f"{self.nome} ({self.codigo})"
+    
+    @classmethod
+    def sincronizar_menus(cls):
+        """
+        Sincroniza automaticamente os menus disponíveis com o banco de dados.
+        Cria menus que não existem e atualiza os existentes.
+        Retorna uma tupla (criados, atualizados).
+        """
+        criados = 0
+        atualizados = 0
+        
+        for menu_data in cls.MENUS_DISPONIVEIS:
+            permissao, created = cls.objects.update_or_create(
+                codigo=menu_data['codigo'],
+                defaults={
+                    'nome': menu_data['nome'],
+                    'descricao': menu_data.get('descricao', ''),
+                    'ordem': menu_data['ordem'],
+                    'ativo': True
+                }
+            )
+            
+            if created:
+                criados += 1
+            else:
+                atualizados += 1
+        
+        return criados, atualizados
+    
+    @classmethod
+    def garantir_sincronizacao(cls):
+        """
+        Garante que todos os menus disponíveis estão sincronizados.
+        Este método pode ser chamado automaticamente quando necessário.
+        """
+        return cls.sincronizar_menus()
 
 
 class Grupo(models.Model):

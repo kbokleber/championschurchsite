@@ -3191,6 +3191,12 @@ class PermissaoMenuViewSet(viewsets.ModelViewSet):
     serializer_class = PermissaoMenuSerializer
     permission_classes = [IsAuthenticated]
     
+    def list(self, request, *args, **kwargs):
+        """Lista permissões, garantindo sincronização automática dos menus."""
+        # Sincronizar menus automaticamente antes de listar
+        PermissaoMenu.garantir_sincronizacao()
+        return super().list(request, *args, **kwargs)
+    
     def get_queryset(self):
         """Retorna apenas permissões ativas por padrão, a menos que seja solicitado todas."""
         queryset = super().get_queryset()
@@ -3205,6 +3211,30 @@ class GrupoViewSet(viewsets.ModelViewSet):
     queryset = Grupo.objects.all()
     serializer_class = GrupoSerializer
     permission_classes = [IsAuthenticated]
+    
+    def list(self, request, *args, **kwargs):
+        """Lista grupos, garantindo sincronização automática dos menus."""
+        # Sincronizar menus automaticamente antes de listar
+        PermissaoMenu.garantir_sincronizacao()
+        return super().list(request, *args, **kwargs)
+    
+    def retrieve(self, request, *args, **kwargs):
+        """Retorna um grupo específico, garantindo sincronização automática dos menus."""
+        # Sincronizar menus automaticamente antes de recuperar
+        PermissaoMenu.garantir_sincronizacao()
+        return super().retrieve(request, *args, **kwargs)
+    
+    def create(self, request, *args, **kwargs):
+        """Cria um grupo, garantindo sincronização automática dos menus."""
+        # Sincronizar menus automaticamente antes de criar
+        PermissaoMenu.garantir_sincronizacao()
+        return super().create(request, *args, **kwargs)
+    
+    def update(self, request, *args, **kwargs):
+        """Atualiza um grupo, garantindo sincronização automática dos menus."""
+        # Sincronizar menus automaticamente antes de atualizar
+        PermissaoMenu.garantir_sincronizacao()
+        return super().update(request, *args, **kwargs)
     
     def get_queryset(self):
         """Retorna apenas grupos ativos por padrão."""
@@ -3286,7 +3316,11 @@ def verificar_permissao_menu(request, codigo_menu):
 def menus_permitidos(request):
     """
     Retorna lista de menus que o usuário autenticado pode acessar.
+    Sincroniza automaticamente os menus antes de retornar.
     """
+    # Garantir sincronização automática dos menus
+    PermissaoMenu.garantir_sincronizacao()
+    
     menus_codigos = Grupo.get_menus_permitidos_usuario(request.user)
     menus = PermissaoMenu.objects.filter(
         codigo__in=menus_codigos,
@@ -3298,3 +3332,39 @@ def menus_permitidos(request):
         'menus': serializer.data,
         'codigos': menus_codigos
     })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def popular_permissoes_menu(request):
+    """
+    Endpoint para sincronizar as permissões de menu.
+    Requer autenticação e que o usuário seja superusuário.
+    Agora usa sincronização automática do modelo.
+    """
+    if not request.user.is_superuser:
+        return Response(
+            {'erro': 'Apenas superusuários podem executar este comando.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    try:
+        # Usar o método de sincronização automática do modelo
+        criadas, atualizadas = PermissaoMenu.garantir_sincronizacao()
+        
+        return Response({
+            'sucesso': True,
+            'mensagem': 'Permissões de menu sincronizadas com sucesso!',
+            'criadas': criadas,
+            'atualizadas': atualizadas,
+            'total_menus': len(PermissaoMenu.MENUS_DISPONIVEIS)
+        })
+    except Exception as e:
+        logger.error(f'Erro ao sincronizar permissões: {str(e)}', exc_info=True)
+        return Response(
+            {
+                'erro': 'Erro ao sincronizar permissões',
+                'detalhes': str(e)
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

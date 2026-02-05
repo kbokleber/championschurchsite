@@ -1,6 +1,8 @@
-import { Heart, Target, Eye, Users, BookOpen, Music } from 'lucide-react'
+import { Heart, Target, Eye, Users, BookOpen, Music, MapPin } from 'lucide-react'
+import { useConfiguracao } from '../contexts/ConfiguracaoContext'
 
 function Sobre() {
+  const { configuracao } = useConfiguracao()
   const valores = [
     {
       icon: <BookOpen className="h-8 w-8" />,
@@ -190,6 +192,63 @@ function Sobre() {
           </div>
         </div>
       </section>
+
+      {/* Como Chegar */}
+      {configuracao?.google_maps_embed && (
+        <section id="como-chegar" className="py-20 bg-white">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-12">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary-100 text-primary-600 mb-4">
+                <MapPin className="h-8 w-8" />
+              </div>
+              <h2 className="section-title">Como Chegar</h2>
+              <p className="section-subtitle">
+                Venha nos visitar! Estamos esperando por você.
+              </p>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+              {/* Informações de Endereço */}
+              {(configuracao.endereco || configuracao.cidade || configuracao.estado) && (
+                <div className="bg-church-cream p-6 border-b border-gray-200">
+                  <div className="max-w-2xl mx-auto">
+                    <h3 className="text-lg font-bold text-church-navy mb-4">Endereço</h3>
+                    <div className="space-y-2 text-gray-700">
+                      {configuracao.endereco && (
+                        <p className="flex items-start">
+                          <span className="font-semibold mr-2">Endereço:</span>
+                          {configuracao.endereco}
+                        </p>
+                      )}
+                      {(configuracao.cidade || configuracao.estado) && (
+                        <p className="flex items-start">
+                          <span className="font-semibold mr-2">Cidade:</span>
+                          {configuracao.cidade && `${configuracao.cidade}`}
+                          {configuracao.estado && ` - ${configuracao.estado}`}
+                        </p>
+                      )}
+                      {configuracao.cep && (
+                        <p className="flex items-start">
+                          <span className="font-semibold mr-2">CEP:</span>
+                          {configuracao.cep}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Mapa do Google Maps */}
+              <div className="w-full" style={{ minHeight: '450px' }}>
+                <div 
+                  className="w-full h-full"
+                  dangerouslySetInnerHTML={{ __html: configuracao.google_maps_embed }}
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* CTA */}
       <section className="py-20 bg-gradient-to-r from-primary-600 to-primary-800">

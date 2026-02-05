@@ -149,14 +149,12 @@ function Home() {
             <Link to="/contato" className="btn-secondary">
               Entre em Contato
             </Link>
-            <a
-              href="https://maps.google.com"
-              target="_blank"
-              rel="noopener noreferrer"
+            <Link
+              to="/sobre#como-chegar"
               className="btn-outline border-white text-white hover:bg-white hover:text-primary-700"
             >
               Como Chegar
-            </a>
+            </Link>
           </div>
         </div>
       </section>

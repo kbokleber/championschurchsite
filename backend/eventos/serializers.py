@@ -467,7 +467,7 @@ class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
             'endereco', 'cidade', 'estado', 'cep',
             'facebook', 'instagram', 'youtube', 'tiktok', 'twitter',
             'horarios', 'google_maps_embed',
-            'webhook_inscricao', 'webhook_ativo', 'webhook_reset_senha',
+            'webhook_inscricao', 'webhook_ativo', 'webhook_reset_senha', 'webhook_eventos',
             # Mercado Pago
             'mp_ambiente', 'mp_ativo',
             'mp_public_key_sandbox', 'mp_access_token_sandbox',

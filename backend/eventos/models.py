@@ -870,6 +870,12 @@ class ConfiguracaoSite(models.Model):
         null=True,
         help_text='URL para enviar dados quando um participante solicita reset de senha'
     )
+    webhook_eventos = models.URLField(
+        verbose_name='Webhook de Eventos',
+        blank=True,
+        null=True,
+        help_text='URL para notificar quando um evento é criado, atualizado ou excluído'
+    )
     
     # Mercado Pago - Configurações
     mp_ambiente = models.CharField(

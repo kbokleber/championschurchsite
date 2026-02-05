@@ -161,6 +161,21 @@ function AdminInscricoes() {
     )
   }
 
+  const getPagamentoViaResponsavelBadge = (statusPagamento) => {
+    const config = {
+      pago: { bg: 'bg-green-100', text: 'text-green-800', label: 'Pago via responsável' },
+      pendente: { bg: 'bg-amber-100', text: 'text-amber-800', label: 'Pendente via responsável' },
+      isento: { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Isento via responsável' },
+      nao_aplicavel: { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Via responsável' },
+    }
+    const statusConfig = config[statusPagamento] || config.nao_aplicavel
+    return (
+      <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${statusConfig.bg} ${statusConfig.text}`}>
+        {statusConfig.label}
+      </span>
+    )
+  }
+
   const inscricoesFiltradas = inscricoes.filter(inscricao => {
     const matchBusca = 
       inscricao.membro_nome?.toLowerCase().includes(busca.toLowerCase()) ||
@@ -282,7 +297,7 @@ function AdminInscricoes() {
                     <td className="px-6 py-4">{getStatusBadge(inscricao.status)}</td>
                     <td className="px-6 py-4">
                       {inscricao.is_acompanhante ? (
-                        <span className="text-xs text-gray-500 italic">Via responsável</span>
+                        getPagamentoViaResponsavelBadge(inscricao.status_pagamento)
                       ) : (
                         getPagamentoBadge(inscricao.status_pagamento, inscricao.valor_inscricao)
                       )}
@@ -346,7 +361,7 @@ function AdminInscricoes() {
                 <div className="flex flex-wrap gap-2">
                   {getStatusBadge(inscricao.status)}
                   {!inscricao.is_acompanhante && getPagamentoBadge(inscricao.status_pagamento, inscricao.valor_inscricao)}
-                  {inscricao.is_acompanhante && <span className="text-xs text-gray-500 italic">Via responsável</span>}
+                  {inscricao.is_acompanhante && getPagamentoViaResponsavelBadge(inscricao.status_pagamento)}
                   {inscricao.presente && (
                     <span className="inline-flex items-center text-green-600 text-xs"><Check className="h-3 w-3 mr-1" />Presente</span>
                   )}

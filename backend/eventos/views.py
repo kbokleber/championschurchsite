@@ -69,7 +69,7 @@ def enviar_webhook_inscricao(dados_webhook):
         
         # Payload do webhook
         payload = {
-            'tipo': 'nova_inscricao',
+            'tipo': dados_webhook.get('tipo', 'nova_inscricao'),
             'timestamp': timezone.now().isoformat(),
             
             # Dados do responsável (quem fez a inscrição)
@@ -206,6 +206,58 @@ def enviar_webhook_reset_senha(dados_webhook):
         print(f'>>> WEBHOOK RESET SENHA: Erro {e}')
 
 
+def _payload_evento_webhook(evento, acao):
+    """Monta o payload para o webhook de eventos (evento pode ser instância ou dict)."""
+    if hasattr(evento, 'id'):
+        return {
+            'tipo': 'evento',
+            'acao': acao,
+            'timestamp': timezone.now().isoformat(),
+            'evento': {
+                'id': evento.id,
+                'titulo': evento.titulo,
+                'tipo': getattr(evento, 'tipo', None),
+                'data_inicio': evento.data_inicio.isoformat() if evento.data_inicio else None,
+                'data_fim': evento.data_fim.isoformat() if evento.data_fim else None,
+                'local': evento.local,
+                'endereco': getattr(evento, 'endereco', '') or '',
+                'vagas': evento.vagas,
+                'status': evento.status,
+                'evento_pago': getattr(evento, 'evento_pago', False),
+                'valor_inscricao': str(evento.valor_inscricao) if getattr(evento, 'valor_inscricao', None) is not None else None,
+                'inscricao_inicio': evento.inscricao_inicio.isoformat() if getattr(evento, 'inscricao_inicio', None) else None,
+                'inscricao_fim': evento.inscricao_fim.isoformat() if getattr(evento, 'inscricao_fim', None) else None,
+                'destaque': getattr(evento, 'destaque', False),
+            }
+        }
+    # evento já é dict (ex.: após exclusão)
+    return {
+        'tipo': 'evento',
+        'acao': acao,
+        'timestamp': timezone.now().isoformat(),
+        'evento': evento,
+    }
+
+
+def enviar_webhook_evento(evento, acao):
+    """
+    Envia webhook de eventos (criado/atualizado/excluído) de forma assíncrona.
+    Só envia se webhook_ativo e webhook_eventos estiverem configurados.
+    """
+    try:
+        config = ConfiguracaoSite.get_config()
+        url = getattr(config, 'webhook_eventos', None) and (config.webhook_eventos or '').strip()
+        if not config.webhook_ativo or not url:
+            logger.info('Webhook de eventos inativo ou URL não configurada')
+            return
+        payload = _payload_evento_webhook(evento, acao)
+        headers = {'Content-Type': 'application/json', 'User-Agent': 'ChampionsChurch-Webhook/1.0'}
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        logger.info(f'Webhook evento ({acao}) enviado: {response.status_code} - {url}')
+    except Exception as e:
+        logger.error(f'Erro ao enviar webhook evento: {str(e)}')
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_current_user(request):
@@ -331,9 +383,11 @@ def buscar_participante_por_telefone(request):
     """
     Busca participante pelo telefone para auto-preenchimento no formulário de inscrição.
     Retorna apenas dados públicos (nome e email), sem senha.
+    Se evento_id for informado, verifica se o participante já está inscrito no evento.
     """
     try:
         telefone = request.query_params.get('telefone', '')
+        evento_id = request.query_params.get('evento_id', '')
         
         if not telefone:
             return Response(
@@ -353,14 +407,69 @@ def buscar_participante_por_telefone(request):
         # Buscar membro pelo telefone (titular ou acompanhante com telefone cadastrado)
         try:
             membro = Membro.objects.get(telefone=telefone_normalizado)
-            return Response({
+            response_data = {
                 'encontrado': True,
                 'participante': {
                     'id': membro.id,
                     'nome': membro.nome,
                     'email': membro.email or '',
                 }
-            })
+            }
+            
+            # Verificar se já está inscrito neste evento (quando evento_id informado)
+            if evento_id:
+                try:
+                    evento_obj = Evento.objects.get(id=evento_id)
+                    inscricao = Inscricao.objects.filter(
+                        membro=membro,
+                        evento=evento_obj,
+                        is_acompanhante=False,
+                        status__in=['confirmada', 'pendente']
+                    ).select_related('evento').first()
+                    
+                    if inscricao:
+                        acompanhantes = Inscricao.objects.filter(
+                            evento=evento_obj,
+                            responsavel=membro,
+                            is_acompanhante=True,
+                            status__in=['confirmada', 'pendente']
+                        ).select_related('membro', 'categoria')
+                        acompanhantes_lista = [
+                            {
+                                'nome': a.membro.nome,
+                                'categoria': a.categoria.nome if a.categoria else 'Adulto',
+                            }
+                            for a in acompanhantes
+                        ]
+                        valor_responsavel = float(inscricao.valor_inscricao or 0)
+                        valor_total = valor_responsavel + sum(
+                            float(a.valor_inscricao or 0) for a in acompanhantes
+                        )
+                        cobranca_pendente = Cobranca.objects.filter(
+                            membro=membro,
+                            evento=evento_obj,
+                            status='pendente'
+                        ).first()
+                        
+                        response_data['ja_inscrito'] = True
+                        response_data['inscricao'] = {
+                            'id': inscricao.id,
+                            'status_pagamento': inscricao.status_pagamento,
+                            'valor': valor_responsavel,
+                            'valor_total': valor_total,
+                        }
+                        response_data['acompanhantes'] = acompanhantes_lista
+                        if cobranca_pendente:
+                            response_data['cobranca'] = {
+                                'id': cobranca_pendente.id,
+                                'codigo': cobranca_pendente.codigo,
+                                'valor': float(cobranca_pendente.valor),
+                                'status': cobranca_pendente.status,
+                            }
+                except (Evento.DoesNotExist, ValueError):
+                    pass
+            
+            return Response(response_data)
         except Membro.DoesNotExist:
             return Response({
                 'encontrado': False,
@@ -555,16 +664,6 @@ def participante_registro(request):
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Verificar vagas disponíveis (incluindo acompanhantes)
-    total_inscricoes = 1 + len(acompanhantes)
-    if evento.vagas is not None:
-        vagas_disponiveis = evento.vagas_disponiveis or 0
-        if total_inscricoes > vagas_disponiveis:
-            return Response(
-                {'error': f'Vagas insuficientes. Disponível: {vagas_disponiveis}'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-    
     # Buscar ou criar membro principal
     novo_cadastro = False
     senha_gerada = None
@@ -658,13 +757,14 @@ def participante_registro(request):
                 acomp_categoria_id = None
             
             if nome_acomp:
-                # Buscar categoria do acompanhante
+                # Buscar categoria do acompanhante (para eventos pagos e gratuitos)
                 categoria_acomp = None
                 valor_acomp = 0
-                if evento.evento_pago and acomp_categoria_id:
+                if acomp_categoria_id:
                     try:
                         categoria_acomp = CategoriaParticipante.objects.get(id=acomp_categoria_id, ativo=True)
-                        valor_acomp = categoria_acomp.calcular_valor(evento.valor_inscricao)
+                        if evento.evento_pago and evento.valor_inscricao:
+                            valor_acomp = categoria_acomp.calcular_valor(evento.valor_inscricao)
                     except CategoriaParticipante.DoesNotExist:
                         pass
                 elif evento.evento_pago and evento.valor_inscricao:
@@ -736,15 +836,29 @@ def participante_registro(request):
         novo_valor_total = float(inscricao_existente.valor_inscricao or 0)
         
         if evento.evento_pago and valor_novos_acompanhantes > 0:
-            # Criar nova cobrança para os acompanhantes adicionais
+            # Reutilizar cobrança pendente existente ou criar nova (evita duplicatas)
             descricao_itens = ', '.join([a['nome'] for a in acompanhantes_para_criar])
-            cobranca = Cobranca.objects.create(
+            cobranca_pendente = Cobranca.objects.filter(
                 membro=membro,
                 evento=evento,
-                valor=valor_novos_acompanhantes,
-                descricao=f'Inscrição adicional: {descricao_itens}',
                 status='pendente'
-            )
+            ).first()
+            
+            if cobranca_pendente:
+                # Atualizar cobrança existente com os novos acompanhantes
+                cobranca_pendente.valor = float(cobranca_pendente.valor) + valor_novos_acompanhantes
+                cobranca_pendente.descricao += f', {descricao_itens}'
+                cobranca_pendente.save()
+                cobranca = cobranca_pendente
+            else:
+                # Criar nova cobrança apenas se não existir pendente
+                cobranca = Cobranca.objects.create(
+                    membro=membro,
+                    evento=evento,
+                    valor=valor_novos_acompanhantes,
+                    descricao=f'Inscrição adicional: {descricao_itens}',
+                    status='pendente'
+                )
             
             # Adicionar itens à cobrança (vincular cada inscrição de acompanhante)
             for acomp_info, inscricao_item in zip(acompanhantes_para_criar, [
@@ -758,7 +872,7 @@ def participante_registro(request):
                     descricao=f"{acomp_info['nome']} - {acomp_info['categoria'].nome if acomp_info['categoria'] else 'Adulto'}"
                 )
             
-            novo_valor_total = valor_novos_acompanhantes  # Valor da nova cobrança
+            novo_valor_total = float(cobranca.valor)  # Valor total da cobrança (existente + novos)
         elif evento.evento_pago and inscricao_existente.status_pagamento != 'pago':
             # Ainda não pagou - adicionar à cobrança existente ou criar uma
             cobranca_pendente = Cobranca.objects.filter(
@@ -828,6 +942,51 @@ def participante_registro(request):
             response['senha_existente'] = membro.senha_texto
             response['lembrete_senha'] = True
         
+        # Disparar webhook de inscrição (participante + acompanhantes adicionados)
+        try:
+            base_url = request.build_absolute_uri('/').rstrip('/')
+            telefone_fmt = f"({membro.telefone[:2]}) {membro.telefone[2:7]}-{membro.telefone[7:]}" if membro.telefone and len(membro.telefone) >= 11 else membro.telefone or ''
+            acompanhantes_webhook = [
+                {
+                    'id': a.id,
+                    'nome': a.membro.nome,
+                    'codigo': a.codigo,
+                    'qrcode': a.qrcode.url if a.qrcode else None,
+                }
+                for a in todos_acompanhantes
+            ]
+            dados_webhook = {
+                'base_url': base_url,
+                'tipo': 'acompanhantes_adicionados',
+                'participante_id': membro.id,
+                'nome': membro.nome,
+                'telefone': membro.telefone,
+                'telefone_formatado': telefone_fmt,
+                'email': membro.email or '',
+                'senha': membro.senha_texto or None,
+                'novo_cadastro': False,
+                'inscricao_id': inscricao_existente.id,
+                'codigo': inscricao_existente.codigo,
+                'qrcode_path': inscricao_existente.qrcode.url if inscricao_existente.qrcode else None,
+                'evento_id': evento.id,
+                'evento_titulo': evento.titulo,
+                'evento_data_inicio': evento.data_inicio.isoformat() if evento.data_inicio else None,
+                'evento_data_fim': evento.data_fim.isoformat() if evento.data_fim else None,
+                'evento_local': evento.local,
+                'evento_endereco': evento.endereco or '',
+                'evento_pago': evento.evento_pago,
+                'evento_valor': float(evento.valor_inscricao) if evento.valor_inscricao else None,
+                'valor_total': novo_valor_total,
+                'pagamento_confirmado': inscricao_existente.status_pagamento == 'pago',
+                'acompanhantes': acompanhantes_webhook,
+                'total_inscritos': 1 + todos_acompanhantes.count(),
+            }
+            thread = threading.Thread(target=enviar_webhook_inscricao, args=(dados_webhook,))
+            thread.daemon = True
+            thread.start()
+        except Exception as e:
+            logger.exception('Erro ao disparar webhook (acompanhantes adicionados): %s', e)
+        
         # Sempre retornar token para manter a sessão do participante (evitar novo login)
         import jwt
         from datetime import datetime, timedelta
@@ -843,6 +1002,16 @@ def participante_registro(request):
         response['token'] = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
         
         return Response(response)
+    
+    # Nova inscrição: verificar vagas (responsável + acompanhantes)
+    if evento.vagas is not None:
+        vagas_disponiveis = evento.vagas_disponiveis or 0
+        total_inscricoes = 1 + len(acompanhantes)
+        if total_inscricoes > vagas_disponiveis:
+            return Response(
+                {'error': f'Vagas insuficientes. Disponível: {vagas_disponiveis}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
     
     # Buscar ou criar categoria "Adulto" para o responsável
     categoria_adulto = None
@@ -871,13 +1040,14 @@ def participante_registro(request):
             acomp_categoria_id = None
         
         if nome_acomp:
-            # Buscar categoria do acompanhante
+            # Buscar categoria do acompanhante (para eventos pagos e gratuitos - adulto, idade, etc.)
             categoria_acomp = None
             valor_acomp = 0
-            if evento.evento_pago and acomp_categoria_id:
+            if acomp_categoria_id:
                 try:
                     categoria_acomp = CategoriaParticipante.objects.get(id=acomp_categoria_id, ativo=True)
-                    valor_acomp = categoria_acomp.calcular_valor(evento.valor_inscricao)
+                    if evento.evento_pago and evento.valor_inscricao:
+                        valor_acomp = categoria_acomp.calcular_valor(evento.valor_inscricao)
                 except CategoriaParticipante.DoesNotExist:
                     pass
             elif evento.evento_pago and evento.valor_inscricao:
@@ -1397,6 +1567,37 @@ class EventoViewSet(viewsets.ModelViewSet):
     
     queryset = Evento.objects.all()
     serializer_class = EventoSerializer
+    
+    def perform_create(self, serializer):
+        serializer.save()
+        thread = threading.Thread(target=enviar_webhook_evento, args=(serializer.instance, 'criado'))
+        thread.start()
+    
+    def perform_update(self, serializer):
+        serializer.save()
+        thread = threading.Thread(target=enviar_webhook_evento, args=(serializer.instance, 'atualizado'))
+        thread.start()
+    
+    def perform_destroy(self, instance):
+        snapshot = {
+            'id': instance.id,
+            'titulo': instance.titulo,
+            'tipo': instance.tipo,
+            'data_inicio': instance.data_inicio.isoformat() if instance.data_inicio else None,
+            'data_fim': instance.data_fim.isoformat() if instance.data_fim else None,
+            'local': instance.local,
+            'endereco': instance.endereco or '',
+            'vagas': instance.vagas,
+            'status': instance.status,
+            'evento_pago': instance.evento_pago,
+            'valor_inscricao': str(instance.valor_inscricao) if instance.valor_inscricao is not None else None,
+            'inscricao_inicio': instance.inscricao_inicio.isoformat() if instance.inscricao_inicio else None,
+            'inscricao_fim': instance.inscricao_fim.isoformat() if instance.inscricao_fim else None,
+            'destaque': instance.destaque,
+        }
+        instance.delete()
+        thread = threading.Thread(target=enviar_webhook_evento, args=(snapshot, 'excluido'))
+        thread.start()
     
     def create(self, request, *args, **kwargs):
         """Override create para capturar e logar erros 500 (ex.: permissão em /media)."""

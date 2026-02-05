@@ -32,6 +32,7 @@ function AdminConfiguracoes() {
     cor_header_pagina: '#1a365d',
     webhook_inscricao: '',
     webhook_ativo: false,
+    webhook_eventos: '',
     // Mercado Pago
     mp_ambiente: 'sandbox',
     mp_ativo: false,
@@ -57,7 +58,6 @@ function AdminConfiguracoes() {
   const [showAccessTokenSandbox, setShowAccessTokenSandbox] = useState(false)
   const [showAccessTokenProduction, setShowAccessTokenProduction] = useState(false)
   const [showEvolutionApiKey, setShowEvolutionApiKey] = useState(false)
-  const [reprocessingLogo, setReprocessingLogo] = useState(false)
 
   useEffect(() => {
     fetchConfiguracao()
@@ -91,6 +91,7 @@ function AdminConfiguracoes() {
         cor_header_pagina: data.cor_header_pagina || '#1a365d',
         webhook_inscricao: data.webhook_inscricao || '',
         webhook_ativo: data.webhook_ativo || false,
+        webhook_eventos: data.webhook_eventos || '',
         // Mercado Pago
         mp_ambiente: data.mp_ambiente || 'sandbox',
         mp_ativo: data.mp_ativo || false,
@@ -250,25 +251,6 @@ function AdminConfiguracoes() {
       setMessage({ type: 'error', text: 'Erro ao salvar configurações' })
     } finally {
       setSaving(false)
-    }
-  }
-
-  const handleReprocessLogo = async () => {
-    if (!logoPreview && !logoBrancoPreview) return
-    setReprocessingLogo(true)
-    try {
-      const data = new FormData()
-      data.append('reprocess_logo', 'true')
-      await api.patch('/admin/configuracao/', data, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
-      setMessage({ type: 'success', text: 'Fundo do logo corrigido. Atualize a página do site (F5) para ver.' })
-      setTimeout(() => {
-        window.location.reload()
-      }, 1500)
-    } catch (err) {
-      setMessage({ type: 'error', text: 'Erro ao corrigir logo' })
-      setReprocessingLogo(false)
     }
   }
 
@@ -768,23 +750,6 @@ function AdminConfiguracoes() {
                 </div>
               </div>
 
-              {/* Corrigir fundo do logo (quadriculado) */}
-              {(logoPreview || logoBrancoPreview) && (
-                <div>
-                  <p className="text-sm text-gray-600 mb-2">
-                    Se o logo aparecer com quadriculado no header, clique abaixo para substituir esse fundo pelo azul do site.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleReprocessLogo}
-                    disabled={reprocessingLogo}
-                    className="btn-outline text-sm"
-                  >
-                    {reprocessingLogo ? 'Corrigindo...' : 'Corrigir fundo do logo'}
-                  </button>
-                </div>
-              )}
-
               {/* Imagem do Banner (página inicial) */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-3">
@@ -882,6 +847,24 @@ function AdminConfiguracoes() {
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   URL que receberá uma requisição POST com os dados da inscrição
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <Webhook className="inline h-4 w-4 mr-1" />
+                  URL do Webhook de Eventos
+                </label>
+                <input
+                  type="url"
+                  name="webhook_eventos"
+                  value={formData.webhook_eventos}
+                  onChange={handleChange}
+                  className="input-field"
+                  placeholder="https://seu-servidor.com/webhook/eventos"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  URL que receberá um POST quando um evento for criado, atualizado ou excluído (tipo, titulo, data_inicio, local, etc.)
                 </p>
               </div>
 

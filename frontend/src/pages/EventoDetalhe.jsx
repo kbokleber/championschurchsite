@@ -25,6 +25,7 @@ function EventoDetalhe() {
   const [inscricaoErro, setInscricaoErro] = useState('')
   const [jaInscrito, setJaInscrito] = useState(false)
   const [acompanhantesAdicionados, setAcompanhantesAdicionados] = useState(false)
+  const [somenteAdicionandoAcompanhantes, setSomenteAdicionandoAcompanhantes] = useState(false)
   const [cobranca, setCobranca] = useState(null)
   const [categorias, setCategorias] = useState([])
   const [formData, setFormData] = useState({
@@ -38,15 +39,19 @@ function EventoDetalhe() {
   const [showConfirmModal, setShowConfirmModal] = useState(false)
 
   useEffect(() => {
+    setSomenteAdicionandoAcompanhantes(false)
+    setInscricaoSucesso(false)
+    setJaInscrito(false)
+    setAcompanhantesAdicionados(false)
+    setInscricaoData(null)
+    setCobranca(null)
     const fetchEvento = async () => {
       try {
         const response = await api.get(`/eventos/${id}/`)
         setEvento(response.data)
         
-        // Se for evento pago, carregar categorias
-        if (response.data.evento_pago) {
-          fetchCategorias()
-        }
+        // Carregar categorias para eventos pagos e gratuitos (adulto, idade, etc.)
+        fetchCategorias()
       } catch (error) {
         console.error('Erro ao carregar evento:', error)
         setEvento(null)
@@ -111,6 +116,8 @@ function EventoDetalhe() {
         buscarParticipantePorTelefone(numeros)
       } else {
         setParticipanteEncontrado(false)
+        setInscricaoSucesso(false)
+        setJaInscrito(false)
       }
     } else {
       setFormData({
@@ -124,7 +131,7 @@ function EventoDetalhe() {
   const buscarParticipantePorTelefone = async (telefone) => {
     try {
       setBuscandoParticipante(true)
-      const response = await api.get(`/participante/buscar/?telefone=${telefone}`)
+      const response = await api.get(`/participante/buscar/?telefone=${telefone}&evento_id=${id}`)
       
       if (response.data.encontrado) {
         setFormData(prev => ({
@@ -133,6 +140,19 @@ function EventoDetalhe() {
           email: response.data.participante.email || '',
         }))
         setParticipanteEncontrado(true)
+        // Se já está inscrito neste evento, exibir estado de "já inscrito"
+        if (response.data.ja_inscrito) {
+          setJaInscrito(true)
+          setInscricaoSucesso(true)
+          setAcompanhantesData(response.data.acompanhantes || [])
+          setInscricaoData({
+            ...response.data.inscricao,
+            valor_total: response.data.inscricao?.valor_total,
+          })
+          if (response.data.cobranca) {
+            setCobranca(response.data.cobranca)
+          }
+        }
       } else {
         setParticipanteEncontrado(false)
       }
@@ -147,8 +167,10 @@ function EventoDetalhe() {
   const adicionarAcompanhante = () => {
     const nome = novoAcompanhante.trim()
     if (nome && !acompanhantes.find(a => a.nome === nome)) {
-      // Verificar vagas disponíveis
-      const vagasNecessarias = 1 + acompanhantes.length + 1
+      // Verificar vagas: se já inscrito e só adicionando acompanhantes, não conta vaga do responsável
+      const vagasNecessarias = somenteAdicionandoAcompanhantes
+        ? acompanhantes.length + 1
+        : 1 + acompanhantes.length + 1
       if (evento.vagas && vagasNecessarias > evento.vagas_disponiveis) {
         setInscricaoErro(`Vagas insuficientes para adicionar mais acompanhantes. Disponível: ${evento.vagas_disponiveis}`)
         return
@@ -175,14 +197,14 @@ function EventoDetalhe() {
     ))
   }
   
-  // Calcular valor total
+  // Calcular valor total (quando só adicionando acompanhantes, não inclui o responsável)
   const calcularValorTotal = () => {
     if (!evento?.evento_pago || !evento.valor_inscricao) return 0
     
     const valorEvento = parseFloat(evento.valor_inscricao)
     
-    // Responsável sempre paga valor integral (adulto)
-    let total = valorEvento
+    // Responsável paga valor integral só se não for apenas adição de acompanhantes
+    let total = somenteAdicionandoAcompanhantes ? 0 : valorEvento
     
     // Valor dos acompanhantes (baseado na categoria selecionada)
     acompanhantes.forEach(acomp => {
@@ -220,6 +242,8 @@ function EventoDetalhe() {
     return `R$ ${valor.toFixed(2).replace('.', ',')}`
   }
 
+  const totalPessoasInscricao = somenteAdicionandoAcompanhantes ? acompanhantes.length : 1 + acompanhantes.length
+
   const handleKeyPress = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault()
@@ -255,7 +279,7 @@ function EventoDetalhe() {
       // Preparar dados de acompanhantes (agora é objeto com nome e categoria)
       const acompanhantesDataEnvio = acompanhantes.map(a => ({
         nome: a.nome,
-        categoria_id: evento.evento_pago ? a.categoria_id : null
+        categoria_id: a.categoria_id || null
       }))
       
       // Usar o novo endpoint de registro de participante
@@ -291,7 +315,7 @@ function EventoDetalhe() {
         if (result.data.ja_inscrito) {
           setJaInscrito(true)
           setInscricaoErro('')
-          
+          setSomenteAdicionandoAcompanhantes(false)
           // Verificar se foram adicionados novos acompanhantes
           if (result.data.acompanhantes_adicionados) {
             setAcompanhantesAdicionados(true)
@@ -552,10 +576,31 @@ function EventoDetalhe() {
                           </div>
                         )}
                         
+                        {/* Pagamento pendente - botão Pagar Agora */}
+                        {inscricaoData?.status_pagamento === 'pendente' && cobranca && (
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4 text-left">
+                            <h4 className="font-semibold text-amber-800 mb-2 flex items-center">
+                              <DollarSign className="h-5 w-5 mr-2" />
+                              Pagamento Pendente
+                            </h4>
+                            <p className="text-sm text-amber-700 mb-3">
+                              Valor: {formatarValor(inscricaoData?.valor_total || cobranca.valor)}
+                            </p>
+                            <button
+                              onClick={() => navigate(`/pagamento/${cobranca.id}?auto=true`)}
+                              className="w-full btn-primary py-2 mb-2 flex items-center justify-center gap-2"
+                            >
+                              <ExternalLink className="h-5 w-5" />
+                              Pagar Agora
+                            </button>
+                          </div>
+                        )}
+                        
                         <button
                           onClick={() => {
                             setInscricaoSucesso(false)
                             setJaInscrito(false)
+                            setSomenteAdicionandoAcompanhantes(true)
                           }}
                           className="btn-primary w-full mb-3"
                         >
@@ -651,19 +696,15 @@ function EventoDetalhe() {
                       </>
                     )}
                     
-                    {/* Dados de acesso (novo cadastro) */}
+                    {/* Aviso: senha enviada por WhatsApp (não exibir senha na tela) */}
                     {novoCadastro && senhaGerada && (
                       <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6 text-left">
                         <h4 className="font-semibold text-green-800 mb-2 flex items-center">
                           <Smartphone className="h-5 w-5 mr-2" />
-                          Seus dados de acesso
+                          Acesso enviado
                         </h4>
-                        <div className="text-sm text-green-700 space-y-1">
-                          <p><span className="font-medium">Telefone:</span> {formData.telefone}</p>
-                          <p><span className="font-medium">Senha:</span> <span className="font-bold text-lg">{senhaGerada}</span></p>
-                        </div>
-                        <p className="text-xs text-green-600 mt-2">
-                          Anote sua senha! Use-a para acessar "Meus Ingressos"
+                        <p className="text-sm text-green-700">
+                          A senha de acesso foi enviada via WhatsApp para o número <span className="font-medium">{formData.telefone}</span>. Use-a para acessar &quot;Meus Ingressos&quot;.
                         </p>
                       </div>
                     )}
@@ -886,8 +927,8 @@ function EventoDetalhe() {
                                         <X className="h-4 w-4" />
                                       </button>
                                     </div>
-                                    {/* Categoria do acompanhante (para eventos pagos) */}
-                                    {evento.evento_pago && categorias.length > 0 && (
+                                    {/* Categoria do acompanhante (adulto, idade – sem valor para eventos gratuitos) */}
+                                    {categorias.length > 0 && (
                                       <select
                                         value={acomp.categoria_id}
                                         onChange={(e) => atualizarCategoriaAcompanhante(index, e.target.value)}
@@ -895,7 +936,9 @@ function EventoDetalhe() {
                                       >
                                         {categorias.map(cat => (
                                           <option key={cat.id} value={cat.id}>
-                                            {[cat.nome || 'Categoria', cat.descricao, cat.valor_formatado].filter(Boolean).join(' – ')}
+                                            {evento.evento_pago
+                                              ? [cat.nome || 'Categoria', cat.descricao, cat.valor_formatado].filter(Boolean).join(' – ')
+                                              : [cat.nome || 'Categoria', cat.descricao].filter(Boolean).join(' – ')}
                                           </option>
                                         ))}
                                       </select>
@@ -925,8 +968,8 @@ function EventoDetalhe() {
                                   <UserPlus className="h-5 w-5" />
                                 </button>
                               </div>
-                              {/* Categoria para o novo acompanhante (só em eventos pagos; aparece ao digitar o nome) */}
-                              {evento.evento_pago && categorias.length > 0 && novoAcompanhante && (
+                              {/* Categoria para o novo acompanhante (adulto, idade – sem valor para eventos gratuitos) */}
+                              {categorias.length > 0 && novoAcompanhante && (
                                 <select
                                   value={novoAcompanhanteCategoria}
                                   onChange={(e) => setNovoAcompanhanteCategoria(e.target.value)}
@@ -934,7 +977,9 @@ function EventoDetalhe() {
                                 >
                                   {categorias.map(cat => (
                                     <option key={cat.id} value={cat.id}>
-                                      {[cat.nome || 'Categoria', cat.descricao, cat.valor_formatado].filter(Boolean).join(' – ')}
+                                      {evento.evento_pago
+                                        ? [cat.nome || 'Categoria', cat.descricao, cat.valor_formatado].filter(Boolean).join(' – ')
+                                        : [cat.nome || 'Categoria', cat.descricao].filter(Boolean).join(' – ')}
                                     </option>
                                   ))}
                                 </select>
@@ -943,7 +988,7 @@ function EventoDetalhe() {
                             
                             {acompanhantes.length > 0 && (
                               <p className="text-xs text-primary-600 mt-2">
-                                Total: {1 + acompanhantes.length} pessoa(s)
+                                Total: {totalPessoasInscricao} pessoa(s)
                               </p>
                             )}
                           </div>
@@ -956,13 +1001,15 @@ function EventoDetalhe() {
                                 Resumo de Valores
                               </h4>
                               <div className="text-sm text-amber-700 space-y-1">
-                                {/* Responsável - sempre adulto, valor integral */}
-                                <p className="flex justify-between">
-                                  <span>{formData.nome || 'Você'} (Adulto):</span>
-                                  <span className="font-medium">
-                                    {formatarValor(parseFloat(evento.valor_inscricao))}
-                                  </span>
-                                </p>
+                                {/* Responsável - só mostra quando não for apenas adição de acompanhantes */}
+                                {!somenteAdicionandoAcompanhantes && (
+                                  <p className="flex justify-between">
+                                    <span>{formData.nome || 'Você'} (Adulto):</span>
+                                    <span className="font-medium">
+                                      {formatarValor(parseFloat(evento.valor_inscricao))}
+                                    </span>
+                                  </p>
+                                )}
                                 {/* Acompanhantes com suas categorias */}
                                 {acompanhantes.map((acomp, index) => {
                                   const cat = categorias.find(c => c.id == acomp.categoria_id)
@@ -991,7 +1038,7 @@ function EventoDetalhe() {
                             disabled={inscricaoLoading}
                             className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            {inscricaoLoading ? 'Processando...' : `Confirmar Inscrição${acompanhantes.length > 0 ? ` (${1 + acompanhantes.length} pessoas)` : ''}`}
+                            {inscricaoLoading ? 'Processando...' : `Confirmar Inscrição${totalPessoasInscricao > 0 ? ` (${totalPessoasInscricao} ${totalPessoasInscricao === 1 ? 'pessoa' : 'pessoas'})` : ''}`}
                           </button>
                         </form>
                       </>
@@ -1009,8 +1056,10 @@ function EventoDetalhe() {
         isOpen={showConfirmModal}
         onClose={() => setShowConfirmModal(false)}
         onConfirm={realizarInscricao}
-        title="Confirmar Inscrição"
-        message={`Deseja confirmar sua inscrição no evento "${evento?.titulo}"?`}
+        title={somenteAdicionandoAcompanhantes ? 'Confirmar Acompanhantes' : 'Confirmar Inscrição'}
+        message={somenteAdicionandoAcompanhantes
+          ? `Deseja adicionar ${acompanhantes.length} acompanhante(s) à sua inscrição no evento "${evento?.titulo}"?`
+          : `Deseja confirmar sua inscrição no evento "${evento?.titulo}"?`}
         type="confirm"
         confirmText="Confirmar"
         cancelText="Voltar"
@@ -1019,16 +1068,18 @@ function EventoDetalhe() {
         {/* Resumo da inscrição - Responsivo */}
         <div className="bg-gray-50 rounded-xl p-3 sm:p-4 text-left">
           <div className="space-y-2 sm:space-y-3">
-            {/* Participante */}
-            <div className="flex items-center gap-3 pb-2 border-b border-gray-200">
-              <div className="w-9 h-9 sm:w-10 sm:h-10 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <UserCheck className="h-4 w-4 sm:h-5 sm:w-5 text-primary-600" />
+            {/* Participante - só mostra quando não for apenas adição de acompanhantes */}
+            {!somenteAdicionandoAcompanhantes && (
+              <div className="flex items-center gap-3 pb-2 border-b border-gray-200">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <UserCheck className="h-4 w-4 sm:h-5 sm:w-5 text-primary-600" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-gray-800 text-sm sm:text-base truncate">{formData.nome}</p>
+                  <p className="text-xs sm:text-sm text-gray-500">{formData.telefone}</p>
+                </div>
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold text-gray-800 text-sm sm:text-base truncate">{formData.nome}</p>
-                <p className="text-xs sm:text-sm text-gray-500">{formData.telefone}</p>
-              </div>
-            </div>
+            )}
             
             {/* Acompanhantes */}
             {acompanhantes.length > 0 && (
@@ -1065,7 +1116,7 @@ function EventoDetalhe() {
             {/* Total de pessoas */}
             <div className="bg-primary-50 rounded-lg py-2 px-3 text-center">
               <p className="text-xs sm:text-sm text-primary-700">
-                <span className="font-bold text-base sm:text-lg">{1 + acompanhantes.length}</span> pessoa(s) inscrita(s)
+                <span className="font-bold text-base sm:text-lg">{totalPessoasInscricao}</span> pessoa(s) {somenteAdicionandoAcompanhantes ? 'a adicionar' : 'inscrita(s)'}
               </p>
             </div>
           </div>

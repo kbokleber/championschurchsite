@@ -1,4 +1,5 @@
 import { Routes, Route } from 'react-router-dom'
+import ScrollToTop from './components/ScrollToTop'
 import { AuthProvider } from './contexts/AuthContext'
 import { ParticipanteProvider } from './contexts/ParticipanteContext'
 import { ConfiguracaoProvider } from './contexts/ConfiguracaoContext'
@@ -37,6 +38,7 @@ function App() {
     <ConfiguracaoProvider>
     <AuthProvider>
       <ParticipanteProvider>
+      <ScrollToTop />
       <Routes>
         {/* Rotas Públicas */}
         <Route path="/" element={

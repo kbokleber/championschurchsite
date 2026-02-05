@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react'
 import { Save, Upload, X, Church, Mail, Phone, MapPin, Facebook, Instagram, Youtube, Twitter, Globe, Webhook, ToggleLeft, ToggleRight, CreditCard, AlertTriangle, CheckCircle, Eye, EyeOff, MessageSquare } from 'lucide-react'
 import api from '../../services/api'
 import LoadingSpinner from '../../components/LoadingSpinner'
+import { useConfiguracao } from '../../contexts/ConfiguracaoContext'
 
 function AdminConfiguracoes() {
+  const { getImageUrl } = useConfiguracao()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: '', text: '' })
@@ -106,22 +108,19 @@ function AdminConfiguracoes() {
       })
 
       if (data.logo) {
-        const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-        setLogoPreview(data.logo.startsWith('http') ? data.logo : `${baseUrl}${data.logo}`)
+        setLogoPreview(getImageUrl(data.logo))
         setClearLogoRequested(false)
       } else {
         setLogoPreview(null)
       }
       if (data.logo_branco) {
-        const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-        setLogoBrancoPreview(data.logo_branco.startsWith('http') ? data.logo_branco : `${baseUrl}${data.logo_branco}`)
+        setLogoBrancoPreview(getImageUrl(data.logo_branco))
         setClearLogoBrancoRequested(false)
       } else {
         setLogoBrancoPreview(null)
       }
       if (data.imagem_banner) {
-        const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-        setBannerPreview(data.imagem_banner.startsWith('http') ? data.imagem_banner : `${baseUrl}${data.imagem_banner}`)
+        setBannerPreview(getImageUrl(data.imagem_banner))
         setClearBannerRequested(false)
       } else {
         setBannerPreview(null)

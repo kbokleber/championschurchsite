@@ -5,18 +5,27 @@ import { useMemo } from 'react'
 function Sobre() {
   const { configuracao } = useConfiguracao()
   
-  // Extrair src do iframe do código embed
-  const mapaIframeSrc = useMemo(() => {
+  // Extrair src e atributos do iframe do código embed
+  const mapaIframeProps = useMemo(() => {
     if (!configuracao?.google_maps_embed) return null
     
-    // Tentar extrair o src do iframe
-    const match = configuracao.google_maps_embed.match(/src="([^"]+)"/)
-    if (match && match[1]) {
-      return match[1]
-    }
+    const embedCode = configuracao.google_maps_embed
     
-    // Se não conseguir extrair, retornar o HTML completo para usar com dangerouslySetInnerHTML
-    return null
+    // Tentar extrair o src do iframe (suporta aspas simples e duplas)
+    const srcMatch = embedCode.match(/src=["']([^"']+)["']/) || embedCode.match(/src=([^\s>]+)/)
+    if (!srcMatch || !srcMatch[1]) return null
+    
+    const src = srcMatch[1]
+    
+    // Extrair width e height se existirem
+    const widthMatch = embedCode.match(/width=["']?(\d+)["']?/)
+    const heightMatch = embedCode.match(/height=["']?(\d+)["']?/)
+    
+    return {
+      src,
+      width: widthMatch ? widthMatch[1] : '100%',
+      height: heightMatch ? heightMatch[1] : '450',
+    }
   }, [configuracao?.google_maps_embed])
   const valores = [
     {
@@ -254,25 +263,30 @@ function Sobre() {
               )}
 
               {/* Mapa do Google Maps */}
-              <div className="w-full overflow-hidden" style={{ minHeight: '450px' }}>
-                {mapaIframeSrc ? (
+              <div className="w-full overflow-hidden rounded-b-xl" style={{ minHeight: '450px' }}>
+                {mapaIframeProps ? (
                   <iframe
-                    src={mapaIframeSrc}
-                    width="100%"
-                    height="450"
-                    style={{ border: 0, display: 'block' }}
-                    allowFullScreen
+                    src={mapaIframeProps.src}
+                    width={mapaIframeProps.width}
+                    height={mapaIframeProps.height}
+                    style={{ 
+                      border: 0, 
+                      display: 'block',
+                      width: '100%',
+                      minHeight: '450px'
+                    }}
+                    allowFullScreen={true}
                     loading="lazy"
                     referrerPolicy="no-referrer-when-downgrade"
                     title="Localização Champions Church"
                   />
-                ) : (
+                ) : configuracao?.google_maps_embed ? (
                   <div 
                     className="w-full"
                     style={{ minHeight: '450px' }}
                     dangerouslySetInnerHTML={{ __html: configuracao.google_maps_embed }}
                   />
-                )}
+                ) : null}
               </div>
             </div>
           </div>

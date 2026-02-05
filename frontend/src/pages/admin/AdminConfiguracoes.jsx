@@ -148,9 +148,18 @@ function AdminConfiguracoes() {
     try {
       const data = new FormData()
       
+      // Processar descrição: converter \n literal em quebras de linha reais
+      const descricaoProcessada = formData.descricao
+        ? formData.descricao.replace(/\\n/g, '\n')
+        : formData.descricao
+      
       // Adiciona todos os campos de texto
       Object.keys(formData).forEach(key => {
-        data.append(key, formData[key])
+        if (key === 'descricao') {
+          data.append(key, descricaoProcessada)
+        } else {
+          data.append(key, formData[key])
+        }
       })
 
       // Adiciona logos se houver novos
@@ -279,6 +288,9 @@ function AdminConfiguracoes() {
                   className="input-field"
                   placeholder="Texto sobre a igreja para o rodapé e outras áreas"
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  💡 Dica: Pressione Enter para criar uma nova linha. Se digitar \n, será convertido automaticamente em quebra de linha.
+                </p>
               </div>
 
               <div>

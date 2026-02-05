@@ -54,8 +54,10 @@ function Footer() {
                 {configuracao?.nome_igreja || 'Champions Church'}
               </span>
             </div>
-            <p className="text-sm leading-relaxed">
-              {configuracao?.descricao || 'Uma igreja para toda a família. Venha nos conhecer e fazer parte da nossa comunidade de fé, amor e esperança.'}
+            <p className="text-sm leading-relaxed whitespace-pre-line">
+              {configuracao?.descricao 
+                ? configuracao.descricao.replace(/\\n/g, '\n')
+                : 'Uma igreja para toda a família. Venha nos conhecer e fazer parte da nossa comunidade de fé, amor e esperança.'}
             </p>
           </div>
 

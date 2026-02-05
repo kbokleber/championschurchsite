@@ -21,6 +21,7 @@ from .models import (
     CategoriaParticipante, Cobranca, CobrancaItem,
     PermissaoMenu, Grupo
 )
+from .utils_imagem import substituir_fundo_logo_por_navy
 from .serializers import (
     MembroSerializer, MembroResumoSerializer,
     EventoSerializer, EventoListaSerializer,
@@ -2285,6 +2286,27 @@ def configuracao_admin(request):
         
         if serializer.is_valid():
             serializer.save()
+            # Remover quadriculado de logos (substituir fundo por azul do header)
+            if 'logo' in request.FILES and config.logo:
+                try:
+                    substituir_fundo_logo_por_navy(config.logo.path)
+                except Exception:
+                    pass
+            if 'logo_branco' in request.FILES and config.logo_branco:
+                try:
+                    substituir_fundo_logo_por_navy(config.logo_branco.path)
+                except Exception:
+                    pass
+            # Reprocessar logos existentes (remover quadriculado) se solicitado
+            reprocess_logo = request.data.get('reprocess_logo') in (True, 'true', 'True', '1')
+            if reprocess_logo:
+                try:
+                    if config.logo:
+                        substituir_fundo_logo_por_navy(config.logo.path)
+                    if config.logo_branco:
+                        substituir_fundo_logo_por_navy(config.logo_branco.path)
+                except Exception:
+                    pass
             # Limpar logos se o admin solicitou remoção
             clear_logo = request.data.get('clear_logo') in (True, 'true', 'True', '1')
             clear_logo_branco = request.data.get('clear_logo_branco') in (True, 'true', 'True', '1')

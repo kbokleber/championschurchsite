@@ -27,6 +27,9 @@ function AdminConfiguracoes() {
     twitter: '',
     horarios: '',
     google_maps_embed: '',
+    cor_header: '#1a365d',
+    cor_rodape: '#1a365d',
+    cor_header_pagina: '#1a365d',
     webhook_inscricao: '',
     webhook_ativo: false,
     // Mercado Pago
@@ -54,6 +57,7 @@ function AdminConfiguracoes() {
   const [showAccessTokenSandbox, setShowAccessTokenSandbox] = useState(false)
   const [showAccessTokenProduction, setShowAccessTokenProduction] = useState(false)
   const [showEvolutionApiKey, setShowEvolutionApiKey] = useState(false)
+  const [reprocessingLogo, setReprocessingLogo] = useState(false)
 
   useEffect(() => {
     fetchConfiguracao()
@@ -82,6 +86,9 @@ function AdminConfiguracoes() {
         twitter: data.twitter || '',
         horarios: data.horarios || '',
         google_maps_embed: data.google_maps_embed || '',
+        cor_header: data.cor_header || '#1a365d',
+        cor_rodape: data.cor_rodape || '#1a365d',
+        cor_header_pagina: data.cor_header_pagina || '#1a365d',
         webhook_inscricao: data.webhook_inscricao || '',
         webhook_ativo: data.webhook_ativo || false,
         // Mercado Pago
@@ -243,6 +250,25 @@ function AdminConfiguracoes() {
       setMessage({ type: 'error', text: 'Erro ao salvar configurações' })
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleReprocessLogo = async () => {
+    if (!logoPreview && !logoBrancoPreview) return
+    setReprocessingLogo(true)
+    try {
+      const data = new FormData()
+      data.append('reprocess_logo', 'true')
+      await api.patch('/admin/configuracao/', data, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      setMessage({ type: 'success', text: 'Fundo do logo corrigido. Atualize a página do site (F5) para ver.' })
+      setTimeout(() => {
+        window.location.reload()
+      }, 1500)
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Erro ao corrigir logo' })
+      setReprocessingLogo(false)
     }
   }
 
@@ -585,6 +611,75 @@ function AdminConfiguracoes() {
           {/* Tab: Visual */}
           {activeTab === 'visual' && (
             <div className="space-y-8">
+              {/* Cor do header */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Cor do header (menu superior)
+                </label>
+                <div className="flex items-center gap-4">
+                  <input
+                    type="color"
+                    value={formData.cor_header?.startsWith('#') ? formData.cor_header : '#1a365d'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, cor_header: e.target.value }))}
+                    className="h-10 w-14 rounded border border-gray-300 cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={formData.cor_header || '#1a365d'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, cor_header: e.target.value || '#1a365d' }))}
+                    placeholder="#1a365d"
+                    className="flex-1 max-w-[140px] px-3 py-2 border border-gray-300 rounded-lg"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Cor de fundo do menu no topo do site</p>
+              </div>
+
+              {/* Cor do rodapé */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Cor do rodapé
+                </label>
+                <div className="flex items-center gap-4">
+                  <input
+                    type="color"
+                    value={formData.cor_rodape?.startsWith('#') ? formData.cor_rodape : '#1a365d'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, cor_rodape: e.target.value }))}
+                    className="h-10 w-14 rounded border border-gray-300 cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={formData.cor_rodape || '#1a365d'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, cor_rodape: e.target.value || '#1a365d' }))}
+                    placeholder="#1a365d"
+                    className="flex-1 max-w-[140px] px-3 py-2 border border-gray-300 rounded-lg"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Cor de fundo do rodapé do site</p>
+              </div>
+
+              {/* Cor do header das páginas */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Cor do header das páginas
+                </label>
+                <div className="flex items-center gap-4">
+                  <input
+                    type="color"
+                    value={formData.cor_header_pagina?.startsWith('#') ? formData.cor_header_pagina : '#1a365d'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, cor_header_pagina: e.target.value }))}
+                    className="h-10 w-14 rounded border border-gray-300 cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={formData.cor_header_pagina || '#1a365d'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, cor_header_pagina: e.target.value || '#1a365d' }))}
+                    placeholder="#1a365d"
+                    className="flex-1 max-w-[140px] px-3 py-2 border border-gray-300 rounded-lg"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Cor da faixa de título (Meus Ingressos, Eventos, Sobre, Contato, etc.)</p>
+              </div>
+
               {/* Logo Principal */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-3">
@@ -623,7 +718,7 @@ function AdminConfiguracoes() {
                       />
                     </label>
                     <p className="text-xs text-gray-500 mt-2">
-                      Formatos: PNG, JPG. Recomendado: fundo transparente
+                      PNG com fundo transparente (exporte sem o quadriculado do editor)
                     </p>
                   </div>
                 </div>
@@ -667,11 +762,28 @@ function AdminConfiguracoes() {
                       />
                     </label>
                     <p className="text-xs text-gray-500 mt-2">
-                      Versão clara do logo para usar no rodapé e áreas escuras
+                      Versão clara do logo para o header e áreas escuras. Use PNG com fundo transparente (sem quadriculado).
                     </p>
                   </div>
                 </div>
               </div>
+
+              {/* Corrigir fundo do logo (quadriculado) */}
+              {(logoPreview || logoBrancoPreview) && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-2">
+                    Se o logo aparecer com quadriculado no header, clique abaixo para substituir esse fundo pelo azul do site.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleReprocessLogo}
+                    disabled={reprocessingLogo}
+                    className="btn-outline text-sm"
+                  >
+                    {reprocessingLogo ? 'Corrigindo...' : 'Corrigir fundo do logo'}
+                  </button>
+                </div>
+              )}
 
               {/* Imagem do Banner (página inicial) */}
               <div>

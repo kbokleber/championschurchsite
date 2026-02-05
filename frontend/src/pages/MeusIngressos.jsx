@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Ticket, QrCode, Calendar, MapPin, Download, Check, Clock, X, LogIn, Phone, Lock, LogOut, User, Users, DollarSign, AlertCircle, ExternalLink, RefreshCw, HelpCircle } from 'lucide-react'
 import { useParticipante } from '../contexts/ParticipanteContext'
+import { useConfiguracao } from '../contexts/ConfiguracaoContext'
 import { getMediaUrl } from '../services/utils'
 import LoadingSpinner from '../components/LoadingSpinner'
 import api from '../services/api'
@@ -9,7 +10,9 @@ import api from '../services/api'
 function MeusIngressos() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { configuracao } = useConfiguracao()
   const { participante, ingressos, isLoggedIn, loading, loadError, login, logout, atualizarIngressos, tentarCarregarNovamente, getToken } = useParticipante()
+  const corHeaderPagina = configuracao?.cor_header_pagina && /^#[0-9A-Fa-f]{6}$/.test(configuracao.cor_header_pagina) ? configuracao.cor_header_pagina : '#1a365d'
   const [telefone, setTelefone] = useState('')
   const [senha, setSenha] = useState('')
   const [loginLoading, setLoginLoading] = useState(false)
@@ -294,7 +297,7 @@ function MeusIngressos() {
   return (
     <div className="min-h-screen bg-gray-50 overflow-x-hidden">
       {/* Header */}
-      <section className="bg-gradient-to-r from-church-navy to-primary-800 py-10 sm:py-16">
+      <section className="py-10 sm:py-16" style={{ backgroundColor: corHeaderPagina }}>
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <div className="inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 bg-white/10 rounded-full mb-4 sm:mb-6">
             <Ticket className="h-8 w-8 sm:h-10 sm:w-10 text-church-gold" />

@@ -5,6 +5,7 @@ import { useConfiguracao } from '../contexts/ConfiguracaoContext'
 
 function Contato() {
   const { configuracao: config } = useConfiguracao()
+  const corHeaderPagina = config?.cor_header_pagina && /^#[0-9A-Fa-f]{6}$/.test(config.cor_header_pagina) ? config.cor_header_pagina : '#1a365d'
   const [formData, setFormData] = useState({
     nome: '',
     email: '',
@@ -100,7 +101,7 @@ function Contato() {
   return (
     <div className="min-h-screen">
       {/* Hero Section */}
-      <section className="bg-gradient-to-r from-church-navy to-primary-800 py-20">
+      <section className="py-20" style={{ backgroundColor: corHeaderPagina }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h1 className="text-4xl md:text-5xl font-serif font-bold text-white mb-6">
             Entre em Contato

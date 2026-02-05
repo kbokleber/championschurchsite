@@ -26,33 +26,35 @@ function Footer() {
 
   const endereco = formatarEndereco()
   const horarios = formatarHorarios()
+  const corRodape = configuracao?.cor_rodape && /^#[0-9A-Fa-f]{6}$/.test(configuracao.cor_rodape)
+    ? configuracao.cor_rodape
+    : '#1a365d'
 
   return (
-    <footer className="bg-church-navy text-gray-300">
+    <footer className="text-gray-300" style={{ backgroundColor: corRodape }}>
       {/* Main Footer */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
           {/* About */}
           <div>
-            <div className="flex items-center space-x-2 mb-4">
+            <div className="flex items-center mb-4">
               {(configuracao?.logo_branco && String(configuracao.logo_branco).trim() !== '') ? (
                 <img 
                   src={getImageUrl(configuracao.logo_branco)} 
                   alt={configuracao?.nome_igreja || 'Logo'}
-                  className="h-10 w-auto"
+                  className="h-12 w-auto bg-transparent object-contain"
+                  style={{ background: 'transparent' }}
                 />
               ) : (configuracao?.logo && String(configuracao.logo).trim() !== '') ? (
                 <img 
                   src={getImageUrl(configuracao.logo)} 
                   alt={configuracao?.nome_igreja || 'Logo'}
-                  className="h-10 w-auto"
+                  className="h-12 w-auto bg-transparent object-contain"
+                  style={{ background: 'transparent' }}
                 />
               ) : (
-                <Church className="h-8 w-8 text-church-gold" />
+                <Church className="h-10 w-10 text-church-gold" />
               )}
-              <span className="text-xl font-serif font-bold text-white">
-                {configuracao?.nome_igreja || 'Champions Church'}
-              </span>
             </div>
             <p className="text-sm leading-relaxed whitespace-pre-line">
               {configuracao?.descricao 

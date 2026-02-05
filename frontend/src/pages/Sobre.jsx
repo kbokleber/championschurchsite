@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 
 function Sobre() {
   const { configuracao } = useConfiguracao()
+  const corHeaderPagina = configuracao?.cor_header_pagina && /^#[0-9A-Fa-f]{6}$/.test(configuracao.cor_header_pagina) ? configuracao.cor_header_pagina : '#1a365d'
   
   // Extrair src e atributos do iframe do código embed
   const mapaIframeProps = useMemo(() => {
@@ -80,7 +81,7 @@ function Sobre() {
   return (
     <div className="min-h-screen">
       {/* Hero Section */}
-      <section className="bg-gradient-to-r from-church-navy to-primary-800 py-20">
+      <section className="py-20" style={{ backgroundColor: corHeaderPagina }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h1 className="text-4xl md:text-5xl font-serif font-bold text-white mb-6">
             Sobre a {configuracao?.nome_igreja || 'Champions Church'}

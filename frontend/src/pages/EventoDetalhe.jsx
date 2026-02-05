@@ -4,13 +4,16 @@ import { Calendar, MapPin, Users, Clock, ArrowLeft, Check, AlertCircle, Lock, Do
 import LoadingSpinner from '../components/LoadingSpinner'
 import ConfirmModal from '../components/ConfirmModal'
 import { useParticipante } from '../contexts/ParticipanteContext'
+import { useConfiguracao } from '../contexts/ConfiguracaoContext'
 import api from '../services/api'
 import { getMediaUrl, formatDateTimeBR } from '../services/utils'
 
 function EventoDetalhe() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { configuracao } = useConfiguracao()
   const { registrar, isLoggedIn, participante } = useParticipante()
+  const corHeaderPagina = configuracao?.cor_header_pagina && /^#[0-9A-Fa-f]{6}$/.test(configuracao.cor_header_pagina) ? configuracao.cor_header_pagina : '#1a365d'
   const [evento, setEvento] = useState(null)
   const [loading, setLoading] = useState(true)
   const [inscricaoLoading, setInscricaoLoading] = useState(false)
@@ -386,7 +389,7 @@ function EventoDetalhe() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <section className="bg-gradient-to-r from-church-navy to-primary-800 py-12">
+      <section className="py-12" style={{ backgroundColor: corHeaderPagina }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <Link
             to="/eventos"

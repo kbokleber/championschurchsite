@@ -751,6 +751,27 @@ class ConfiguracaoSite(models.Model):
         blank=True,
         help_text='Foto que substitui o fundo azul da seção de boas-vindas'
     )
+    cor_header = models.CharField(
+        max_length=7,
+        verbose_name='Cor do header',
+        default='#1a365d',
+        blank=True,
+        help_text='Cor de fundo do menu superior (ex: #1a365d)'
+    )
+    cor_rodape = models.CharField(
+        max_length=7,
+        verbose_name='Cor do rodapé',
+        default='#1a365d',
+        blank=True,
+        help_text='Cor de fundo do rodapé (ex: #1a365d)'
+    )
+    cor_header_pagina = models.CharField(
+        max_length=7,
+        verbose_name='Cor do header das páginas',
+        default='#1a365d',
+        blank=True,
+        help_text='Cor da faixa de título das páginas (ex.: Meus Ingressos, Eventos, Sobre)'
+    )
     
     # Contato
     email = models.EmailField(

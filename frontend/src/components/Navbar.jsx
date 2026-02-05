@@ -27,24 +27,28 @@ function Navbar() {
   ]
 
   const isActive = (path) => location.pathname === path
+  const corHeader = configuracao?.cor_header && /^#[0-9A-Fa-f]{6}$/.test(configuracao.cor_header)
+    ? configuracao.cor_header
+    : '#1a365d'
 
   return (
-    <nav className="bg-church-navy shadow-lg sticky top-0 z-50">
+    <nav className="shadow-lg sticky top-0 z-50" style={{ backgroundColor: corHeader }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-20 min-h-[5rem]">
-          {/* Logo: imagem da config substitui a igrejinha; o texto (nome da igreja) fica sempre */}
+        <div className="flex justify-between h-24 min-h-[6rem]">
+          {/* Logo: mesma cor do header atrás da imagem para transparência do PNG integrar */}
           <div className="flex items-center">
-            <Link to="/" className="flex items-center space-x-3 sm:space-x-4">
+            <Link to="/" className="flex items-center">
               {logoUrl ? (
-                <img
-                  src={logoUrl}
-                  alt={nomeIgreja}
-                  className="h-12 sm:h-14 w-auto max-h-14 object-contain object-left flex-shrink-0"
-                />
+                <span className="inline-flex items-center rounded overflow-hidden" style={{ backgroundColor: corHeader }}>
+                  <img
+                    src={logoUrl}
+                    alt={nomeIgreja}
+                    className="h-16 sm:h-20 md:h-24 w-auto max-h-24 object-contain object-left flex-shrink-0"
+                  />
+                </span>
               ) : (
-                <Church className="h-12 w-12 sm:h-14 sm:w-14 text-church-gold flex-shrink-0" />
+                <Church className="h-14 w-14 sm:h-16 sm:w-16 md:h-20 md:w-20 text-church-gold flex-shrink-0" />
               )}
-              <span className="text-xl sm:text-2xl md:text-3xl font-serif font-bold text-white">{nomeIgreja}</span>
             </Link>
           </div>
 
@@ -84,7 +88,7 @@ function Navbar() {
 
       {/* Mobile Navigation */}
       {isOpen && (
-        <div className="md:hidden bg-church-navy border-t border-gray-700">
+        <div className="md:hidden border-t border-gray-700" style={{ backgroundColor: corHeader }}>
           <div className="px-4 pt-2 pb-4 space-y-2">
             {navLinks.map((link) => (
               <Link

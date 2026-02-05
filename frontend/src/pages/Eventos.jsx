@@ -7,6 +7,7 @@ import { useConfiguracao } from '../contexts/ConfiguracaoContext'
 
 function Eventos() {
   const { configuracao } = useConfiguracao()
+  const corHeaderPagina = configuracao?.cor_header_pagina && /^#[0-9A-Fa-f]{6}$/.test(configuracao.cor_header_pagina) ? configuracao.cor_header_pagina : '#1a365d'
   const [eventos, setEventos] = useState([])
   const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState('todos')
@@ -51,7 +52,7 @@ function Eventos() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <section className="bg-gradient-to-r from-church-navy to-primary-800 py-16">
+      <section className="py-16" style={{ backgroundColor: corHeaderPagina }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h1 className="text-4xl md:text-5xl font-serif font-bold text-white mb-4">
             Nossos Eventos

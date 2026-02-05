@@ -142,8 +142,8 @@ function Home() {
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="py-20 bg-gradient-to-r from-primary-600 to-primary-800">
+      {/* CTA Section - cor fixa #111111 */}
+      <section className="py-20" style={{ backgroundColor: '#111111' }}>
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-3xl md:text-4xl font-serif font-bold text-white mb-6">
             Venha nos visitar!

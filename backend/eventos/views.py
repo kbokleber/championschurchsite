@@ -2285,7 +2285,21 @@ def configuracao_admin(request):
         
         if serializer.is_valid():
             serializer.save()
-            return Response(serializer.data)
+            # Limpar logos se o admin solicitou remoção
+            clear_logo = request.data.get('clear_logo') in (True, 'true', 'True', '1')
+            clear_logo_branco = request.data.get('clear_logo_branco') in (True, 'true', 'True', '1')
+            if clear_logo and config.logo:
+                config.logo = None
+                config.save(update_fields=['logo'])
+            if clear_logo_branco and config.logo_branco:
+                config.logo_branco = None
+                config.save(update_fields=['logo_branco'])
+            clear_banner = request.data.get('clear_imagem_banner') in (True, 'true', 'True', '1')
+            if clear_banner and config.imagem_banner:
+                config.imagem_banner = None
+                config.save(update_fields=['imagem_banner'])
+            config.refresh_from_db()
+            return Response(ConfiguracaoSiteSerializer(config).data)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

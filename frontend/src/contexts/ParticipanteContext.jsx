@@ -52,14 +52,44 @@ export function ParticipanteProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
 
-  // Ao montar: priorizar cache. Se tiver token + cache, mostrar cache e só então atualizar em background.
-  // Se tiver token mas sem cache, carregar da API. Se não tiver token, pedir login.
+  // Ao montar: verificar se tem token válido. Se não tiver token, limpar cache e pedir login.
+  // Se tiver token + cache, mostrar cache e só então atualizar em background.
+  // Se tiver token mas sem cache, carregar da API.
   useEffect(() => {
     const token = localStorage.getItem('participante_token')
     if (!token) {
+      // Sem token = não está logado. Limpar cache e mostrar formulário de login
+      limparCache()
+      setParticipante(null)
+      setIngressos([])
       setLoading(false)
       return
     }
+    // Verificar se o token é válido (não expirado)
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]))
+      const exp = payload.exp * 1000
+      const agora = Date.now()
+      if (exp < agora) {
+        // Token expirado - limpar tudo e pedir login
+        localStorage.removeItem('participante_token')
+        limparCache()
+        setParticipante(null)
+        setIngressos([])
+        setLoading(false)
+        return
+      }
+    } catch (e) {
+      // Token inválido - limpar tudo
+      localStorage.removeItem('participante_token')
+      limparCache()
+      setParticipante(null)
+      setIngressos([])
+      setLoading(false)
+      return
+    }
+    
+    // Token válido - carregar dados
     const cache = lerCache()
     if (cache.participante) {
       setParticipante(cache.participante)
@@ -134,18 +164,11 @@ export function ParticipanteProvider({ children }) {
           }
         }
         
-        // Só fazer logout se realmente não tiver cache ou se o token for inválido (não apenas expirado)
-        // Mas mesmo assim, tentar manter o cache se existir
-        const cache = lerCache()
-        if (!cache.participante) {
-          localStorage.removeItem('participante_token')
-          setParticipante(null)
-          setIngressos([])
-          limparCache()
-        } else {
-          // Manter cache mesmo com erro 401, para não deslogar o usuário
-          console.warn('Erro de autenticação, mas mantendo sessão com cache')
-        }
+        // Erro 401 = não autorizado. Limpar token e cache, fazer logout
+        localStorage.removeItem('participante_token')
+        setParticipante(null)
+        setIngressos([])
+        limparCache()
         if (!silent) setLoadError(false)
         return { success: false }
       }
@@ -227,12 +250,25 @@ export function ParticipanteProvider({ children }) {
     return { success: false }
   }
 
+  // Verificar se está realmente logado: precisa ter token válido E participante
+  const token = localStorage.getItem('participante_token')
+  const temTokenValido = token && (() => {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]))
+      const exp = payload.exp * 1000
+      return exp > Date.now()
+    } catch {
+      return false
+    }
+  })()
+  const isLoggedIn = !!(temTokenValido && participante)
+
   return (
     <ParticipanteContext.Provider value={{
       participante,
       ingressos,
       loading,
-      isLoggedIn: !!participante,
+      isLoggedIn,
       loadError,
       login,
       registrar,

@@ -46,6 +46,11 @@ function AdminConfiguracoes() {
   const [logoBrancoPreview, setLogoBrancoPreview] = useState(null)
   const [newLogo, setNewLogo] = useState(null)
   const [newLogoBranco, setNewLogoBranco] = useState(null)
+  const [clearLogoRequested, setClearLogoRequested] = useState(false)
+  const [clearLogoBrancoRequested, setClearLogoBrancoRequested] = useState(false)
+  const [bannerPreview, setBannerPreview] = useState(null)
+  const [newBanner, setNewBanner] = useState(null)
+  const [clearBannerRequested, setClearBannerRequested] = useState(false)
   const [showAccessTokenSandbox, setShowAccessTokenSandbox] = useState(false)
   const [showAccessTokenProduction, setShowAccessTokenProduction] = useState(false)
   const [showEvolutionApiKey, setShowEvolutionApiKey] = useState(false)
@@ -95,10 +100,23 @@ function AdminConfiguracoes() {
       if (data.logo) {
         const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
         setLogoPreview(data.logo.startsWith('http') ? data.logo : `${baseUrl}${data.logo}`)
+        setClearLogoRequested(false)
+      } else {
+        setLogoPreview(null)
       }
       if (data.logo_branco) {
         const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
         setLogoBrancoPreview(data.logo_branco.startsWith('http') ? data.logo_branco : `${baseUrl}${data.logo_branco}`)
+        setClearLogoBrancoRequested(false)
+      } else {
+        setLogoBrancoPreview(null)
+      }
+      if (data.imagem_banner) {
+        const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+        setBannerPreview(data.imagem_banner.startsWith('http') ? data.imagem_banner : `${baseUrl}${data.imagem_banner}`)
+        setClearBannerRequested(false)
+      } else {
+        setBannerPreview(null)
       }
     } catch (error) {
       console.error('Erro ao carregar configurações:', error)
@@ -121,9 +139,11 @@ function AdminConfiguracoes() {
         if (type === 'logo') {
           setLogoPreview(reader.result)
           setNewLogo(file)
+          setClearLogoRequested(false)
         } else {
           setLogoBrancoPreview(reader.result)
           setNewLogoBranco(file)
+          setClearLogoBrancoRequested(false)
         }
       }
       reader.readAsDataURL(file)
@@ -134,9 +154,28 @@ function AdminConfiguracoes() {
     if (type === 'logo') {
       setLogoPreview(null)
       setNewLogo(null)
-    } else {
+      setClearLogoRequested(true)
+    } else if (type === 'logo_branco') {
       setLogoBrancoPreview(null)
       setNewLogoBranco(null)
+      setClearLogoBrancoRequested(true)
+    } else if (type === 'banner') {
+      setBannerPreview(null)
+      setNewBanner(null)
+      setClearBannerRequested(true)
+    }
+  }
+
+  const handleBannerChange = (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setBannerPreview(reader.result)
+        setNewBanner(file)
+        setClearBannerRequested(false)
+      }
+      reader.readAsDataURL(file)
     }
   }
 
@@ -169,6 +208,19 @@ function AdminConfiguracoes() {
       if (newLogoBranco) {
         data.append('logo_branco', newLogoBranco)
       }
+      // Sinalizar remoção do logo para o backend limpar
+      if (clearLogoRequested) {
+        data.append('clear_logo', 'true')
+      }
+      if (clearLogoBrancoRequested) {
+        data.append('clear_logo_branco', 'true')
+      }
+      if (newBanner) {
+        data.append('imagem_banner', newBanner)
+      }
+      if (clearBannerRequested) {
+        data.append('clear_imagem_banner', 'true')
+      }
 
       await api.patch('/admin/configuracao/', data, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -177,6 +229,10 @@ function AdminConfiguracoes() {
       setMessage({ type: 'success', text: 'Configurações salvas com sucesso!' })
       setNewLogo(null)
       setNewLogoBranco(null)
+      setNewBanner(null)
+      setClearLogoRequested(false)
+      setClearLogoBrancoRequested(false)
+      setClearBannerRequested(false)
       
       // Recarrega para atualizar URLs das imagens
       setTimeout(() => {
@@ -613,6 +669,50 @@ function AdminConfiguracoes() {
                     <p className="text-xs text-gray-500 mt-2">
                       Versão clara do logo para usar no rodapé e áreas escuras
                     </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Imagem do Banner (página inicial) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Imagem do Banner (página inicial)
+                </label>
+                <p className="text-xs text-gray-500 mb-3">
+                  Substitui o fundo azul da seção de boas-vindas na página inicial. Recomendado: imagem em paisagem (ex.: 1920×600).
+                </p>
+                <div className="flex items-start space-x-4">
+                  {bannerPreview ? (
+                    <div className="relative">
+                      <img
+                        src={bannerPreview}
+                        alt="Banner"
+                        className="h-32 w-auto max-w-md object-cover border rounded-lg"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeLogo('banner')}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="h-32 w-64 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50 text-gray-500 text-sm">
+                      Nenhuma imagem
+                    </div>
+                  )}
+                  <div>
+                    <label className="btn-outline cursor-pointer inline-flex items-center">
+                      <Upload className="h-4 w-4 mr-2" />
+                      Selecionar imagem do banner
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleBannerChange}
+                        className="hidden"
+                      />
+                    </label>
                   </div>
                 </div>
               </div>

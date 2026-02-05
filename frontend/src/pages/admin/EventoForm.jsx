@@ -5,12 +5,15 @@ import api from '../../services/api'
 import { getMediaUrl } from '../../services/utils'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import DatePickerBR from '../../components/DatePickerBR'
+import { useConfiguracao } from '../../contexts/ConfiguracaoContext'
 
 function EventoForm() {
   const { id } = useParams()
   const navigate = useNavigate()
   const isEditing = !!id
   const fileInputRef = useRef(null)
+  const { configuracao, loading: configLoading } = useConfiguracao()
+  const [camposPreenchidos, setCamposPreenchidos] = useState(false)
 
   const [loading, setLoading] = useState(isEditing)
   const [saving, setSaving] = useState(false)
@@ -55,11 +58,40 @@ function EventoForm() {
     { value: 'cancelado', label: 'Cancelado' },
   ]
 
+  // Função para formatar endereço completo das configurações
+  const formatarEnderecoCompleto = () => {
+    if (!configuracao) return ''
+    const partes = []
+    if (configuracao.endereco) partes.push(configuracao.endereco)
+    if (configuracao.cidade && configuracao.estado) {
+      partes.push(`${configuracao.cidade}/${configuracao.estado}`)
+    } else if (configuracao.cidade) {
+      partes.push(configuracao.cidade)
+    }
+    if (configuracao.cep) partes.push(`CEP: ${configuracao.cep}`)
+    return partes.join(' - ')
+  }
+
+  // Preencher campos ao criar novo evento (não ao editar)
   useEffect(() => {
     if (isEditing) {
       fetchEvento()
     }
   }, [id])
+
+  // Preencher campos com configurações quando criar novo evento
+  // Aguardar configurações carregarem e só preencher uma vez
+  useEffect(() => {
+    if (!isEditing && !configLoading && configuracao && !camposPreenchidos) {
+      const enderecoCompleto = formatarEnderecoCompleto()
+      setFormData(prev => ({
+        ...prev,
+        local: configuracao.nome_igreja || prev.local || '',
+        endereco: enderecoCompleto || prev.endereco || ''
+      }))
+      setCamposPreenchidos(true)
+    }
+  }, [isEditing, configLoading, configuracao, camposPreenchidos])
 
   const fetchEvento = async () => {
     try {
@@ -480,7 +512,7 @@ function EventoForm() {
                   onChange={handleChange}
                   required
                   className="input-field"
-                  placeholder="Ex: Templo Principal"
+                  placeholder={configuracao?.nome_igreja || "Ex: Templo Principal"}
                 />
               </div>
 
@@ -513,7 +545,7 @@ function EventoForm() {
                 value={formData.endereco}
                 onChange={handleChange}
                 className="input-field"
-                placeholder="Rua, número, bairro, cidade..."
+                placeholder={formatarEnderecoCompleto() || "Rua, número, bairro, cidade..."}
               />
             </div>
           </div>

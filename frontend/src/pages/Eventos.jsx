@@ -3,8 +3,10 @@ import { Search, Filter } from 'lucide-react'
 import EventCard from '../components/EventCard'
 import LoadingSpinner from '../components/LoadingSpinner'
 import api from '../services/api'
+import { useConfiguracao } from '../contexts/ConfiguracaoContext'
 
 function Eventos() {
+  const { configuracao } = useConfiguracao()
   const [eventos, setEventos] = useState([])
   const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState('todos')
@@ -55,7 +57,7 @@ function Eventos() {
             Nossos Eventos
           </h1>
           <p className="text-xl text-primary-100 max-w-2xl mx-auto">
-            Confira nossa programação completa e participe dos eventos da Champions Church.
+            Confira nossa programação completa e participe dos eventos da {configuracao?.nome_igreja || 'Champions Church'}.
           </p>
         </div>
       </section>

@@ -35,13 +35,13 @@ function Footer() {
           {/* About */}
           <div>
             <div className="flex items-center space-x-2 mb-4">
-              {configuracao?.logo_branco ? (
+              {(configuracao?.logo_branco && String(configuracao.logo_branco).trim() !== '') ? (
                 <img 
                   src={getImageUrl(configuracao.logo_branco)} 
                   alt={configuracao?.nome_igreja || 'Logo'}
                   className="h-10 w-auto"
                 />
-              ) : configuracao?.logo ? (
+              ) : (configuracao?.logo && String(configuracao.logo).trim() !== '') ? (
                 <img 
                   src={getImageUrl(configuracao.logo)} 
                   alt={configuracao?.nome_igreja || 'Logo'}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Ticket, QrCode, Calendar, MapPin, Download, Check, Clock, X, LogIn, Phone, Lock, LogOut, User, Users, DollarSign, AlertCircle, ExternalLink, RefreshCw, HelpCircle } from 'lucide-react'
 import { useParticipante } from '../contexts/ParticipanteContext'
 import { getMediaUrl } from '../services/utils'
@@ -8,6 +8,7 @@ import api from '../services/api'
 
 function MeusIngressos() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { participante, ingressos, isLoggedIn, loading, loadError, login, logout, atualizarIngressos, tentarCarregarNovamente, getToken } = useParticipante()
   const [telefone, setTelefone] = useState('')
   const [senha, setSenha] = useState('')
@@ -94,6 +95,45 @@ function MeusIngressos() {
 
   const MESES = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
 
+  const formatarTelefone = (valor) => {
+    // Remove tudo que não é número
+    const numeros = valor.replace(/\D/g, '')
+    
+    // Aplica máscara
+    if (numeros.length <= 2) {
+      return numeros
+    } else if (numeros.length <= 7) {
+      return `(${numeros.slice(0, 2)}) ${numeros.slice(2)}`
+    } else if (numeros.length <= 11) {
+      return `(${numeros.slice(0, 2)}) ${numeros.slice(2, 7)}-${numeros.slice(7)}`
+    }
+    return `(${numeros.slice(0, 2)}) ${numeros.slice(2, 7)}-${numeros.slice(7, 11)}`
+  }
+
+  // Garantir que se não estiver logado, não há dados residuais
+  useEffect(() => {
+    const token = getToken()
+    if (!token && isLoggedIn) {
+      // Se não tem token mas está marcado como logado, fazer logout
+      // Usar setTimeout para evitar problemas de renderização
+      setTimeout(() => logout(), 0)
+    }
+  }, []) // Executar apenas uma vez ao montar
+
+  // Pré-preencher telefone se vier via query string (quando vem da página de detalhes do evento)
+  useEffect(() => {
+    const telefoneParam = searchParams.get('telefone')
+    if (telefoneParam && !isLoggedIn && !telefone) {
+      const telefoneFormatado = formatarTelefone(telefoneParam)
+      setTelefone(telefoneFormatado)
+      // Limpar o parâmetro da URL após usar
+      const newSearchParams = new URLSearchParams(searchParams)
+      newSearchParams.delete('telefone')
+      const newUrl = newSearchParams.toString() ? `/meus-ingressos?${newSearchParams.toString()}` : '/meus-ingressos'
+      navigate(newUrl, { replace: true })
+    }
+  }, [searchParams, isLoggedIn, navigate, telefone])
+
   // Buscar se o telefone está cadastrado (para exibir "Esqueci minha senha" somente quando encontrar)
   useEffect(() => {
     const numeros = (telefone || '').replace(/\D/g, '')
@@ -148,21 +188,6 @@ function MeusIngressos() {
     } finally {
       setAtualizando(false)
     }
-  }
-
-  const formatarTelefone = (valor) => {
-    // Remove tudo que não é número
-    const numeros = valor.replace(/\D/g, '')
-    
-    // Aplica máscara
-    if (numeros.length <= 2) {
-      return numeros
-    } else if (numeros.length <= 7) {
-      return `(${numeros.slice(0, 2)}) ${numeros.slice(2)}`
-    } else if (numeros.length <= 11) {
-      return `(${numeros.slice(0, 2)}) ${numeros.slice(2, 7)}-${numeros.slice(7)}`
-    }
-    return `(${numeros.slice(0, 2)}) ${numeros.slice(2, 7)}-${numeros.slice(7, 11)}`
   }
 
   const handleTelefoneChange = (e) => {

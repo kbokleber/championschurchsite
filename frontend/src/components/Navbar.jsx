@@ -1,10 +1,22 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { Menu, X, Church, Ticket } from 'lucide-react'
+import { useConfiguracao } from '../contexts/ConfiguracaoContext'
 
 function Navbar() {
   const [isOpen, setIsOpen] = useState(false)
   const location = useLocation()
+  const { configuracao, getImageUrl } = useConfiguracao()
+  
+  const nomeIgreja = configuracao?.nome_igreja || 'Champions Church'
+  // Só usar logo dinâmico se existir arquivo cadastrado (string não vazia)
+  const temLogoBranco = configuracao?.logo_branco && String(configuracao.logo_branco).trim() !== ''
+  const temLogo = configuracao?.logo && String(configuracao.logo).trim() !== ''
+  const logoUrl = temLogoBranco
+    ? getImageUrl(configuracao.logo_branco)
+    : temLogo
+      ? getImageUrl(configuracao.logo)
+      : null
 
   const navLinks = [
     { path: '/', label: 'Início' },
@@ -20,14 +32,19 @@ function Navbar() {
     <nav className="bg-church-navy shadow-lg sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-20">
-          {/* Logo */}
+          {/* Logo: imagem da config substitui a igrejinha; o texto (nome da igreja) fica sempre */}
           <div className="flex items-center">
             <Link to="/" className="flex items-center space-x-3">
-              <Church className="h-10 w-10 text-church-gold" />
-              <div>
-                <span className="text-2xl font-serif font-bold text-white">Champions</span>
-                <span className="text-2xl font-serif font-bold text-church-gold"> Church</span>
-              </div>
+              {logoUrl ? (
+                <img
+                  src={logoUrl}
+                  alt={nomeIgreja}
+                  className="h-10 w-auto max-h-10 object-contain object-left flex-shrink-0"
+                />
+              ) : (
+                <Church className="h-10 w-10 text-church-gold flex-shrink-0" />
+              )}
+              <span className="text-2xl font-serif font-bold text-white">{nomeIgreja}</span>
             </Link>
           </div>
 

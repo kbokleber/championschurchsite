@@ -744,6 +744,13 @@ class ConfiguracaoSite(models.Model):
         null=True,
         blank=True
     )
+    imagem_banner = models.ImageField(
+        upload_to='configuracoes/',
+        verbose_name='Imagem do Banner (página inicial)',
+        null=True,
+        blank=True,
+        help_text='Foto que substitui o fundo azul da seção de boas-vindas'
+    )
     
     # Contato
     email = models.EmailField(
@@ -923,8 +930,8 @@ class ConfiguracaoSite(models.Model):
         super().save(*args, **kwargs)
     
     def delete(self, *args, **kwargs):
-        """Remove os arquivos de mídia (logo, favicon) do storage ao excluir."""
-        for field in (self.logo, self.logo_branco, self.favicon):
+        """Remove os arquivos de mídia (logo, favicon, banner) do storage ao excluir."""
+        for field in (self.logo, self.logo_branco, self.favicon, self.imagem_banner):
             if field:
                 field.delete(save=False)
         super().delete(*args, **kwargs)

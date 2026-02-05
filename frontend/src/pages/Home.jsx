@@ -4,8 +4,12 @@ import { Calendar, Users, Heart, BookOpen, ArrowRight } from 'lucide-react'
 import EventCard from '../components/EventCard'
 import LoadingSpinner from '../components/LoadingSpinner'
 import api from '../services/api'
+import { useConfiguracao } from '../contexts/ConfiguracaoContext'
 
 function Home() {
+  const { configuracao, getImageUrl } = useConfiguracao()
+  const temBanner = configuracao?.imagem_banner && String(configuracao.imagem_banner).trim() !== ''
+  const bannerUrl = temBanner ? getImageUrl(configuracao.imagem_banner) : null
   const [eventosDestaque, setEventosDestaque] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -51,13 +55,16 @@ function Home() {
 
   return (
     <div>
-      {/* Hero Section */}
-      <section className="relative bg-gradient-to-br from-church-navy via-primary-900 to-church-navy min-h-[600px] flex items-center">
-        <div className="absolute inset-0 bg-black/30"></div>
+      {/* Hero Section: fundo com imagem do banner ou gradiente azul */}
+      <section
+        className={`relative min-h-[600px] flex items-center ${bannerUrl ? 'bg-cover bg-center bg-no-repeat' : 'bg-gradient-to-br from-church-navy via-primary-900 to-church-navy'}`}
+        style={bannerUrl ? { backgroundImage: `url(${bannerUrl})` } : undefined}
+      >
+        <div className={`absolute inset-0 ${bannerUrl ? 'bg-black/50' : 'bg-black/30'}`}></div>
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center">
           <h1 className="text-4xl md:text-6xl font-serif font-bold text-white mb-6">
             Bem-vindo à{' '}
-            <span className="text-church-gold">Champions Church</span>
+            <span className="text-church-gold">{configuracao?.nome_igreja || 'Champions Church'}</span>
           </h1>
           <p className="text-xl md:text-2xl text-gray-200 mb-10 max-w-3xl mx-auto">
             Uma igreja para toda a família. Venha viver experiências 

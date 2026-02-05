@@ -558,7 +558,10 @@ function EventoDetalhe() {
                         >
                           Adicionar Acompanhantes
                         </button>
-                        <Link to="/meus-ingressos" className="btn-outline w-full block text-center">
+                        <Link 
+                          to={`/meus-ingressos${formData.telefone ? `?telefone=${encodeURIComponent(formData.telefone.replace(/\D/g, ''))}` : ''}`}
+                          className="btn-outline w-full block text-center"
+                        >
                           Ver Meus Ingressos
                         </Link>
                       </>
@@ -640,7 +643,7 @@ function EventoDetalhe() {
                           Inscrição Realizada!
                         </h3>
                         <p className="text-gray-600 mb-4">
-                          Guarde este QR Code para o check-in no dia do evento.
+                          Acesse "Meus Ingressos" para visualizar seu QR Code.
                         </p>
                       </>
                     )}
@@ -662,66 +665,7 @@ function EventoDetalhe() {
                       </div>
                     )}
                     
-                    {/* QR Code do responsável - só existe se pagamento foi confirmado */}
-                    {inscricaoData?.qrcode && (
-                      <div className="mb-6">
-                        <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                          {acompanhantesData.length > 0 ? 'Seu ingresso:' : 'Seu QR Code:'}
-                        </h4>
-                        <div className="bg-white p-4 rounded-lg border-2 border-dashed border-gray-200 inline-block">
-                          <img 
-                            src={getMediaUrl(inscricaoData.qrcode)} 
-                            alt="QR Code da Inscrição"
-                            className="w-40 h-40 mx-auto"
-                          />
-                        </div>
-                        <p className="text-sm font-medium text-gray-700 mt-2">{formData.nome}</p>
-                        <p className="text-xs text-gray-500">
-                          Código: {inscricaoData.codigo?.substring(0, 8)}...
-                        </p>
-                        <a
-                          href={getMediaUrl(inscricaoData.qrcode)}
-                          download={`qrcode-${formData.nome.replace(/\s+/g, '-')}.png`}
-                          className="inline-flex items-center text-primary-600 hover:text-primary-700 text-sm mt-2"
-                        >
-                          <Download className="h-4 w-4 mr-1" />
-                          Salvar
-                        </a>
-                      </div>
-                    )}
-                    
-                    {/* QR Codes dos acompanhantes - só existem se pagamento foi confirmado */}
-                    {acompanhantesData.length > 0 && acompanhantesData[0]?.qrcode && (
-                      <div className="mb-6">
-                        <h4 className="text-sm font-semibold text-gray-700 mb-3">
-                          Ingressos dos acompanhantes:
-                        </h4>
-                        <div className="grid grid-cols-2 gap-3">
-                          {acompanhantesData.map((acomp, index) => (
-                            <div key={index} className="text-center">
-                              <div className="bg-white p-2 rounded-lg border border-gray-200 inline-block">
-                                <img 
-                                  src={getMediaUrl(acomp.qrcode)} 
-                                  alt={`QR Code de ${acomp.nome}`}
-                                  className="w-28 h-28 mx-auto"
-                                />
-                              </div>
-                              <p className="text-xs font-medium text-gray-700 mt-1 truncate">
-                                {acomp.nome}
-                              </p>
-                              <a
-                                href={getMediaUrl(acomp.qrcode)}
-                                download={`qrcode-${acomp.nome.replace(/\s+/g, '-')}.png`}
-                                className="inline-flex items-center text-primary-600 hover:text-primary-700 text-xs"
-                              >
-                                <Download className="h-3 w-3 mr-1" />
-                                Salvar
-                              </a>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                    {/* QR Codes removidos desta tela - só aparecem em "Meus Ingressos" */}
                     
                     {/* Lista de acompanhantes (quando pagamento pendente - sem QR code gerado) */}
                     {acompanhantesData.length > 0 && !acompanhantesData[0]?.qrcode && (
@@ -764,15 +708,18 @@ function EventoDetalhe() {
                           Importante
                         </h4>
                         <ul className="text-sm text-blue-700 space-y-1">
-                          <li>- Apresente este QR Code na entrada do evento</li>
-                          <li>- Tire um print ou salve a imagem</li>
-                          <li>- Para ver novamente, acesse <Link to="/meus-ingressos" className="underline font-medium">Meus Ingressos</Link></li>
+                          <li>- Acesse <Link to="/meus-ingressos" className="underline font-medium">Meus Ingressos</Link> para visualizar seu QR Code</li>
+                          <li>- Apresente o QR Code na entrada do evento</li>
+                          <li>- Tire um print ou salve a imagem do QR Code</li>
                         </ul>
                       </div>
                     )}
                     
                     <div className="flex flex-col gap-3">
-                      <Link to="/meus-ingressos" className="btn-primary">
+                      <Link 
+                        to={`/meus-ingressos${formData.telefone ? `?telefone=${encodeURIComponent(formData.telefone.replace(/\D/g, ''))}` : ''}`}
+                        className="btn-primary"
+                      >
                         Ver Meus Ingressos
                       </Link>
                       <Link to="/eventos" className="btn-outline">

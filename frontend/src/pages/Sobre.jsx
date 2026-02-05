@@ -83,7 +83,7 @@ function Sobre() {
       <section className="bg-gradient-to-r from-church-navy to-primary-800 py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h1 className="text-4xl md:text-5xl font-serif font-bold text-white mb-6">
-            Sobre a Champions Church
+            Sobre a {configuracao?.nome_igreja || 'Champions Church'}
           </h1>
           <p className="text-xl text-primary-100 max-w-3xl mx-auto">
             Uma igreja comprometida com a transformação de vidas através do amor de Deus.
@@ -100,7 +100,7 @@ function Sobre() {
               <h2 className="section-title">Nossa História</h2>
               <div className="space-y-4 text-gray-700 leading-relaxed">
                 <p>
-                  A Champions Church nasceu do sonho de criar uma igreja onde pessoas de todas 
+                  A {configuracao?.nome_igreja || 'Champions Church'} nasceu do sonho de criar uma igreja onde pessoas de todas 
                   as idades e origens pudessem encontrar um lar espiritual acolhedor e 
                   transformador.
                 </p>
@@ -278,7 +278,7 @@ function Sobre() {
                     allowFullScreen={true}
                     loading="lazy"
                     referrerPolicy="no-referrer-when-downgrade"
-                    title="Localização Champions Church"
+                    title={`Localização ${configuracao?.nome_igreja || 'Champions Church'}`}
                   />
                 ) : configuracao?.google_maps_embed ? (
                   <div 

@@ -6,6 +6,7 @@ import {
   Home, QrCode, Settings, Tags, DollarSign, Shield
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { useConfiguracao } from '../contexts/ConfiguracaoContext'
 import api from '../services/api'
 
 // Mapeamento de códigos de menu para paths (fora do componente para evitar recriação)
@@ -26,9 +27,33 @@ const MENU_MAPPING = {
 function AdminLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { user, logout } = useAuth()
+  const { configuracao, getImageUrl } = useConfiguracao()
   const location = useLocation()
   const navigate = useNavigate()
   const [menusPermitidos, setMenusPermitidos] = useState([])
+
+  const temLogoBranco = configuracao?.logo_branco && String(configuracao.logo_branco).trim() !== ''
+  const temLogo = configuracao?.logo && String(configuracao.logo).trim() !== ''
+  const logoUrl = temLogoBranco
+    ? getImageUrl(configuracao.logo_branco)
+    : temLogo
+      ? getImageUrl(configuracao.logo)
+      : null
+
+  // Usar cor do header se for suficientemente clara (azul vibrante); senão usar primary-500
+  const _corHeader = configuracao?.cor_header_pagina && /^#[0-9A-Fa-f]{6}$/.test(configuracao.cor_header_pagina)
+    ? configuracao.cor_header_pagina
+    : configuracao?.cor_header && /^#[0-9A-Fa-f]{6}$/.test(configuracao.cor_header)
+      ? configuracao.cor_header
+      : null
+  const corMenuDestaque = _corHeader && (() => {
+    const hex = _corHeader.slice(1)
+    const r = parseInt(hex.slice(0, 2), 16)
+    const g = parseInt(hex.slice(2, 4), 16)
+    const b = parseInt(hex.slice(4, 6), 16)
+    const luminance = (r * 0.299 + g * 0.587 + b * 0.114) / 255
+    return luminance > 0.2
+  })() ? _corHeader : null
 
   useEffect(() => {
     // Carregar menus permitidos do usuário
@@ -93,15 +118,25 @@ function AdminLayout({ children }) {
       <aside className={`fixed top-0 left-0 z-50 h-full w-64 bg-church-navy transform transition-transform duration-300 lg:translate-x-0 flex flex-col ${
         sidebarOpen ? 'translate-x-0' : '-translate-x-full'
       }`}>
-        {/* Logo */}
-        <div className="h-16 flex-shrink-0 flex items-center justify-between px-4 border-b border-gray-700">
-          <Link to="/admin" className="flex items-center space-x-2">
-            <Church className="h-8 w-8 text-church-gold" />
-            <span className="text-lg font-serif font-bold text-white">Champions</span>
+        {/* Logo - usa o mesmo da tela de cadastros (configurações do site) - fundo preto para acompanhar o logo */}
+        <div className="h-24 flex-shrink-0 flex items-center justify-center px-4 bg-black border-b border-gray-800 relative">
+          <Link to="/admin" className="flex items-center justify-center w-full min-w-0">
+            {logoUrl ? (
+              <img
+                src={logoUrl}
+                alt={configuracao?.nome_igreja || 'Champions Church'}
+                className="h-16 max-h-[4.5rem] w-auto max-w-full object-contain"
+              />
+            ) : (
+              <>
+                <Church className="h-8 w-8 text-church-gold flex-shrink-0" />
+                <span className="text-lg font-serif font-bold text-white ml-2">Champions</span>
+              </>
+            )}
           </Link>
           <button 
             onClick={() => setSidebarOpen(false)}
-            className="lg:hidden text-gray-400 hover:text-white"
+            className="lg:hidden absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
           >
             <X className="h-6 w-6" />
           </button>
@@ -116,9 +151,10 @@ function AdminLayout({ children }) {
               onClick={() => setSidebarOpen(false)}
               className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
                 isActive(item.path)
-                  ? 'bg-primary-600 text-white'
-                  : 'text-gray-300 hover:bg-gray-700'
+                  ? corMenuDestaque ? 'text-white' : 'bg-primary-500 text-white'
+                  : 'text-gray-300 hover:bg-gray-600'
               }`}
+              style={isActive(item.path) && corMenuDestaque ? { backgroundColor: corMenuDestaque } : undefined}
             >
               {item.icon}
               <span>{item.label}</span>
@@ -130,7 +166,7 @@ function AdminLayout({ children }) {
         <div className="flex-shrink-0 p-4 border-t border-gray-700 bg-church-navy">
           <Link
             to="/"
-            className="flex items-center space-x-3 px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-lg transition-colors mb-2"
+            className="flex items-center space-x-3 px-4 py-3 text-gray-300 hover:bg-gray-600 rounded-lg transition-colors mb-2"
             onClick={() => setSidebarOpen(false)}
           >
             <Home className="h-5 w-5" />

@@ -3,16 +3,30 @@ import react from '@vitejs/plugin-react'
 import { readFileSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { execSync } from 'child_process'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+/** Versão a partir do Git: tag (ex: v1.0) + commits desde a tag → 1.0, 1.1, 1.2... */
 function getAppVersion() {
+  const gitCwd = path.join(__dirname, '..')
   try {
-    const pkg = JSON.parse(readFileSync(path.join(__dirname, 'package.json'), 'utf-8'))
-    const [major, minor] = (pkg.version || '1.0.0').split('.')
-    return `${major}.${minor || '0'}`
+    const tag = execSync('git describe --tags --abbrev=0', { encoding: 'utf-8', cwd: gitCwd }).trim()
+    const count = execSync(`git rev-list --count ${tag}..HEAD`, { encoding: 'utf-8', cwd: gitCwd }).trim()
+    const match = tag.match(/^v?(\d+)\.(\d+)/)
+    const major = match ? match[1] : '1'
+    const minorFromTag = match ? parseInt(match[2], 10) : 0
+    const commits = parseInt(count, 10) || 0
+    const minor = minorFromTag + commits
+    return `${major}.${minor}`
   } catch {
-    return '1.0'
+    try {
+      const pkg = JSON.parse(readFileSync(path.join(__dirname, 'package.json'), 'utf-8'))
+      const [major, minor] = (pkg.version || '1.0.0').split('.')
+      return `${major}.${minor || '0'}`
+    } catch {
+      return '1.0'
+    }
   }
 }
 

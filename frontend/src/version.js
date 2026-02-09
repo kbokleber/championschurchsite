@@ -1,6 +1,7 @@
 /**
- * Versão exibida no admin (ex: 1.0, 1.1).
- * Vem do package.json (campo "version") no momento do build — só major.minor.
- * Para a próxima subida: no frontend rode "npm run version:next" (ou altere "version" no package.json) e depois faça o build e o push.
+ * Versão exibida no admin (ex: 1.0, 1.1, 1.2).
+ * No build: usa a última tag Git (ex: v1.0) + quantidade de commits desde a tag.
+ * Ex.: tag v1.0 e 0 commits = 1.0; 1 commit = 1.1; 2 commits = 1.2.
+ * Para a primeira vez: crie a tag v1.0 no commit que quiser (git tag v1.0 && git push origin v1.0).
  */
 export const APP_VERSION = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0')

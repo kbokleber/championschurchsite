@@ -3457,6 +3457,120 @@ def verificar_pagamento(request, cobranca_id):
         })
 
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def pagar_cartao(request):
+    """
+    Cria pagamento com cartão (Checkout Transparente / Card Payment Brick).
+    Cliente não precisa ter conta no Mercado Pago.
+    Espera: cobranca_id, token, payment_method_id, installments, payer (email, identification).
+    Opcional: issuer_id.
+    """
+    import uuid
+    cobranca_id = request.data.get('cobranca_id')
+    token = request.data.get('token')
+    payment_method_id = request.data.get('payment_method_id')
+    installments = request.data.get('installments', 1)
+    issuer_id = request.data.get('issuer_id')
+    payer = request.data.get('payer') or {}
+
+    if not cobranca_id or not token or not payment_method_id:
+        return Response(
+            {'error': 'cobranca_id, token e payment_method_id são obrigatórios'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        cobranca = Cobranca.objects.get(id=cobranca_id)
+    except Cobranca.DoesNotExist:
+        return Response({'error': 'Cobrança não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+
+    if cobranca.status != 'pendente':
+        return Response(
+            {'error': f'Cobrança não está pendente (status: {cobranca.get_status_display()})'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    config = ConfiguracaoSite.get_config()
+    if not config.mp_ativo:
+        return Response({'error': 'Mercado Pago não está ativo'}, status=status.HTTP_400_BAD_REQUEST)
+
+    sdk = get_mercadopago_sdk()
+    if not sdk:
+        return Response({'error': 'Mercado Pago não configurado'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    email = payer.get('email') or (cobranca.membro.email if cobranca.membro else '')
+    if not email:
+        email = f"pagador{cobranca.membro.telefone}@email.com" if cobranca.membro else "pagador@email.com"
+    identification = payer.get('identification') or {}
+    id_type = identification.get('type') or 'CPF'
+    id_number = identification.get('number') or ''
+
+    transaction_amount = float(cobranca.valor)
+    payment_data = {
+        "transaction_amount": round(transaction_amount, 2),
+        "token": token,
+        "installments": int(installments) if installments else 1,
+        "payment_method_id": payment_method_id,
+        "payer": {
+            "email": email,
+            "identification": {"type": id_type, "number": str(id_number).replace('.', '').replace('-', '').replace('/', '')},
+        },
+        "external_reference": cobranca.codigo,
+        "description": f"Inscrição: {cobranca.evento.titulo}",
+    }
+    if issuer_id:
+        payment_data["issuer_id"] = str(issuer_id)
+
+    idempotency_key = str(uuid.uuid4())
+    try:
+        request_options = getattr(mercadopago, 'config', None) and getattr(mercadopago.config, 'RequestOptions', None)
+        if request_options:
+            opts = request_options()
+            opts.custom_headers = {'x-idempotency-key': idempotency_key}
+            payment_response = sdk.payment().create(payment_data, opts)
+        else:
+            payment_response = sdk.payment().create(payment_data)
+    except Exception as e:
+        logger.exception("Erro ao criar pagamento cartão MP")
+        err_msg = str(e)
+        if hasattr(e, 'response') and getattr(e.response, 'json', None):
+            try:
+                err_msg = e.response.json()
+            except Exception:
+                pass
+        return Response(
+            {'error': 'Erro ao processar cartão', 'details': err_msg},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    payment = payment_response.get("response", {}) if isinstance(payment_response, dict) else {}
+    status_mp = payment.get("status")
+    payment_id = payment.get("id")
+
+    if status_mp == 'approved':
+        cobranca.status = 'pago'
+        cobranca.data_pagamento = timezone.now()
+        cobranca.referencia_externa = str(payment_id or '')
+        cobranca.metodo_pagamento = 'Mercado Pago (cartão)'
+        cobranca.save()
+        for item in cobranca.itens.all():
+            inscricao = item.inscricao
+            inscricao.status_pagamento = 'pago'
+            inscricao.status = 'confirmada'
+            inscricao.data_pagamento = timezone.now()
+            inscricao.save()
+        _disparar_webhook_cobranca_confirmada(cobranca)
+        logger.info(f"Cobrança {cobranca.codigo} paga com cartão (payment_id={payment_id})")
+
+    return Response({
+        'success': status_mp in ('approved', 'pending', 'in_process'),
+        'status': status_mp,
+        'payment_id': payment_id,
+        'message': 'Pagamento aprovado!' if status_mp == 'approved' else 'Pagamento em processamento.',
+    })
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def mercadopago_config_publica(request):

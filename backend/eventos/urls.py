@@ -15,7 +15,7 @@ from .views import (
     configuracao_publica, configuracao_admin,
     verificar_permissao_menu, menus_permitidos, popular_permissoes_menu,
     # Mercado Pago
-    criar_pagamento_pix, mercadopago_webhook, verificar_pagamento, mercadopago_config_publica
+    criar_pagamento_pix, pagar_cartao, mercadopago_webhook, verificar_pagamento, mercadopago_config_publica
 )
 
 # Router que inclui Mercado Pago e outras rotas no Api Root
@@ -28,6 +28,7 @@ class ChampionsRouter(DefaultRouter):
             if response.status_code == 200 and hasattr(response, 'data'):
                 response.data['mercadopago_webhook'] = request.build_absolute_uri(reverse('mp_webhook'))
                 response.data['mercadopago_criar_pix'] = request.build_absolute_uri(reverse('mp_criar_pix'))
+                response.data['mercadopago_pagar_cartao'] = request.build_absolute_uri(reverse('mp_pagar_cartao'))
                 response.data['mercadopago_config'] = request.build_absolute_uri(reverse('mp_config'))
             return response
         return wrapped_view
@@ -72,6 +73,7 @@ urlpatterns = [
     
     # Mercado Pago
     path('mercadopago/criar-pix/', criar_pagamento_pix, name='mp_criar_pix'),
+    path('mercadopago/pagar-cartao/', pagar_cartao, name='mp_pagar_cartao'),
     path('mercadopago/webhook/', mercadopago_webhook, name='mp_webhook'),
     path('mercadopago/verificar/<int:cobranca_id>/', verificar_pagamento, name='mp_verificar'),
     path('mercadopago/config/', mercadopago_config_publica, name='mp_config'),

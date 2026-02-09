@@ -19,18 +19,26 @@ Use este checklist para validar PIX, cartão e boleto no site.
 - [ ] Ver a lista: PIX, Cartão de crédito (até 12x), Cartão de débito, Boleto.
 - [ ] Botão: **"Ir ao Mercado Pago (PIX, cartão ou boleto)"**.
 
-### 2. No Mercado Pago (ao clicar no botão)
+### 2. Cartão **no site** (sem conta no Mercado Pago)
 
-- [ ] Página do Checkout Pro abre (nova aba).
-- [ ] Opções visíveis: **PIX**, **Cartão** (crédito/débito) e **Boleto** (conforme conta MP).
+- [ ] Na tela de pagamento, clicar em **"Cartão aqui (sem conta no MP)"**.
+- [ ] Formulário de cartão (Card Payment Brick) carrega na própria página.
+- [ ] Preencher dados do cartão e pagar; **não é necessário ter conta no Mercado Pago**.
+- [ ] Após aprovação, a página atualiza e libera ingressos.
 
-### 3. Teste com PIX (produção ou sandbox)
+### 3. PIX ou boleto (Mercado Pago)
+
+- [ ] Clicar em **"PIX ou boleto (Mercado Pago)"**; página do Checkout Pro abre (nova aba).
+- [ ] **PIX** ou boleto conforme a tela do MP.
+- [ ] Boleto pode aparecer conforme a conta do vendedor.
+
+### 4. Teste com PIX (produção ou sandbox)
 
 - [ ] Escolher PIX, copiar código ou QR, simular pagamento (sandbox) ou pagar de verdade.
 - [ ] Voltar ao site: em até ~5 s a página deve mostrar "Pagamento Confirmado!" e liberar ingressos.
 - [ ] Em **Meus ingressos**, ingresso com QR Code disponível.
 
-### 4. Teste com cartão (produção ou sandbox)
+### 5. Teste com cartão (produção ou sandbox)
 
 - [ ] Escolher "Cartão" no Checkout Pro.
 - [ ] Usar cartão de teste (sandbox) ou cartão real (produção).
@@ -38,7 +46,7 @@ Use este checklist para validar PIX, cartão e boleto no site.
 - [ ] Voltar ao site: "Pagamento Confirmado!" e ingressos liberados.
 - [ ] Admin → Cobranças: status "Pago" e método "Mercado Pago".
 
-### 5. Webhook e idempotência
+### 6. Webhook e idempotência
 
 - [ ] Painel MP → Simular notificações → **200** (não 403/404).
 - [ ] Após um pagamento real, cobrança e inscrições atualizam mesmo sem ficar na tela (webhook em background).
@@ -56,5 +64,5 @@ Use este checklist para validar PIX, cartão e boleto no site.
 ## Se algo falhar
 
 - **403 no webhook:** conferir Webhook Secret no admin e no painel MP (igual).
-- **Só PIX aparece no MP:** conferir que o deploy tem a alteração com `payment_methods` (listas vazias + installments) no backend.
+- **Cartão sem conta:** use o botão **"Cartão aqui (sem conta no MP)"** na página de pagamento; o formulário de cartão abre no próprio site e o cliente não precisa de conta no Mercado Pago.
 - **Pagamento aprovado mas site não atualiza:** verificar se a URL do webhook está correta e acessível; ver logs do backend.

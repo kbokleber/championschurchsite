@@ -3146,6 +3146,8 @@ def _processar_webhook_mp_pagamento(resource_id):
         logger.error(f"Erro no webhook MP (background): {str(e)}", exc_info=True)
 
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
 def mercadopago_webhook(request):
     """
     Webhook para receber notificações do Mercado Pago.

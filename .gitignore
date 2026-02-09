@@ -60,3 +60,8 @@ coverage.xml
 # Misc
 *.bak
 *.tmp
+
+# Antigravity Awesome Skills (instalado via script/docs; atualize com git pull no clone)
+.agent/antigravity-awesome-skills/
+# Junction do Cursor para as skills (cada dev instala localmente)
+.cursor/skills/

@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import { useConfiguracao } from '../contexts/ConfiguracaoContext'
 import api from '../services/api'
+import { APP_VERSION } from '../version'
 
 // Mapeamento de códigos de menu para paths (fora do componente para evitar recriação)
 const MENU_MAPPING = {
@@ -164,6 +165,9 @@ function AdminLayout({ children }) {
 
         {/* Footer - Fixed at bottom */}
         <div className="flex-shrink-0 p-4 border-t border-gray-700 bg-church-navy">
+          <p className="px-4 py-2 text-xs text-gray-500 mb-2" title="Versão do package.json (major.minor) no momento do build">
+            Versão {APP_VERSION}
+          </p>
           <Link
             to="/"
             className="flex items-center space-x-3 px-4 py-3 text-gray-300 hover:bg-gray-600 rounded-lg transition-colors mb-2"

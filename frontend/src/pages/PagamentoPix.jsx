@@ -243,7 +243,9 @@ function PagamentoPix() {
             Voltar
           </button>
           <h1 className="text-2xl font-bold text-gray-900">Pagamento</h1>
-          <p className="text-gray-600">Pague com PIX, cartão ou boleto via Mercado Pago</p>
+          <p className="text-gray-600">
+            Pague com <strong>PIX</strong>, <strong>cartão de crédito/débito</strong> ou <strong>boleto</strong> no Mercado Pago
+          </p>
         </div>
 
         {/* Card de Pagamento */}
@@ -292,11 +294,25 @@ function PagamentoPix() {
 
             {!linkPagamento ? (
               // Botão para gerar link
-              <div className="text-center py-8">
+              <div className="text-center py-6">
                 <CreditCard className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-600 mb-6">
-                  Clique no botão para ir ao Mercado Pago e realizar o pagamento
+                <p className="text-gray-600 mb-4">
+                  No Mercado Pago você escolhe como pagar:
                 </p>
+                <ul className="text-sm text-gray-600 mb-6 text-left max-w-xs mx-auto space-y-2">
+                  <li className="flex items-center gap-2">
+                    <span className="inline-block w-2 h-2 rounded-full bg-green-500" /> PIX (aprovação na hora)
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="inline-block w-2 h-2 rounded-full bg-blue-500" /> Cartão de crédito (até 12x)
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="inline-block w-2 h-2 rounded-full bg-blue-500" /> Cartão de débito
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="inline-block w-2 h-2 rounded-full bg-amber-500" /> Boleto bancário
+                  </li>
+                </ul>
                 <button
                   onClick={gerarLinkPagamento}
                   disabled={gerando}
@@ -310,7 +326,7 @@ function PagamentoPix() {
                   ) : (
                     <>
                       <CreditCard className="w-5 h-5" />
-                      Pagar com Mercado Pago
+                      Ir ao Mercado Pago (PIX, cartão ou boleto)
                     </>
                   )}
                 </button>

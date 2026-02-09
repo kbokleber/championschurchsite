@@ -2956,6 +2956,8 @@ def criar_pagamento_pix(request):
         email_pagador = membro.email if membro.email else f"participante{membro.telefone}@email.com"
     
     # Dados da preferência (Checkout Pro)
+    # Por padrão o MP inclui todos os métodos (PIX, cartão crédito/débito, boleto). Não excluímos nenhum.
+    # installments em default_installments permite parcelamento no cartão.
     preference_data = {
         "items": items,
         "payer": {
@@ -2964,6 +2966,13 @@ def criar_pagamento_pix(request):
         },
         "external_reference": cobranca.codigo,
         "statement_descriptor": "IGREJA",
+        "payment_methods": {
+            # Listas vazias = nenhum método excluído (PIX, cartão crédito/débito e boleto disponíveis)
+            "excluded_payment_methods": [],
+            "excluded_payment_types": [],
+            "installments": 12,  # Parcelamento no cartão (1 a 36)
+            "default_installments": 1,
+        },
         # Informações adicionais
         "additional_info": f"Evento: {evento.titulo} | Data: {data_evento} | Local: {evento.local or 'A definir'}",
         # Metadados personalizados

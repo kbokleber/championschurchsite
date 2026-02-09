@@ -2,7 +2,7 @@
 URLs da API REST para Champions Church.
 """
 
-from django.urls import path, include
+from django.urls import path, include, reverse
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from .views import (
@@ -18,8 +18,22 @@ from .views import (
     criar_pagamento_pix, mercadopago_webhook, verificar_pagamento, mercadopago_config_publica
 )
 
-# Criando o router e registrando os viewsets
-router = DefaultRouter()
+# Router que inclui Mercado Pago e outras rotas no Api Root
+class ChampionsRouter(DefaultRouter):
+    def get_api_root_view(self, api_urls=None):
+        view = super().get_api_root_view(api_urls=api_urls)
+
+        def wrapped_view(request, *args, **kwargs):
+            response = view(request, *args, **kwargs)
+            if response.status_code == 200 and hasattr(response, 'data'):
+                response.data['mercadopago_webhook'] = request.build_absolute_uri(reverse('mp_webhook'))
+                response.data['mercadopago_criar_pix'] = request.build_absolute_uri(reverse('mp_criar_pix'))
+                response.data['mercadopago_config'] = request.build_absolute_uri(reverse('mp_config'))
+            return response
+        return wrapped_view
+
+
+router = ChampionsRouter()
 router.register(r'membros', MembroViewSet, basename='membro')
 router.register(r'eventos', EventoViewSet, basename='evento')
 router.register(r'inscricoes', InscricaoViewSet, basename='inscricao')

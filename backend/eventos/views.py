@@ -19,7 +19,7 @@ from django.conf import settings
 from .models import (
     Membro, Evento, Inscricao, Contato, ConfiguracaoSite, 
     CategoriaParticipante, Cobranca, CobrancaItem,
-    PermissaoMenu, Grupo
+    PermissaoMenu, Grupo, WebhookEventLog,
 )
 from .utils_imagem import substituir_fundo_logo_por_navy
 from .serializers import (
@@ -3025,133 +3025,144 @@ def criar_pagamento_pix(request):
         )
 
 
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def verificar_assinatura_webhook_mp(request):
+def _verificar_assinatura_webhook_mp(request):
     """
-    Verifica a assinatura do webhook do Mercado Pago.
+    Verifica a assinatura do webhook do Mercado Pago (HMAC-SHA256).
+    Documentação: https://www.mercadopago.com.br/developers/en/docs/your-integrations/notifications/webhooks
     Retorna True se válida, False caso contrário.
     """
     import hmac
     import hashlib
-    
-    # Obter a assinatura do header
+
     x_signature = request.headers.get('x-signature', '')
     x_request_id = request.headers.get('x-request-id', '')
-    
+    parts = dict(p.split('=', 1) for p in x_signature.split(',') if '=' in p)
+    ts = parts.get('ts', '').strip()
+    v1 = parts.get('v1', '').strip()
+
+    # data.id: do body ou query (MP pode enviar como query param)
+    data_id = ''
+    if request.data:
+        data_id = str((request.data.get('data') or {}).get('id') or request.data.get('id') or '')
+    if not data_id and hasattr(request, 'query_params'):
+        data_id = str((request.query_params.get('data.id') or request.query_params.get('data_id') or ''))
+    if data_id and data_id.isalnum():
+        data_id = data_id.lower()
+
+    config = ConfiguracaoSite.get_config()
+    secret = (getattr(config, 'mp_webhook_secret', None) or '').strip()
+
     if not x_signature:
-        # Se não tem assinatura, aceitar em dev mas logar warning
-        config = ConfiguracaoSite.get_config()
         if config.mp_ambiente == 'production':
             logger.warning("Webhook MP sem assinatura em produção")
             return False
         return True
-    
-    # Extrair ts e v1 da assinatura
-    # Formato: ts=xxx,v1=xxx
-    parts = dict(p.split('=') for p in x_signature.split(',') if '=' in p)
-    ts = parts.get('ts', '')
-    v1 = parts.get('v1', '')
-    
+
     if not ts or not v1:
-        logger.warning("Assinatura MP com formato inválido")
-        return True  # Aceitar mesmo assim para não bloquear pagamentos válidos
-    
-    # Em produção real, seria necessário verificar com o webhook secret
-    # Por ora, aceitar mas logar para auditoria
-    logger.info(f"Webhook MP assinatura: ts={ts}, request_id={x_request_id}")
+        logger.warning("Webhook MP: assinatura com formato inválido")
+        if config.mp_ambiente == 'production':
+            return False
+        return True
+
+    if not secret:
+        if config.mp_ambiente == 'production':
+            logger.warning("Webhook MP: secret não configurado em produção")
+            return False
+        logger.info("Webhook MP: secret não configurado, aceitando em sandbox")
+        return True
+
+    # Manifest: id:...;request-id:...;ts:...; (conforme doc MP)
+    manifest = f"id:{data_id};request-id:{x_request_id};ts:{ts};"
+    expected = hmac.new(
+        secret.encode('utf-8'),
+        manifest.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected, v1):
+        logger.warning("Webhook MP: assinatura HMAC inválida")
+        return False
     return True
 
 
-def mercadopago_webhook(request):
-    """
-    Webhook para receber notificações do Mercado Pago.
-    O MP envia notificações quando o status do pagamento muda.
-    """
-    # Verificar assinatura (segurança)
-    if not verificar_assinatura_webhook_mp(request):
-        logger.warning(f"Webhook MP rejeitado - assinatura inválida: {request.META}")
-        return Response({'error': 'Invalid signature'}, status=status.HTTP_403_FORBIDDEN)
-    
-    logger.info(f"Webhook MP recebido: {request.data}")
-    print(f"[WEBHOOK MP] Dados: {request.data}")
-    
-    # Tipos de notificação
-    topic = request.data.get('topic') or request.data.get('type')
-    resource_id = request.data.get('id') or request.data.get('data', {}).get('id')
-    
-    # Verificar se é notificação de pagamento
-    if topic not in ['payment', 'merchant_order']:
-        return Response({'status': 'ignored', 'topic': topic})
-    
-    if not resource_id:
-        return Response({'status': 'no_id'})
-    
-    # Obter SDK
+def _processar_webhook_mp_pagamento(resource_id):
+    """Processa um pagamento MP em background (chamado em thread)."""
     sdk = get_mercadopago_sdk()
     if not sdk:
         logger.error("MP não configurado para webhook")
-        return Response({'status': 'mp_not_configured'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+        return
     try:
-        # Buscar detalhes do pagamento no MP
         payment_response = sdk.payment().get(resource_id)
         payment = payment_response.get("response", {})
-        
         if payment_response.get("status") != 200:
             logger.error(f"Erro ao buscar pagamento: {payment_response}")
-            return Response({'status': 'error_fetching_payment'})
-        
+            return
         payment_status = payment.get("status")
         external_reference = payment.get("external_reference")
-        
         logger.info(f"Pagamento {resource_id}: status={payment_status}, ref={external_reference}")
-        print(f"[WEBHOOK MP] Pagamento {resource_id}: status={payment_status}, ref={external_reference}")
-        
-        # Buscar cobrança pelo código (external_reference)
         if not external_reference:
-            return Response({'status': 'no_external_reference'})
-        
+            return
         try:
             cobranca = Cobranca.objects.get(codigo=external_reference)
         except Cobranca.DoesNotExist:
             logger.warning(f"Cobrança não encontrada: {external_reference}")
-            return Response({'status': 'cobranca_not_found'})
-        
-        # Processar de acordo com o status
+            return
         if payment_status == 'approved':
-            # Pagamento aprovado!
             if cobranca.status != 'pago':
                 cobranca.status = 'pago'
                 cobranca.data_pagamento = timezone.now()
                 cobranca.referencia_externa = str(resource_id)
                 cobranca.save()
-                
-                # Confirmar todas as inscrições vinculadas
                 for item in cobranca.itens.all():
                     inscricao = item.inscricao
                     inscricao.status_pagamento = 'pago'
                     inscricao.status = 'confirmada'
                     inscricao.data_pagamento = timezone.now()
-                    inscricao.save()  # Gera QR Code
-                
-                # Disparar webhook de confirmação
+                    inscricao.save()
                 _disparar_webhook_cobranca_confirmada(cobranca)
-                
                 logger.info(f"Cobrança {cobranca.codigo} confirmada via MP!")
-                print(f"[WEBHOOK MP] Cobrança {cobranca.codigo} CONFIRMADA!")
-        
         elif payment_status in ['cancelled', 'rejected']:
             if cobranca.status == 'pendente':
                 cobranca.status = 'cancelado'
                 cobranca.save()
                 logger.info(f"Cobrança {cobranca.codigo} cancelada/rejeitada")
-        
-        return Response({'status': 'processed', 'payment_status': payment_status})
-        
     except Exception as e:
-        logger.error(f"Erro no webhook MP: {str(e)}")
-        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.error(f"Erro no webhook MP (background): {str(e)}", exc_info=True)
+
+
+def mercadopago_webhook(request):
+    """
+    Webhook para receber notificações do Mercado Pago.
+    Responde 200 rápido (idempotência + assinatura) e processa o pagamento em background.
+    """
+    if not _verificar_assinatura_webhook_mp(request):
+        logger.warning("Webhook MP rejeitado - assinatura inválida")
+        return Response({'error': 'Invalid signature'}, status=status.HTTP_403_FORBIDDEN)
+
+    payload = request.data or {}
+    topic = payload.get('topic') or payload.get('type')
+    resource_id = payload.get('id') or (payload.get('data') or {}).get('id')
+
+    if topic not in ('payment', 'merchant_order'):
+        return Response({'status': 'ignored', 'topic': topic or 'unknown'})
+    if not resource_id:
+        return Response({'status': 'no_id'})
+
+    request_id = request.headers.get('x-request-id') or f"webhook-{topic}-{resource_id}"
+
+    # Idempotência: já processado?
+    if WebhookEventLog.objects.filter(request_id=request_id).exists():
+        return Response({'status': 'ok'})
+
+    try:
+        WebhookEventLog.objects.create(request_id=request_id)
+    except Exception:
+        return Response({'status': 'ok'})
+
+    # Resposta rápida; processar em background
+    import threading
+    threading.Thread(target=_processar_webhook_mp_pagamento, args=(resource_id,), daemon=True).start()
+    return Response({'status': 'accepted'})
 
 
 def _disparar_webhook_cobranca_confirmada(cobranca, tipo='pagamento_confirmado', request=None):

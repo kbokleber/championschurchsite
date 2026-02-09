@@ -683,6 +683,16 @@ class CobrancaItem(models.Model):
         return f"{self.inscricao.membro.nome} - R$ {self.valor}"
 
 
+class WebhookEventLog(models.Model):
+    """Registro de webhooks já processados (idempotência). Evita processar o mesmo evento duas vezes."""
+    request_id = models.CharField(max_length=255, unique=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Webhook processado'
+        verbose_name_plural = 'Webhooks processados'
+
+
 class Contato(models.Model):
     """Modelo para mensagens de contato do site."""
     
@@ -920,6 +930,12 @@ class ConfiguracaoSite(models.Model):
         verbose_name='Access Token (Produção)',
         blank=True,
         help_text='Token de acesso do Mercado Pago para produção'
+    )
+    mp_webhook_secret = models.CharField(
+        max_length=200,
+        verbose_name='Webhook Secret (Mercado Pago)',
+        blank=True,
+        help_text='Secret para validar assinatura dos webhooks (painel MP > Webhooks > Configurar notificações)'
     )
     
     # WhatsApp Evolution API

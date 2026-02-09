@@ -47,6 +47,7 @@ function AdminConfiguracoes() {
     mp_access_token_sandbox: '',
     mp_public_key_production: '',
     mp_access_token_production: '',
+    mp_webhook_secret: '',
     // WhatsApp Evolution API
     evolution_api_url: '',
     evolution_api_key: '',
@@ -113,6 +114,7 @@ function AdminConfiguracoes() {
         mp_access_token_sandbox: data.mp_access_token_sandbox || '',
         mp_public_key_production: data.mp_public_key_production || '',
         mp_access_token_production: data.mp_access_token_production || '',
+        mp_webhook_secret: data.mp_webhook_secret || '',
         // WhatsApp Evolution API
         evolution_api_url: data.evolution_api_url || '',
         evolution_api_key: data.evolution_api_key || '',
@@ -1219,6 +1221,23 @@ function AdminConfiguracoes() {
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
                       Mantenha este token em segredo
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Webhook Secret
+                    </label>
+                    <input
+                      type="password"
+                      name="mp_webhook_secret"
+                      value={formData.mp_webhook_secret}
+                      onChange={handleChange}
+                      className="input-field font-mono text-sm"
+                      placeholder="Secret do painel MP (Webhooks)"
+                      autoComplete="off"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Painel MP → Webhooks → Configurar notificações. Usado para validar a assinatura das notificações.
                     </p>
                   </div>
                 </div>

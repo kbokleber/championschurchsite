@@ -472,6 +472,7 @@ class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
             'mp_ambiente', 'mp_ativo',
             'mp_public_key_sandbox', 'mp_access_token_sandbox',
             'mp_public_key_production', 'mp_access_token_production',
+            'mp_webhook_secret',
             'mp_access_token_sandbox_masked', 'mp_access_token_production_masked',
             'mp_public_key', 'mp_is_sandbox',  # Campos computados
             # WhatsApp Evolution API

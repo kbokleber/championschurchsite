@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
-import { Search, FileText, Check, X, Calendar, Trash2, Tag } from 'lucide-react'
+import { Search, FileText, Check, X, Calendar, Trash2, Tag, ChevronLeft, ChevronRight } from 'lucide-react'
 import api from '../../services/api'
 import { formatDateTimeBR } from '../../services/utils'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ConfirmModal from '../../components/ConfirmModal'
+
+const PAGE_SIZE = 10
 
 function AdminInscricoes() {
   const [inscricoes, setInscricoes] = useState([])
@@ -11,6 +13,8 @@ function AdminInscricoes() {
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('todos')
   const [filtroPagamento, setFiltroPagamento] = useState('todos')
+  const [filtroEvento, setFiltroEvento] = useState('todos')
+  const [page, setPage] = useState(1)
   
   // Estado do modal de confirmação
   const [modalConfig, setModalConfig] = useState({
@@ -28,12 +32,27 @@ function AdminInscricoes() {
     fetchInscricoes()
   }, [])
 
+  useEffect(() => {
+    setPage(1)
+  }, [busca, filtroStatus, filtroPagamento, filtroEvento])
+
   const fetchInscricoes = async () => {
     try {
-      const response = await api.get('/inscricoes/')
-      setInscricoes(response.data.results || response.data)
+      const todas = []
+      let pageNum = 1
+      let hasMore = true
+      while (hasMore) {
+        const response = await api.get('/inscricoes/', { params: { page: pageNum } })
+        const data = response.data
+        const lista = data.results ?? (Array.isArray(data) ? data : [])
+        todas.push(...lista)
+        hasMore = !!data.next && lista.length > 0
+        pageNum += 1
+      }
+      setInscricoes(todas)
     } catch (error) {
       console.error('Erro ao carregar inscrições:', error)
+      setInscricoes([])
     } finally {
       setLoading(false)
     }
@@ -176,14 +195,41 @@ function AdminInscricoes() {
     )
   }
 
-  const inscricoesFiltradas = inscricoes.filter(inscricao => {
+  // Opções do combo: evento único por (evento_id + evento_data) com label "Nome - Data"
+  const listaInscricoes = Array.isArray(inscricoes) ? inscricoes : []
+  const opcoesEventos = (() => {
+    const seen = new Set()
+    const lista = []
+    listaInscricoes.forEach(inscricao => {
+      const titulo = inscricao?.evento_titulo || `Evento #${inscricao?.evento ?? ''}`
+      const data = inscricao?.evento_data ?? '-'
+      const key = `${inscricao?.evento ?? ''}|${data}`
+      if (!seen.has(key)) {
+        seen.add(key)
+        lista.push({ value: key, label: `${titulo} - ${data}` })
+      }
+    })
+    lista.sort((a, b) => (a.label || '').localeCompare(b.label || ''))
+    return lista
+  })()
+
+  const inscricoesFiltradas = listaInscricoes.filter(inscricao => {
     const matchBusca = 
       inscricao.membro_nome?.toLowerCase().includes(busca.toLowerCase()) ||
       inscricao.evento_titulo?.toLowerCase().includes(busca.toLowerCase())
     const matchStatus = filtroStatus === 'todos' || inscricao.status === filtroStatus
     const matchPagamento = filtroPagamento === 'todos' || inscricao.status_pagamento === filtroPagamento
-    return matchBusca && matchStatus && matchPagamento
+    
+    const matchEvento = filtroEvento === 'todos' || filtroEvento === `${inscricao?.evento ?? ''}|${inscricao?.evento_data ?? ''}`
+    
+    return matchBusca && matchStatus && matchPagamento && matchEvento
   })
+
+  const totalCount = inscricoesFiltradas.length
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+  const startItem = totalCount === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+  const endItem = Math.min(page * PAGE_SIZE, totalCount)
+  const inscricoesPagina = inscricoesFiltradas.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   if (loading) {
     return <LoadingSpinner text="Carregando inscrições..." />
@@ -237,11 +283,24 @@ function AdminInscricoes() {
             <option value="isento">Isento</option>
             <option value="nao_aplicavel">Gratuito</option>
           </select>
+          
+          {/* Event Filter (nome + data) */}
+          <select
+            value={filtroEvento}
+            onChange={(e) => setFiltroEvento(e.target.value)}
+            className="input-field md:w-64"
+            title="Filtrar por evento e data"
+          >
+            <option value="todos">Todos os Eventos</option>
+            {opcoesEventos.map(op => (
+              <option key={op.value} value={op.value}>{op.label}</option>
+            ))}
+          </select>
         </div>
       </div>
 
       {/* Lista vazia */}
-      {inscricoesFiltradas.length === 0 && (
+      {totalCount === 0 && (
         <div className="bg-white rounded-xl shadow-md py-12 text-center">
           <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
           <p className="text-gray-500">Nenhuma inscrição encontrada</p>
@@ -249,8 +308,9 @@ function AdminInscricoes() {
       )}
 
       {/* Desktop: Tabela (oculta em mobile) */}
-      {inscricoesFiltradas.length > 0 && (
+      {totalCount > 0 && (
         <div className="hidden md:block bg-white rounded-xl shadow-md overflow-hidden">
+          <>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50 border-b">
@@ -265,7 +325,7 @@ function AdminInscricoes() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {inscricoesFiltradas.map((inscricao) => (
+                {inscricoesPagina.map((inscricao) => (
                   <tr key={inscricao.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <div className="flex items-center">
@@ -325,13 +385,45 @@ function AdminInscricoes() {
               </tbody>
             </table>
           </div>
+          {/* Paginação */}
+          {totalCount > PAGE_SIZE && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4 border-t bg-gray-50">
+              <p className="text-sm text-gray-600">
+                Mostrando <span className="font-medium">{startItem}</span>-<span className="font-medium">{endItem}</span> de <span className="font-medium">{totalCount}</span> inscrições
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  className="p-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Página anterior"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <span className="text-sm text-gray-600 px-2">
+                  Página {page} de {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                  className="p-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Próxima página"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+          )}
+          </>
         </div>
       )}
 
       {/* Mobile: Cards com botões de ação sempre visíveis */}
-      {inscricoesFiltradas.length > 0 && (
+      {totalCount > 0 && (
         <div className="md:hidden space-y-4">
-          {inscricoesFiltradas.map((inscricao) => (
+          {inscricoesPagina.map((inscricao) => (
             <div key={inscricao.id} className="bg-white rounded-xl shadow-md overflow-hidden">
               <div className="p-4">
                 <div className="flex items-start justify-between gap-3 mb-3">
@@ -372,6 +464,37 @@ function AdminInscricoes() {
               </div>
             </div>
           ))}
+          {/* Paginação (mobile) */}
+          {totalCount > PAGE_SIZE && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-4 mt-4 bg-white rounded-xl shadow-md border-t">
+              <p className="text-sm text-gray-600">
+                Mostrando <span className="font-medium">{startItem}</span>-<span className="font-medium">{endItem}</span> de <span className="font-medium">{totalCount}</span> inscrições
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  className="p-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Página anterior"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <span className="text-sm text-gray-600 px-2">
+                  Página {page} de {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                  className="p-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Próxima página"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

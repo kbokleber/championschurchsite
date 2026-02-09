@@ -1516,6 +1516,7 @@ def dashboard_stats(request):
         Q(data_fim__gte=agora) | Q(data_fim__isnull=True, data_inicio__gte=agora)
     ).count()
     
+    # Mesmo critério da tela /admin/membros: todos os membros (Membro.objects.all())
     total_membros = Membro.objects.count()
     total_inscricoes = Inscricao.objects.filter(status='confirmada').count()
     contatos_nao_lidos = Contato.objects.filter(lido=False).count()

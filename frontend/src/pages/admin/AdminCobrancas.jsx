@@ -14,8 +14,12 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Users
 } from 'lucide-react';
+
+const PAGE_SIZE = 10;
 
 function AdminCobrancas() {
   const [searchParams] = useSearchParams();
@@ -24,6 +28,8 @@ function AdminCobrancas() {
   const [loading, setLoading] = useState(true);
   const [filtroEvento, setFiltroEvento] = useState(searchParams.get('evento') || '');
   const [filtroStatus, setFiltroStatus] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [expandido, setExpandido] = useState({});
   const [totais, setTotais] = useState({ pendente: 0, pago: 0, isento: 0, cancelado: 0, total: 0 });
   const [processando, setProcessando] = useState(null);
@@ -38,31 +44,35 @@ function AdminCobrancas() {
   });
 
   useEffect(() => {
-    carregarDados();
+    setPage(1);
   }, [filtroEvento, filtroStatus]);
+
+  useEffect(() => {
+    carregarDados();
+  }, [filtroEvento, filtroStatus, page]);
 
   const carregarDados = async () => {
     try {
       setLoading(true);
       
-      // Carregar eventos para o filtro
+      // Carregar eventos para o filtro (apenas na primeira vez ou quando filtros mudam)
       const eventosRes = await api.get('/eventos/');
       setEventos(eventosRes.data.results || eventosRes.data);
       
-      // Carregar cobranças
-      let url = '/cobrancas/';
-      const params = [];
-      if (filtroEvento) params.push(`evento=${filtroEvento}`);
-      if (filtroStatus) params.push(`status=${filtroStatus}`);
-      if (params.length > 0) url += '?' + params.join('&');
+      // Carregar cobranças com paginação (backend usa PAGE_SIZE=10)
+      const params = { page };
+      if (filtroEvento) params.evento = filtroEvento;
+      if (filtroStatus) params.status = filtroStatus;
       
-      const cobrancasRes = await api.get(url);
-      setCobrancas(cobrancasRes.data.results || cobrancasRes.data);
+      const cobrancasRes = await api.get('/cobrancas/', { params });
+      const data = cobrancasRes.data;
+      const lista = data.results ?? data;
+      setCobrancas(Array.isArray(lista) ? lista : []);
+      setTotalCount(typeof data.count === 'number' ? data.count : lista.length);
       
-      // Calcular totais por status de cada ITEM (participante), não pelo status da cobrança
-      const dados = cobrancasRes.data.results || cobrancasRes.data;
+      // Calcular totais por status (da página atual)
       let pendente = 0, pago = 0, isento = 0, cancelado = 0;
-      for (const c of dados) {
+      for (const c of (lista || [])) {
         const itens = c.itens || [];
         for (const item of itens) {
           const valor = parseFloat(item.valor) || 0;
@@ -82,6 +92,8 @@ function AdminCobrancas() {
       });
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
+      setCobrancas([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
@@ -222,6 +234,10 @@ function AdminCobrancas() {
     return `R$ ${parseFloat(valor).toFixed(2).replace('.', ',')}`;
   };
 
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const startItem = totalCount === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const endItem = Math.min(page * PAGE_SIZE, totalCount);
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -335,6 +351,7 @@ function AdminCobrancas() {
             <p className="text-gray-500">Nenhuma cobrança encontrada</p>
           </div>
         ) : (
+          <>
           <div className="divide-y divide-gray-200">
             {cobrancas.map(cobranca => (
               <div key={cobranca.id} className="hover:bg-gray-50">
@@ -498,6 +515,38 @@ function AdminCobrancas() {
               </div>
             ))}
           </div>
+          {/* Paginação */}
+          {totalCount > PAGE_SIZE && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4 border-t bg-gray-50">
+              <p className="text-sm text-gray-600">
+                Mostrando <span className="font-medium">{startItem}</span>-<span className="font-medium">{endItem}</span> de <span className="font-medium">{totalCount}</span> cobranças
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  className="p-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Página anterior"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <span className="text-sm text-gray-600 px-2">
+                  Página {page} de {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                  className="p-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Próxima página"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+          )}
+          </>
         )}
       </div>
 

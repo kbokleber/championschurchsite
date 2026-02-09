@@ -3,8 +3,13 @@ import { Save, Upload, X, Church, Mail, Phone, MapPin, Facebook, Instagram, Yout
 import api from '../../services/api'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import { useConfiguracao } from '../../contexts/ConfiguracaoContext'
+import { useAuth } from '../../contexts/AuthContext'
+
+// Abas visíveis apenas para superusuário (admin)
+const TABS_SOMENTE_ADMIN = ['integracoes', 'whatsapp', 'mercadopago']
 
 function AdminConfiguracoes() {
+  const { user } = useAuth()
   const { getImageUrl } = useConfiguracao()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -64,6 +69,13 @@ function AdminConfiguracoes() {
   useEffect(() => {
     fetchConfiguracao()
   }, [])
+
+  useEffect(() => {
+    if (!user) return
+    if (!user.is_superuser && TABS_SOMENTE_ADMIN.includes(activeTab)) {
+      setActiveTab('geral')
+    }
+  }, [user?.is_superuser, activeTab])
 
   const fetchConfiguracao = async () => {
     try {
@@ -257,7 +269,7 @@ function AdminConfiguracoes() {
     return <LoadingSpinner text="Carregando configurações..." />
   }
 
-  const tabs = [
+  const todasAsTabs = [
     { id: 'geral', label: 'Informações Gerais', icon: Church },
     { id: 'contato', label: 'Contato', icon: Phone },
     { id: 'endereco', label: 'Endereço', icon: MapPin },
@@ -267,6 +279,10 @@ function AdminConfiguracoes() {
     { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare },
     { id: 'mercadopago', label: 'Mercado Pago', icon: CreditCard }
   ]
+
+  const tabs = user?.is_superuser
+    ? todasAsTabs
+    : todasAsTabs.filter(t => !TABS_SOMENTE_ADMIN.includes(t.id))
 
   return (
     <div>

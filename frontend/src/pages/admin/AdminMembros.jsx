@@ -1,15 +1,19 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Search, Edit, Trash2, Users, Phone, Eye, EyeOff, Key } from 'lucide-react'
+import { Plus, Search, Edit, Trash2, Users, Phone, Eye, EyeOff, Key, ChevronLeft, ChevronRight } from 'lucide-react'
 import api from '../../services/api'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ConfirmModal from '../../components/ConfirmModal'
+
+const PAGE_SIZE = 10
 
 function AdminMembros() {
   const [membros, setMembros] = useState([])
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('todos')
+  const [page, setPage] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
   const [deletando, setDeletando] = useState(false)
   const [senhasVisiveis, setSenhasVisiveis] = useState({}) // { membroId: true/false }
   
@@ -27,20 +31,34 @@ function AdminMembros() {
     }))
   }
 
-  useEffect(() => {
-    fetchMembros()
-  }, [])
-
   const fetchMembros = async () => {
+    setLoading(true)
     try {
-      const response = await api.get('/membros/')
-      setMembros(response.data.results || response.data)
+      const params = { page }
+      if (busca.trim()) params.nome = busca.trim()
+      if (filtroStatus !== 'todos') params.status = filtroStatus
+      const response = await api.get('/membros/', { params })
+      const data = response.data
+      setMembros(data.results ?? data)
+      setTotalCount(typeof data.count === 'number' ? data.count : (data.results ?? data).length)
     } catch (error) {
       console.error('Erro ao carregar membros:', error)
+      setMembros([])
+      setTotalCount(0)
     } finally {
       setLoading(false)
     }
   }
+
+  // Ao mudar busca ou status, volta para página 1
+  useEffect(() => {
+    setPage(1)
+  }, [busca, filtroStatus])
+
+  // Carrega membros quando página, busca ou status mudam
+  useEffect(() => {
+    fetchMembros()
+  }, [page, busca, filtroStatus])
 
   // Abre o modal de confirmação
   const handleDelete = (membro) => {
@@ -62,8 +80,10 @@ function AdminMembros() {
     setDeletando(true)
     try {
       await api.delete(`/membros/${modalConfig.membro.id}/`)
-      setMembros(membros.filter(m => m.id !== modalConfig.membro.id))
       fecharModal()
+      // Se ficou vazia a página, volta uma (exceto se já está na 1)
+      if (membros.length <= 1 && page > 1) setPage(p => p - 1)
+      else fetchMembros()
     } catch (error) {
       console.error('Erro ao excluir membro:', error)
       alert('Erro ao excluir membro. Tente novamente.')
@@ -86,13 +106,9 @@ function AdminMembros() {
     )
   }
 
-  const membrosFiltrados = membros.filter(membro => {
-    const matchBusca = 
-      membro.nome?.toLowerCase().includes(busca.toLowerCase()) ||
-      membro.telefone?.toLowerCase().includes(busca.toLowerCase())
-    const matchStatus = filtroStatus === 'todos' || membro.status === filtroStatus
-    return matchBusca && matchStatus
-  })
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+  const startItem = totalCount === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+  const endItem = Math.min(page * PAGE_SIZE, totalCount)
 
   if (loading) {
     return <LoadingSpinner text="Carregando membros..." />
@@ -146,7 +162,8 @@ function AdminMembros() {
 
       {/* Members Table */}
       <div className="bg-white rounded-xl shadow-md overflow-hidden">
-        {membrosFiltrados.length > 0 ? (
+        {membros.length > 0 ? (
+          <>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50 border-b">
@@ -169,7 +186,7 @@ function AdminMembros() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {membrosFiltrados.map((membro) => (
+                {membros.map((membro) => (
                   <tr key={membro.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <div className="flex items-center">
@@ -240,6 +257,38 @@ function AdminMembros() {
               </tbody>
             </table>
           </div>
+          {/* Paginação */}
+          {totalCount > PAGE_SIZE && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4 border-t bg-gray-50">
+              <p className="text-sm text-gray-600">
+                Mostrando <span className="font-medium">{startItem}</span>-<span className="font-medium">{endItem}</span> de <span className="font-medium">{totalCount}</span> membros
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  className="p-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Página anterior"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <span className="text-sm text-gray-600 px-2">
+                  Página {page} de {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                  className="p-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Próxima página"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+          )}
+          </>
         ) : (
           <div className="text-center py-12">
             <Users className="h-12 w-12 text-gray-300 mx-auto mb-4" />

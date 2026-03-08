@@ -72,7 +72,9 @@ CORS_ALLOWED_ORIGINS=https://seu-dominio.com,https://www.seu-dominio.com,http://
 
 ## Passo 3: Criar o Banco de Dados (se necessário)
 
-Se o banco `championschurch` ainda não existe:
+**Desde a versão atual, o entrypoint cria o banco automaticamente** se ele não existir. Ao duplicar o projeto no Coolify, o banco `championschurch` será criado na primeira execução.
+
+Se precisar criar manualmente (ex.: erro antes do entrypoint rodar):
 
 1. **No Coolify, vá para o PostgreSQL**
 2. **Abra o terminal/shell do PostgreSQL**

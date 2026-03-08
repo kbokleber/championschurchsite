@@ -1,6 +1,27 @@
 #!/bin/bash
 set -e
 
+# Criar banco PostgreSQL se não existir - DEVE rodar como root (antes do gosu) para ter env vars do Docker
+# Coolify injeta POSTGRES_HOST quando o banco está vinculado ao serviço
+if [ "$(id -u)" = "0" ] && [ -n "${POSTGRES_HOST:-}" ]; then
+  DB_NAME="${POSTGRES_DB:-championschurch}"
+  echo "[DB] Verificando se o banco '$DB_NAME' existe no host ${POSTGRES_HOST}..."
+  if ! PGPASSWORD="${POSTGRES_PASSWORD}" psql -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT:-5432}" -U "${POSTGRES_USER:-postgres}" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" 2>/dev/null | grep -q 1; then
+    echo "Banco '$DB_NAME' não existe. Criando..."
+    if PGPASSWORD="${POSTGRES_PASSWORD}" psql -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT:-5432}" -U "${POSTGRES_USER:-postgres}" -d postgres -c "CREATE DATABASE ${DB_NAME};"; then
+      echo "✓ Banco '$DB_NAME' criado com sucesso!"
+    else
+      echo "✗ Falha ao criar banco '$DB_NAME' (verifique usuário/senha)"
+    fi
+  else
+    echo "✓ Banco '$DB_NAME' já existe"
+  fi
+else
+  if [ "$(id -u)" = "0" ] && [ -z "${POSTGRES_HOST:-}" ]; then
+    echo "[DB] POSTGRES_HOST não definido - pule criação automática do banco"
+  fi
+fi
+
 # Se estiver rodando como root (ex.: container sem USER django), ajustar permissão do volume de mídia e reexecutar como django
 if [ "$(id -u)" = "0" ]; then
   chown -R django:django /app/media 2>/dev/null || true

@@ -5,7 +5,7 @@ import {
   Plus, ArrowRight, TrendingUp 
 } from 'lucide-react'
 import api from '../../services/api'
-import { formatDateTimeBR } from '../../services/utils'
+import { formatDateBR, formatTimeBR } from '../../services/utils'
 import LoadingSpinner from '../../components/LoadingSpinner'
 
 function Dashboard() {
@@ -165,16 +165,19 @@ function Dashboard() {
                 <Link
                   key={evento.id}
                   to={`/admin/eventos/${evento.id}`}
-                  className="flex items-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="flex items-start gap-4 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                 >
-                  <div className="w-12 h-12 bg-primary-100 rounded-lg flex items-center justify-center mr-4">
-                    <span className="text-sm font-bold text-primary-600">
-                      {formatDateTimeBR(evento.data_inicio)}
-                    </span>
+                  <div className="flex-shrink-0 w-14 py-2 px-3 bg-primary-100 rounded-lg text-center">
+                    <p className="text-xs font-semibold text-primary-600 leading-tight">
+                      {formatDateBR(evento.data_inicio)}
+                    </p>
+                    <p className="text-xs text-primary-500 mt-1">
+                      {formatTimeBR(evento.data_inicio)}
+                    </p>
                   </div>
-                  <div className="flex-grow">
+                  <div className="flex-grow min-w-0">
                     <p className="font-medium text-church-navy">{evento.titulo}</p>
-                    <p className="text-sm text-gray-500">{evento.local}</p>
+                    <p className="text-sm text-gray-500 mt-0.5">{evento.local}</p>
                   </div>
                 </Link>
               ))}

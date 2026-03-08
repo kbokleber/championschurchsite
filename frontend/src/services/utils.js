@@ -58,3 +58,17 @@ export function formatDateBR(dateString) {
     year: 'numeric',
   })
 }
+
+/**
+ * Formata hora no padrão brasileiro
+ * @param {string} dateString - Data em formato ISO
+ * @returns {string} Hora formatada HH:MM
+ */
+export function formatTimeBR(dateString) {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  return date.toLocaleTimeString('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}

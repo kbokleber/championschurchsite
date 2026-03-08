@@ -165,17 +165,17 @@ function Dashboard() {
                 <Link
                   key={evento.id}
                   to={`/admin/eventos/${evento.id}`}
-                  className="flex items-start gap-4 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="grid grid-cols-[auto_1fr] gap-x-8 gap-y-2 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors items-center"
                 >
-                  <div className="flex-shrink-0 w-14 py-2 px-3 bg-primary-100 rounded-lg text-center">
-                    <p className="text-xs font-semibold text-primary-600 leading-tight">
+                  <div className="py-2 px-4 bg-primary-100 rounded-lg text-center w-fit">
+                    <p className="text-xs font-semibold text-primary-600 leading-tight whitespace-nowrap">
                       {formatDateBR(evento.data_inicio)}
                     </p>
-                    <p className="text-xs text-primary-500 mt-1">
+                    <p className="text-xs text-primary-500 mt-1 whitespace-nowrap">
                       {formatTimeBR(evento.data_inicio)}
                     </p>
                   </div>
-                  <div className="flex-grow min-w-0">
+                  <div className="min-w-0">
                     <p className="font-medium text-church-navy">{evento.titulo}</p>
                     <p className="text-sm text-gray-500 mt-0.5">{evento.local}</p>
                   </div>

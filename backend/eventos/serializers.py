@@ -469,7 +469,7 @@ class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
             'horarios', 'google_maps_embed',
             'webhook_inscricao', 'webhook_ativo', 'webhook_reset_senha', 'webhook_eventos',
             # Mercado Pago
-            'mp_ambiente', 'mp_ativo',
+            'mp_ambiente', 'mp_ativo', 'mp_cartao_em_sandbox',
             'mp_public_key_sandbox', 'mp_access_token_sandbox',
             'mp_public_key_production', 'mp_access_token_production',
             'mp_webhook_secret',

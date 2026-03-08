@@ -43,6 +43,7 @@ function AdminConfiguracoes() {
     // Mercado Pago
     mp_ambiente: 'sandbox',
     mp_ativo: false,
+    mp_cartao_em_sandbox: false,
     mp_public_key_sandbox: '',
     mp_access_token_sandbox: '',
     mp_public_key_production: '',
@@ -110,6 +111,7 @@ function AdminConfiguracoes() {
         // Mercado Pago
         mp_ambiente: data.mp_ambiente || 'sandbox',
         mp_ativo: data.mp_ativo || false,
+        mp_cartao_em_sandbox: data.mp_cartao_em_sandbox || false,
         mp_public_key_sandbox: data.mp_public_key_sandbox || '',
         mp_access_token_sandbox: data.mp_access_token_sandbox || '',
         mp_public_key_production: data.mp_public_key_production || '',
@@ -870,7 +872,7 @@ function AdminConfiguracoes() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   <Webhook className="inline h-4 w-4 mr-1" />
-                  URL do Webhook de Eventos
+                  URL do Webhook de Eventos <span className="text-gray-400 font-normal">(opcional)</span>
                 </label>
                 <input
                   type="url"
@@ -878,10 +880,10 @@ function AdminConfiguracoes() {
                   value={formData.webhook_eventos}
                   onChange={handleChange}
                   className="input-field"
-                  placeholder="https://seu-servidor.com/webhook/eventos"
+                  placeholder="Deixe em branco se não precisar"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  URL que receberá um POST quando um evento for criado, atualizado ou excluído (tipo, titulo, data_inicio, local, etc.)
+                  Só para quando um <strong>evento</strong> for criado, alterado ou excluído no admin (titulo, data, local). Inscrições, reset de senha e pagamentos vão sempre para a &quot;URL do Webhook&quot; acima.
                 </p>
               </div>
 
@@ -1127,6 +1129,26 @@ function AdminConfiguracoes() {
                   </label>
                 </div>
               </div>
+
+              {/* Cartão em sandbox (PIX em produção, cartão em teste) */}
+              {formData.mp_ambiente === 'production' && (
+                <div className="border border-amber-200 rounded-lg p-4 bg-amber-50/50">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.mp_cartao_em_sandbox || false}
+                      onChange={(e) => setFormData(prev => ({ ...prev, mp_cartao_em_sandbox: e.target.checked }))}
+                      className="mt-1 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                    />
+                    <div>
+                      <span className="font-medium text-gray-800">Cartão em Sandbox (testes)</span>
+                      <p className="text-sm text-gray-600 mt-1">
+                        PIX continua em produção (obrigatório). Pagamento com cartão usa credenciais de teste: você pode testar com cartões de teste do MP sem cobrança real.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              )}
 
               {/* Credenciais Sandbox */}
               <div className="border border-yellow-200 rounded-lg p-4 bg-yellow-50/50">

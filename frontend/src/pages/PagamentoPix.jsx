@@ -3,7 +3,6 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import { useParticipante } from '../contexts/ParticipanteContext';
 import { 
-  CreditCard, 
   ExternalLink, 
   Check, 
   Clock, 
@@ -25,155 +24,34 @@ function PagamentoPix() {
   const [gerando, setGerando] = useState(false);
   const [cobranca, setCobranca] = useState(null);
   const [linkPagamento, setLinkPagamento] = useState(null);
+  const [linkSandbox, setLinkSandbox] = useState(false);
   const [status, setStatus] = useState('pendente');
   const [error, setError] = useState(null);
-  const [mostrarFormCartao, setMostrarFormCartao] = useState(false);
-  const [mpPublicKey, setMpPublicKey] = useState(null);
-  const [brickErro, setBrickErro] = useState(null);
-  const [brickCarregando, setBrickCarregando] = useState(false);
   
   const pollingRef = useRef(null);
-  const brickControllerRef = useRef(null);
-  const mpScriptRef = useRef(false);
-
-  const autoOpen = searchParams.get('auto') === 'true';
   const autoOpenedRef = useRef(false);
+  const autoOpen = searchParams.get('auto') === 'true';
 
   useEffect(() => {
-    // Verificar se veio do retorno do Mercado Pago
     const statusParam = searchParams.get('status');
     if (statusParam === 'approved') {
       setStatus('pago');
     }
-    
     carregarCobranca();
-    
     return () => {
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
       }
     };
   }, [cobrancaId]);
-  
-  // Buscar public key do MP para o formulário de cartão
-  useEffect(() => {
-    if (!cobranca || linkPagamento) return;
-    api.get('/mercadopago/config/')
-      .then((r) => { if (r.data?.ativo && r.data?.public_key) setMpPublicKey(r.data.public_key); })
-      .catch(() => {});
-  }, [cobranca, linkPagamento]);
 
-  // Auto-abrir Mercado Pago quando vier com parâmetro auto=true
+  // Auto-abrir Checkout Pro quando vier de Meus ingressos com ?auto=true
   useEffect(() => {
-    // Usar ref para garantir que só executa uma vez
     if (autoOpen && !autoOpenedRef.current && cobranca && cobranca.status === 'pendente' && !linkPagamento && !loading && !gerando) {
       autoOpenedRef.current = true;
-      console.log('[Pagamento] Auto-abrindo Mercado Pago...');
-      gerarLinkPagamento();
+      gerarLinkPagamento(true);
     }
   }, [autoOpen, cobranca, linkPagamento, loading, gerando]);
-
-  // Carregar SDK MP e montar Card Payment Brick quando "Pagar com cartão aqui"
-  useEffect(() => {
-    if (!mostrarFormCartao || !mpPublicKey || !cobranca || cobranca.status !== 'pendente') return;
-    setBrickErro(null);
-    setBrickCarregando(true);
-
-    const initBrick = (bricksBuilder) => {
-      const amount = parseFloat(cobranca.valor) || 0;
-      if (amount <= 0) {
-        setBrickErro('Valor inválido');
-        setBrickCarregando(false);
-        return;
-      }
-      const settings = {
-        initialization: { amount },
-        callbacks: {
-          onReady: () => setBrickCarregando(false),
-          onSubmit: (formData) => {
-            return new Promise((resolve, reject) => {
-              const payload = {
-                cobranca_id: cobrancaId,
-                token: formData.token,
-                payment_method_id: formData.paymentMethodId || formData.payment_method_id,
-                installments: formData.installments || 1,
-                issuer_id: formData.issuerId || formData.issuer_id,
-                payer: formData.payer || {},
-              };
-              api.post('/mercadopago/pagar-cartao/', payload)
-                .then((res) => {
-                  if (res.data.success && res.data.status === 'approved') {
-                    setStatus('pago');
-                    carregarCobranca();
-                    atualizarIngressos({ forcar: true });
-                  } else if (res.data.success && (res.data.status === 'pending' || res.data.status === 'in_process')) {
-                    iniciarPolling();
-                  }
-                  resolve();
-                })
-                .catch((err) => {
-                  const msg = err.response?.data?.error || err.response?.data?.details || 'Erro ao processar cartão';
-                  reject(new Error(typeof msg === 'string' ? msg : JSON.stringify(msg)));
-                });
-            });
-          },
-          onError: (err) => {
-            setBrickErro(err?.message || 'Erro no formulário');
-            setBrickCarregando(false);
-          },
-        },
-      };
-      window.mpBricksBuilder = bricksBuilder;
-      bricksBuilder.create('cardPayment', 'cardPaymentBrick_container', settings)
-        .then((controller) => {
-          brickControllerRef.current = controller;
-        })
-        .catch((err) => {
-          setBrickErro(err?.message || 'Não foi possível carregar o formulário de cartão');
-          setBrickCarregando(false);
-        });
-    };
-
-    const doInit = () => {
-      if (typeof window.MercadoPago === 'undefined') {
-        setBrickErro('Mercado Pago não carregou. Tente novamente.');
-        setBrickCarregando(false);
-        return;
-      }
-      const mp = new window.MercadoPago(mpPublicKey);
-      const bricksBuilder = mp.bricks();
-      initBrick(bricksBuilder);
-    };
-
-    if (window.MercadoPago) {
-      doInit();
-      return;
-    }
-    if (mpScriptRef.current) {
-      const t = setInterval(() => {
-        if (window.MercadoPago) { clearInterval(t); doInit(); }
-      }, 200);
-      return () => clearInterval(t);
-    }
-    mpScriptRef.current = true;
-    const script = document.createElement('script');
-    script.src = 'https://sdk.mercadopago.com/js/v2';
-    script.async = true;
-    script.onload = () => {
-      const t = setInterval(() => {
-        if (window.MercadoPago) { clearInterval(t); doInit(); }
-      }, 100);
-      setTimeout(() => clearInterval(t), 5000);
-    };
-    script.onerror = () => {
-      setBrickErro('Não foi possível carregar o Mercado Pago.');
-      setBrickCarregando(false);
-    };
-    document.body.appendChild(script);
-    return () => {
-      if (brickControllerRef.current?.unmount) brickControllerRef.current.unmount();
-    };
-  }, [mostrarFormCartao, mpPublicKey, cobranca, cobrancaId]);
 
   const carregarCobranca = async () => {
     try {
@@ -209,9 +87,13 @@ function PagamentoPix() {
       });
       
       if (response.data.success) {
-        // Usar init_point para produção, sandbox_init_point para testes
-        const link = response.data.init_point || response.data.sandbox_init_point;
+        // Não misturar ambiente: sandbox → sandbox_init_point; produção → init_point (evita erro "uma das partes é de teste")
+        const isSandbox = !!response.data.is_sandbox;
+        const link = isSandbox
+          ? (response.data.sandbox_init_point || response.data.init_point)
+          : (response.data.init_point || response.data.sandbox_init_point);
         setLinkPagamento(link);
+        setLinkSandbox(isSandbox);
         iniciarPolling();
         
         // Se foi reutilizado (usuário voltou do MP), não abrir automaticamente
@@ -360,7 +242,7 @@ function PagamentoPix() {
           </button>
           <h1 className="text-2xl font-bold text-gray-900">Pagamento</h1>
           <p className="text-gray-600">
-            Pague com <strong>PIX</strong>, <strong>cartão de crédito/débito</strong> ou <strong>boleto</strong> no Mercado Pago
+            Pague com <strong>PIX</strong> ou <strong>cartão de crédito</strong> no Mercado Pago (Checkout Pro)
           </p>
         </div>
 
@@ -411,49 +293,19 @@ function PagamentoPix() {
             {!linkPagamento ? (
               // Botão para gerar link
               <div className="text-center py-6">
-                <CreditCard className="w-16 h-16 text-gray-300 mx-auto mb-4" />
                 <p className="text-gray-600 mb-4">
-                  Escolha como pagar:
+                  Pague com PIX ou cartão de crédito no Mercado Pago.
                 </p>
-                {/*  */}
-                <p className="hidden">
-                  _ <strong>“Entrar com a minha conta”</strong> para ver a opção de pagar com cartão.
-                </p>
-                {!mostrarFormCartao ? (
-                  <>
-                    <div className="flex flex-col sm:flex-row gap-3 justify-center items-center mb-4">
-                      <button
-                        onClick={gerarLinkPagamento}
-                        disabled={gerando}
-                        className="btn btn-primary px-6 py-3 flex items-center justify-center gap-2"
-                      >
-                        {gerando ? <><RefreshCw className="w-5 h-5 animate-spin" />Gerando...</> : <><ExternalLink className="w-5 h-5" />PIX ou boleto (Mercado Pago)</>}
-                      </button>
-                      {mpPublicKey && (
-                        <button
-                          type="button"
-                          onClick={() => setMostrarFormCartao(true)}
-                          className="btn btn-secondary px-6 py-3 flex items-center justify-center gap-2 border-2 border-primary-600 text-primary-700 hover:bg-primary-50"
-                        >
-                          <CreditCard className="w-5 h-5" />
-                          Cartão aqui (sem conta no MP)
-                        </button>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-500">PIX e boleto: redireciona ao Mercado Pago. Cartão: preencha aqui no site, sem conta.</p>
-                  </>
-                ) : (
-                  <div className="text-left">
-                    <button type="button" onClick={() => { setMostrarFormCartao(false); setBrickErro(null); if (brickControllerRef.current?.unmount) brickControllerRef.current.unmount(); }} className="text-sm text-gray-600 hover:text-gray-900 mb-4">← Voltar</button>
-                    <p className="font-medium text-gray-800 mb-2">Cartão de crédito ou débito (sem conta no Mercado Pago)</p>
-                    {brickErro && <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-red-700 text-sm">{brickErro}</div>}
-                    {brickCarregando && <div className="flex items-center gap-2 text-gray-600 mb-4"><RefreshCw className="w-5 h-5 animate-spin" />Carregando formulário...</div>}
-                    <div id="cardPaymentBrick_container" className="min-h-[280px]" />
-                  </div>
-                )}
+                <button
+                  onClick={() => gerarLinkPagamento(true)}
+                  disabled={gerando}
+                  className="btn btn-primary px-6 py-3 flex items-center justify-center gap-2 mx-auto"
+                >
+                  {gerando ? <><RefreshCw className="w-5 h-5 animate-spin" />Gerando...</> : <><ExternalLink className="w-5 h-5" />Ir ao Mercado Pago (PIX ou cartão)</>}
+                </button>
+                <p className="text-xs text-gray-500 mt-3">Você será redirecionado ao site do Mercado Pago para concluir o pagamento.</p>
               </div>
             ) : (
-              // Link gerado
               <div className="text-center">
                 {/* Ícone de sucesso */}
                 <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -488,12 +340,27 @@ function PagamentoPix() {
                   <h4 className="font-medium text-blue-800 mb-2">Formas de pagamento aceitas:</h4>
                   <ul className="text-sm text-blue-700 space-y-1">
                     <li>• PIX (aprovação instantânea)</li>
-                    <li>• Cartão de crédito ou débito — use &quot;Entrar com minha conta&quot; no MP</li>
-                    <li>• Boleto bancário</li>
+                    <li>• Cartão de crédito ou débito</li>
                   </ul>
                   <p className="text-xs text-blue-600 mt-3">
                     Após o pagamento, esta página será atualizada automaticamente.
                   </p>
+                </div>
+
+                {/* Dicas para evitar recusa de cartão */}
+                <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 text-left text-sm text-amber-800">
+                  <p className="font-medium mb-1">Se o cartão for recusado:</p>
+                  <ul className="list-disc list-inside space-y-0.5 text-xs">
+                    {linkSandbox && (
+                      <>
+                        <li><strong>Modo teste (Sandbox):</strong> use uma <strong>conta de usuário de teste</strong> (Comprador) para pagar. Crie em: Desenvolvedores → Suas integrações → Usuários de teste.</li>
+                        <li>Cartões de teste: use número, CVV e validade da <a href="https://www.mercadopago.com.br/developers/pt/docs/your-integrations/test/cards" target="_blank" rel="noopener noreferrer" className="underline">documentação</a>. Para <strong>pagamento aprovado</strong>, preencha <strong>Nome do titular: APRO</strong> e <strong>CPF: 12345678909</strong>.</li>
+                      </>
+                    )}
+                    {!linkSandbox && <li>Use o meio de pagamento e o dispositivo que você costuma usar em compras online.</li>}
+                    <li>Não pague com cartão da mesma conta que recebe (vendedor).</li>
+                    <li>Confira dados, limite e se o cartão não está bloqueado; ou pague com PIX.</li>
+                  </ul>
                 </div>
                 
                 {/* Segurança */}

@@ -937,7 +937,12 @@ class ConfiguracaoSite(models.Model):
         blank=True,
         help_text='Secret para validar assinatura dos webhooks (painel MP > Webhooks > Configurar notificações)'
     )
-    
+    mp_cartao_em_sandbox = models.BooleanField(
+        default=False,
+        verbose_name='Cartão em Sandbox (testes)',
+        help_text='Quando ativo: PIX usa sempre Produção (obrigatório para PIX). Cartão usa Sandbox para testar com cartões de teste, sem cobrança real. Deixe o ambiente geral em Produção.'
+    )
+
     # WhatsApp Evolution API
     evolution_api_url = models.URLField(
         verbose_name='URL da API Evolution',
@@ -1003,6 +1008,18 @@ class ConfiguracaoSite(models.Model):
     def mp_is_sandbox(self):
         """Verifica se está em ambiente sandbox."""
         return self.mp_ambiente == 'sandbox'
+
+    def get_mp_access_token_for(self, ambiente):
+        """Retorna o Access Token do ambiente indicado ('sandbox' ou 'production')."""
+        if ambiente == 'production':
+            return self.mp_access_token_production
+        return self.mp_access_token_sandbox
+
+    def get_mp_public_key_for(self, ambiente):
+        """Retorna a Public Key do ambiente indicado ('sandbox' ou 'production')."""
+        if ambiente == 'production':
+            return self.mp_public_key_production
+        return self.mp_public_key_sandbox
 
 
 class PermissaoMenu(models.Model):

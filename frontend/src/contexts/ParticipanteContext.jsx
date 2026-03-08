@@ -142,8 +142,10 @@ export function ParticipanteProvider({ children }) {
       salvarCache(p, i)
       return { success: true }
     } catch (error) {
-      console.error('Erro ao carregar perfil:', error)
       const isUnauthorized = error.response?.status === 401
+      // 401 em outro navegador ou sessão expirada é esperado — não logar como erro crítico
+      if (!isUnauthorized) console.error('Erro ao carregar perfil:', error)
+      else if (!silent) console.warn('Sessão inválida ou expirada. Faça login novamente neste navegador.')
       
       if (isUnauthorized) {
         // Verificar se é erro de token expirado ou inválido

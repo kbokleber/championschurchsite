@@ -2812,16 +2812,19 @@ class CobrancaViewSet(viewsets.ModelViewSet):
 
 import mercadopago
 
-def get_mercadopago_sdk():
-    """Retorna uma instância configurada do SDK do Mercado Pago."""
+def get_mercadopago_sdk(ambiente=None):
+    """
+    Retorna uma instância do SDK do Mercado Pago.
+    ambiente: None = usa config.mp_ambiente; 'production' ou 'sandbox' = força o ambiente.
+    Quando mp_cartao_em_sandbox está ativo, PIX usa production e cartão usa sandbox.
+    """
     config = ConfiguracaoSite.get_config()
     if not config.mp_ativo:
         return None
-    
-    access_token = config.mp_access_token
+    env = ambiente if ambiente in ('sandbox', 'production') else config.mp_ambiente
+    access_token = config.get_mp_access_token_for(env)
     if not access_token:
         return None
-    
     return mercadopago.SDK(access_token)
 
 
@@ -2863,8 +2866,8 @@ def criar_pagamento_pix(request):
             {'error': 'Mercado Pago não está ativo nas configurações'},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
-    sdk = get_mercadopago_sdk()
+    # PIX exige produção; se "cartão em sandbox" estiver ativo, usar produção para criar preferência
+    sdk = get_mercadopago_sdk('production') if getattr(config, 'mp_cartao_em_sandbox', False) else get_mercadopago_sdk()
     if not sdk:
         return Response(
             {'error': 'Mercado Pago não configurado corretamente'},
@@ -2883,17 +2886,16 @@ def criar_pagamento_pix(request):
             
             if preference_response.get("status") in [200, 201] and preference.get("init_point"):
                 print(f"[MP] Link existente encontrado: {preference.get('init_point')}")
+                env = 'production' if getattr(config, 'mp_cartao_em_sandbox', False) else config.mp_ambiente
                 return Response({
                     'success': True,
                     'preference_id': cobranca.referencia_externa,
                     'init_point': preference.get("init_point"),
                     'sandbox_init_point': preference.get("sandbox_init_point"),
+                    'is_sandbox': env == 'sandbox',
                     'valor': float(cobranca.valor),
-                    'cobranca': {
-                        'id': cobranca.id,
-                        'codigo': cobranca.codigo,
-                    },
-                    'reutilizado': True  # Flag para indicar que reutilizou
+                    'cobranca': {'id': cobranca.id, 'codigo': cobranca.codigo},
+                    'reutilizado': True,
                 })
         except Exception as e:
             # Se falhar ao buscar preferência existente, criar uma nova
@@ -2955,9 +2957,7 @@ def criar_pagamento_pix(request):
     else:
         email_pagador = membro.email if membro.email else f"participante{membro.telefone}@email.com"
     
-    # Dados da preferência (Checkout Pro)
-    # Por padrão o MP inclui todos os métodos (PIX, cartão crédito/débito, boleto). Não excluímos nenhum.
-    # installments em default_installments permite parcelamento no cartão.
+    # Dados da preferência (Checkout Pro) — apenas PIX e cartão (sem boleto)
     preference_data = {
         "items": items,
         "payer": {
@@ -2967,9 +2967,9 @@ def criar_pagamento_pix(request):
         "external_reference": cobranca.codigo,
         "statement_descriptor": "IGREJA",
         "payment_methods": {
-            # Listas vazias = nenhum método excluído (PIX, cartão crédito/débito e boleto disponíveis)
             "excluded_payment_methods": [],
-            "excluded_payment_types": [],
+            # Excluir boleto: apenas PIX e cartão de crédito/débito
+            "excluded_payment_types": [{"id": "ticket"}],
             "installments": 12,  # Parcelamento no cartão (1 a 36)
             "default_installments": 1,
         },
@@ -3013,12 +3013,14 @@ def criar_pagamento_pix(request):
         cobranca.metodo_pagamento = "Mercado Pago"
         cobranca.save()
         
-        # Retornar links de pagamento
+        # Retornar links de pagamento (is_sandbox para o frontend exibir dica de cartão de teste)
+        env = 'production' if getattr(config, 'mp_cartao_em_sandbox', False) else config.mp_ambiente
         return Response({
             'success': True,
             'preference_id': preference.get("id"),
-            'init_point': preference.get("init_point"),  # Link de pagamento (produção)
-            'sandbox_init_point': preference.get("sandbox_init_point"),  # Link de teste
+            'init_point': preference.get("init_point"),
+            'sandbox_init_point': preference.get("sandbox_init_point"),
+            'is_sandbox': env == 'sandbox',
             'valor': float(cobranca.valor),
             'cobranca': {
                 'id': cobranca.id,
@@ -3381,8 +3383,9 @@ def verificar_pagamento(request, cobranca_id):
             'cobranca_status': cobranca.status,
         })
     
-    # Consultar no Mercado Pago
-    sdk = get_mercadopago_sdk()
+    # Consultar no Mercado Pago (mesmo ambiente do PIX = produção quando cartão em sandbox)
+    config = ConfiguracaoSite.get_config()
+    sdk = get_mercadopago_sdk('production') if getattr(config, 'mp_cartao_em_sandbox', False) else get_mercadopago_sdk()
     if not sdk:
         return Response({
             'status': cobranca.status,
@@ -3392,10 +3395,9 @@ def verificar_pagamento(request, cobranca_id):
     
     try:
         # Buscar pagamentos pelo external_reference (código da cobrança)
-        # No Checkout Pro, salvamos o ID da preferência, mas precisamos buscar pagamentos
         import requests
-        config = ConfiguracaoSite.get_config()
-        access_token = config.mp_access_token
+        env = 'production' if getattr(config, 'mp_cartao_em_sandbox', False) else config.mp_ambiente
+        access_token = config.get_mp_access_token_for(env)
         
         # Buscar pagamentos com o external_reference igual ao código da cobrança
         search_url = f"https://api.mercadopago.com/v1/payments/search?external_reference={cobranca.codigo}"
@@ -3494,8 +3496,8 @@ def pagar_cartao(request):
     config = ConfiguracaoSite.get_config()
     if not config.mp_ativo:
         return Response({'error': 'Mercado Pago não está ativo'}, status=status.HTTP_400_BAD_REQUEST)
-
-    sdk = get_mercadopago_sdk()
+    # Cartão: se "cartão em sandbox" ativo, usar sandbox para testar sem cobrança real
+    sdk = get_mercadopago_sdk('sandbox') if getattr(config, 'mp_cartao_em_sandbox', False) else get_mercadopago_sdk()
     if not sdk:
         return Response({'error': 'Mercado Pago não configurado'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -3507,6 +3509,13 @@ def pagar_cartao(request):
     id_number = identification.get('number') or ''
 
     transaction_amount = float(cobranca.valor)
+    # Mercado Pago não aceita cartão para valores muito baixos (ex.: R$ 0,04)
+    VALOR_MINIMO_CARTAO = 0.50
+    if round(transaction_amount, 2) < VALOR_MINIMO_CARTAO:
+        return Response(
+            {'error': f'Valor mínimo para pagamento com cartão é R$ {VALOR_MINIMO_CARTAO:.2f}. Para valores menores, use PIX.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
     payment_data = {
         "transaction_amount": round(transaction_amount, 2),
         "token": token,
@@ -3539,6 +3548,12 @@ def pagar_cartao(request):
                 err_msg = e.response.json()
             except Exception:
                 pass
+        err_str = str(err_msg).lower() if err_msg else ''
+        if 'no valid payment type for this amount' in err_str or 'try sending a larger amount' in err_str:
+            return Response(
+                {'error': 'Valor mínimo para pagamento com cartão é R$ 0,50. Para este valor, use PIX.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         return Response(
             {'error': 'Erro ao processar cartão', 'details': err_msg},
             status=status.HTTP_400_BAD_REQUEST
@@ -3576,9 +3591,22 @@ def pagar_cartao(request):
 def mercadopago_config_publica(request):
     """
     Retorna configurações públicas do Mercado Pago (para o frontend).
-    Apenas retorna a Public Key e status de ativo.
+    Query param: for=card — quando mp_cartao_em_sandbox está ativo, retorna public_key e is_sandbox do sandbox (para o Brick de cartão).
     """
     config = ConfiguracaoSite.get_config()
+    use_card_sandbox = (
+        config.mp_ativo
+        and getattr(config, 'mp_cartao_em_sandbox', False)
+        and request.query_params.get('for') == 'card'
+    )
+    if use_card_sandbox:
+        public_key = config.get_mp_public_key_for('sandbox')
+        return Response({
+            'ativo': bool(public_key),
+            'public_key': public_key or None,
+            'ambiente': 'sandbox',
+            'is_sandbox': True,
+        })
     return Response({
         'ativo': config.mp_ativo,
         'public_key': config.mp_public_key if config.mp_ativo else None,

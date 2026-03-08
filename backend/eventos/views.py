@@ -2463,10 +2463,25 @@ def configuracao_publica(request):
     Retorna as configurações públicas do site.
     Endpoint público para uso no frontend.
     """
-    try:
+    from django.db import connection
+    from django.db.utils import OperationalError
+
+    def _get_config():
         config = ConfiguracaoSite.get_config()
         serializer = ConfiguracaoSitePublicSerializer(config)
         return Response(serializer.data)
+
+    try:
+        return _get_config()
+    except OperationalError as e:
+        if 'closed the connection' in str(e).lower() or 'connection' in str(e).lower():
+            connection.close()
+            try:
+                return _get_config()
+            except Exception as retry_e:
+                logger.error(f"Retry falhou em configuracao_publica: {retry_e}", exc_info=True)
+                raise
+        raise
     except Exception as e:
         import traceback
         error_detail = traceback.format_exc()

@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Carregar variáveis de ambiente do arquivo .env
-load_dotenv(os.path.join(BASE_DIR, '.env'))
+load_dotenv(BASE_DIR / '.env')
 
 # ==============================================
 # CONFIGURAÇÕES DE AMBIENTE
@@ -156,7 +156,8 @@ if os.environ.get('POSTGRES_HOST'):
             'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
             'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
             'PORT': os.environ.get('POSTGRES_PORT', '5432'),
-            'CONN_MAX_AGE': 600 if ENVIRONMENT == 'production' else 0,
+            'CONN_MAX_AGE': 300 if ENVIRONMENT == 'production' else 0,
+            'CONN_HEALTH_CHECKS': True,
             'OPTIONS': {
                 'connect_timeout': 10,
             },

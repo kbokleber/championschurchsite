@@ -30,7 +30,7 @@ services:
       restart_policy:
         condition: on-failure
     healthcheck:
-      test: [ "CMD", "python", "-c", "from urllib.request import urlopen; import sys; r=urlopen('http://localhost:8000/api/health/ready/', timeout=5); sys.exit(0 if r.status==200 else 1)" ]
+      test: [ "CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/api/', timeout=5)" ]
       interval: 30s
       timeout: 10s
       retries: 3

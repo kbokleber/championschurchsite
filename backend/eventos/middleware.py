@@ -4,87 +4,12 @@ Middleware de segurança para a aplicação Champions Church.
 
 import logging
 import time
-import uuid
-import json
 from collections import defaultdict
 from django.http import JsonResponse
 from django.conf import settings
 from django.core.cache import cache
 
 logger = logging.getLogger('eventos.security')
-request_logger = logging.getLogger('eventos.requests')
-
-
-class ObservabilityMiddleware:
-    """
-    Middleware para observabilidade de requests:
-    - Propaga/gera X-Request-ID
-    - Registra logs estruturados de latência/status para baseline de estabilidade
-    """
-
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        start = time.perf_counter()
-        request_id = request.headers.get('X-Request-ID') or uuid.uuid4().hex
-        request.request_id = request_id
-        status_code = 500
-        had_error = False
-
-        try:
-            response = self.get_response(request)
-            status_code = response.status_code
-            response['X-Request-ID'] = request_id
-            return response
-        except Exception as exc:
-            had_error = True
-            duration_ms = round((time.perf_counter() - start) * 1000, 2)
-            request_logger.exception(
-                json.dumps(
-                    {
-                        "message": "request_failed",
-                        "request_id": request_id,
-                        "method": request.method,
-                        "path": request.path,
-                        "status": status_code,
-                        "duration_ms": duration_ms,
-                        "client_ip": self.get_client_ip(request),
-                        "error_type": exc.__class__.__name__,
-                    },
-                    ensure_ascii=True,
-                )
-            )
-            raise
-        finally:
-            duration_ms = round((time.perf_counter() - start) * 1000, 2)
-            user_id = None
-            user = getattr(request, 'user', None)
-            if user is not None and getattr(user, 'is_authenticated', False):
-                user_id = user.id
-
-            request_logger.info(
-                json.dumps(
-                    {
-                        "message": "request_failed_summary" if had_error else "request_completed",
-                        "request_id": request_id,
-                        "method": request.method,
-                        "path": request.path,
-                        "status": status_code,
-                        "duration_ms": duration_ms,
-                        "client_ip": self.get_client_ip(request),
-                        "user_id": user_id,
-                    },
-                    ensure_ascii=True,
-                )
-            )
-
-    @staticmethod
-    def get_client_ip(request):
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            return x_forwarded_for.split(',')[0].strip()
-        return request.META.get('REMOTE_ADDR', '0.0.0.0')
 
 
 class RateLimitMiddleware:

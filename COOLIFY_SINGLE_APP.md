@@ -38,8 +38,20 @@ Configure apenas as do backend, por exemplo:
 | `DJANGO_ENVIRONMENT` | `production` | Recomendado |
 | `DJANGO_ALLOWED_HOSTS` | (opcional) domínio do app, ex: `seudominio.com` | Não |
 | `CSRF_TRUSTED_ORIGINS` | `https://seudominio.com` (se usar HTTPS) | Se usar admin/API via browser |
+| `REQUEST_LOG_LEVEL` | `INFO` | Recomendado |
+| `RUN_BOOTSTRAP_TASKS` | `false` | Recomendado |
 
 Não é necessário `DJANGO_BEHIND_PROXY`: o usuário acessa só este app; o Coolify cuida do HTTPS na borda.
+
+### Bootstrap pós-deploy (recomendado)
+
+Para reduzir risco de instabilidade no startup, tarefas pesadas (criação de admin, sync de permissões, etc.) podem ser executadas fora do boot:
+
+```bash
+python manage.py bootstrap_prod
+```
+
+Use no terminal do serviço ou como comando pós-deploy.
 
 ### 4. Volume persistente para mídia (uploads e imagens)
 
@@ -101,4 +113,5 @@ docker run -p 8000:8000 -e POSTGRES_HOST=... -e POSTGRES_DB=... ...
 - **404 em rotas do React (ex.: /eventos):** confirme que o build do frontend rodou e que `frontend_dist` existe na imagem (rota catch-all do Django que devolve `index.html`).
 - **500 ou “Invalid Host”:** ajuste `DJANGO_ALLOWED_HOSTS` ou use `*` (já suportado pelo projeto quando a variável não está definida).
 - **API não responde:** verifique variáveis do PostgreSQL e logs do container (migrações e Gunicorn).
+- **Healthchecks:** valide `GET /api/health/live/` e `GET /api/health/ready/` após cada deploy.
 - **Painel Django (tabelas, usuários):** use **`/django-admin/`** (não `/admin/`). O `/admin/` é o painel React (SPA).

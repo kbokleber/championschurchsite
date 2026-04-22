@@ -114,6 +114,7 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'eventos.middleware.ObservabilityMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -148,6 +149,9 @@ WSGI_APPLICATION = 'champions_backend.wsgi.application'
 # Usar PostgreSQL se as variáveis estiverem definidas, caso contrário SQLite
 if os.environ.get('POSTGRES_HOST'):
     # PostgreSQL (desenvolvimento e produção)
+    conn_max_age_default = 300 if ENVIRONMENT == 'production' else 0
+    conn_max_age = int(os.environ.get('DB_CONN_MAX_AGE', conn_max_age_default))
+    db_connect_timeout = int(os.environ.get('DB_CONNECT_TIMEOUT', '10'))
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
@@ -156,10 +160,14 @@ if os.environ.get('POSTGRES_HOST'):
             'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
             'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
             'PORT': os.environ.get('POSTGRES_PORT', '5432'),
-            'CONN_MAX_AGE': 300 if ENVIRONMENT == 'production' else 0,
+            'CONN_MAX_AGE': conn_max_age,
             'CONN_HEALTH_CHECKS': True,
             'OPTIONS': {
-                'connect_timeout': 10,
+                'connect_timeout': db_connect_timeout,
+                'keepalives': 1,
+                'keepalives_idle': int(os.environ.get('DB_KEEPALIVES_IDLE', '30')),
+                'keepalives_interval': int(os.environ.get('DB_KEEPALIVES_INTERVAL', '10')),
+                'keepalives_count': int(os.environ.get('DB_KEEPALIVES_COUNT', '5')),
             },
         }
     }
@@ -346,6 +354,11 @@ LOGGING = {
             'filename': BASE_DIR / 'logs' / 'security.log',
             'formatter': 'security',
         },
+        'requests_file': {
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'logs' / 'requests.log',
+            'formatter': 'verbose',
+        },
     },
     'loggers': {
         'django.security': {
@@ -356,6 +369,11 @@ LOGGING = {
         'eventos.security': {
             'handlers': ['console', 'security_file'] if ENVIRONMENT == 'production' else ['console'],
             'level': 'INFO',
+            'propagate': False,
+        },
+        'eventos.requests': {
+            'handlers': ['console', 'requests_file'] if ENVIRONMENT == 'production' else ['console'],
+            'level': os.environ.get('REQUEST_LOG_LEVEL', 'INFO'),
             'propagate': False,
         },
     },

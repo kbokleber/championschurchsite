@@ -79,74 +79,63 @@ else
     }
 fi
 
-# Criar configuração padrão do site se não existir
-echo "Verificando/criando configuração do site..."
-python manage.py shell << 'PYEOF'
-import os
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'champions_backend.settings')
-import django
-django.setup()
-
-from eventos.models import ConfiguracaoSite
-try:
-    config, created = ConfiguracaoSite.objects.get_or_create(pk=1)
-    if created:
-        print("✓ Configuração do site criada com sucesso!")
-    else:
-        print("✓ Configuração do site já existe.")
-except Exception as e:
-    print(f"✗ ERRO ao criar configuração: {e}")
-    import traceback
-    traceback.print_exc()
-PYEOF
-
 # Coletar arquivos estáticos
 echo "Coletando arquivos estáticos..."
-python manage.py collectstatic --noinput || true
+if [ "${SKIP_COLLECTSTATIC:-false}" = "true" ]; then
+  echo "SKIP_COLLECTSTATIC=true: pulando collectstatic."
+else
+  python manage.py collectstatic --noinput || true
+fi
 
-# Criar usuário admin se não existir
-echo "Verificando/criando usuário admin..."
-python manage.py create_admin || {
-    echo "AVISO: Não foi possível criar usuário admin (pode já existir)"
-}
+# Tarefas pesadas ficam opcionais para reduzir risco no boot.
+# Execute em pós-deploy: python manage.py bootstrap_prod
+if [ "${RUN_BOOTSTRAP_TASKS:-false}" = "true" ]; then
+  echo "RUN_BOOTSTRAP_TASKS=true: executando bootstrap pós-deploy..."
+  python manage.py bootstrap_prod || {
+    echo "✗ ERRO: bootstrap_prod falhou."
+    exit 1
+  }
+else
+  echo "RUN_BOOTSTRAP_TASKS=false: bootstrap pesado pulado no startup."
+  echo "Para executar manualmente no Coolify shell: python manage.py bootstrap_prod"
+fi
 
-# Verificar se o usuário admin existe
-echo "Verificando usuário admin..."
-python manage.py shell << 'PYEOF'
-import os
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'champions_backend.settings')
-import django
-django.setup()
+# Ajuste dinâmico de Gunicorn por CPU/memória via env vars.
+CPU_COUNT="$(python -c 'import os; print(os.cpu_count() or 2)')"
+DEFAULT_WEB_CONCURRENCY=$((CPU_COUNT * 2 + 1))
+MAX_WEB_CONCURRENCY="${MAX_WEB_CONCURRENCY:-8}"
+if [ "$DEFAULT_WEB_CONCURRENCY" -gt "$MAX_WEB_CONCURRENCY" ]; then
+  DEFAULT_WEB_CONCURRENCY="$MAX_WEB_CONCURRENCY"
+fi
 
-from django.contrib.auth import get_user_model
-User = get_user_model()
-try:
-    if User.objects.filter(username='admin').exists():
-        print("✓ Usuário admin existe")
-    else:
-        print("✗ Usuário admin NÃO existe!")
-except Exception as e:
-    print(f"✗ ERRO ao verificar admin: {e}")
-PYEOF
+WEB_CONCURRENCY="${WEB_CONCURRENCY:-$DEFAULT_WEB_CONCURRENCY}"
+GUNICORN_THREADS="${GUNICORN_THREADS:-2}"
+GUNICORN_TIMEOUT="${GUNICORN_TIMEOUT:-90}"
+GUNICORN_GRACEFUL_TIMEOUT="${GUNICORN_GRACEFUL_TIMEOUT:-30}"
+GUNICORN_KEEPALIVE="${GUNICORN_KEEPALIVE:-5}"
+GUNICORN_MAX_REQUESTS="${GUNICORN_MAX_REQUESTS:-1000}"
+GUNICORN_MAX_REQUESTS_JITTER="${GUNICORN_MAX_REQUESTS_JITTER:-50}"
 
-# Sincronizar permissões de menu automaticamente
-echo "Sincronizando permissões de menu..."
-python manage.py shell << 'PYEOF'
-import os
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'champions_backend.settings')
-import django
-django.setup()
+echo "Iniciando Gunicorn com config:"
+echo "  WEB_CONCURRENCY=$WEB_CONCURRENCY"
+echo "  GUNICORN_THREADS=$GUNICORN_THREADS"
+echo "  GUNICORN_TIMEOUT=$GUNICORN_TIMEOUT"
+echo "  GUNICORN_GRACEFUL_TIMEOUT=$GUNICORN_GRACEFUL_TIMEOUT"
+echo "  GUNICORN_KEEPALIVE=$GUNICORN_KEEPALIVE"
+echo "  GUNICORN_MAX_REQUESTS=$GUNICORN_MAX_REQUESTS"
+echo "  GUNICORN_MAX_REQUESTS_JITTER=$GUNICORN_MAX_REQUESTS_JITTER"
 
-from eventos.models import PermissaoMenu
-try:
-    criados, atualizados = PermissaoMenu.garantir_sincronizacao()
-    print(f"✓ Permissões sincronizadas! Criadas: {criados}, Atualizadas: {atualizados}")
-except Exception as e:
-    print(f"✗ ERRO ao sincronizar permissões: {e}")
-    import traceback
-    traceback.print_exc()
-PYEOF
-
-# Iniciar servidor Gunicorn
-echo "Iniciando servidor Gunicorn..."
-exec gunicorn --bind 0.0.0.0:8000 --workers 4 --threads 2 --timeout 60 --access-logfile - --error-logfile - champions_backend.wsgi:application
+exec gunicorn \
+  --bind 0.0.0.0:8000 \
+  --workers "$WEB_CONCURRENCY" \
+  --threads "$GUNICORN_THREADS" \
+  --timeout "$GUNICORN_TIMEOUT" \
+  --graceful-timeout "$GUNICORN_GRACEFUL_TIMEOUT" \
+  --keep-alive "$GUNICORN_KEEPALIVE" \
+  --max-requests "$GUNICORN_MAX_REQUESTS" \
+  --max-requests-jitter "$GUNICORN_MAX_REQUESTS_JITTER" \
+  --worker-tmp-dir /dev/shm \
+  --access-logfile - \
+  --error-logfile - \
+  --access-logformat '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" request_id=%({x-request-id}i)s rt=%(D)sus' \
+  champions_backend.wsgi:application

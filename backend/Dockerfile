@@ -53,6 +53,8 @@ RUN mkdir -p /app/staticfiles /app/media /app/logs && \
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import socket; s = socket.socket(); s.settimeout(5); result = s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"
+    CMD python -c "from urllib.request import urlopen; import sys; \
+resp = urlopen('http://localhost:8000/api/health/ready/', timeout=5); \
+sys.exit(0 if resp.status == 200 else 1)"
 
 ENTRYPOINT ["/app/entrypoint.sh"]

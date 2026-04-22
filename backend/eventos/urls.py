@@ -17,6 +17,7 @@ from .views import (
     # Mercado Pago
     criar_pagamento_pix, pagar_cartao, mercadopago_webhook, verificar_pagamento, mercadopago_config_publica
 )
+from .health_views import health_live, health_ready
 
 # Router que inclui Mercado Pago e outras rotas no Api Root
 class ChampionsRouter(DefaultRouter):
@@ -46,6 +47,10 @@ router.register(r'grupos', GrupoViewSet, basename='grupo')
 router.register(r'usuarios', UsuarioAdminViewSet, basename='usuario')
 
 urlpatterns = [
+    # Healthchecks (Coolify liveness/readiness)
+    path('health/live/', health_live, name='health_live'),
+    path('health/ready/', health_ready, name='health_ready'),
+
     # Autenticação JWT
     path('auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),

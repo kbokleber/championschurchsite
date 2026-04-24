@@ -16,8 +16,8 @@ RUN npm ci
 # Copiar código fonte
 COPY . .
 
-# Versão no painel admin (__APP_VERSION__). Em CI/Docker normalmente não há .git no contexto.
-# Coolify: Build Argument / Variável VITE_APP_VERSION=1.15 (ou APP_VERSION)
+# Versão no painel admin (__APP_VERSION__). Sem .git, usa-se package.json (ver vite.config.js).
+# Coolify (opcional): VITE_APP_VERSION / APP_VERSION para forçar uma versão no build
 ARG VITE_APP_VERSION=
 ENV VITE_APP_VERSION=${VITE_APP_VERSION}
 

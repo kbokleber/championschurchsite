@@ -19,11 +19,11 @@ function versionFromEnv(raw) {
 }
 
 /**
- * Ordem:
- * (1) VITE_APP_VERSION / APP_VERSION (Coolify build arg ou CI)
- * (2) ficheiro frontend/VERSION (uma linha, versionado — funciona em Docker sem .git)
- * (3) Git na raiz do repo (dev local)
- * (4) package.json
+ * Ordem (fonte da versão no admin):
+ * (1) VITE_APP_VERSION / APP_VERSION — build/CI/Coolify (sobrescreve tudo)
+ * (2) package.json do frontend (fonte normal: npm version / editar "version")
+ * (3) ficheiro frontend/VERSION (opcional, legado)
+ * (4) Git (tag + commits na raiz do repo) em dev
  * (5) 1.0
  */
 function readVersionFile() {
@@ -36,9 +36,21 @@ function readVersionFile() {
   }
 }
 
+function readVersionFromPackageJson() {
+  try {
+    const pkg = JSON.parse(readFileSync(path.join(__dirname, 'package.json'), 'utf-8'))
+    return versionFromEnv(pkg.version)
+  } catch {
+    return null
+  }
+}
+
 function getAppVersion() {
   const fromEnv = versionFromEnv(process.env.VITE_APP_VERSION || process.env.APP_VERSION)
   if (fromEnv) return fromEnv
+
+  const fromPkg = readVersionFromPackageJson()
+  if (fromPkg) return fromPkg
 
   const fromFile = readVersionFile()
   if (fromFile) return fromFile
@@ -54,13 +66,7 @@ function getAppVersion() {
     const minor = minorFromTag + commits
     return `${major}.${minor}`
   } catch {
-    try {
-      const pkg = JSON.parse(readFileSync(path.join(__dirname, 'package.json'), 'utf-8'))
-      const [major, minor] = (pkg.version || '1.0.0').split('.')
-      return `${major}.${minor || '0'}`
-    } catch {
-      return '1.0'
-    }
+    return readVersionFromPackageJson() || '1.0'
   }
 }
 

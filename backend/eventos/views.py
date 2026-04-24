@@ -28,6 +28,10 @@ from .models import (
     FormularioInscricao, CampoFormulario, RespostaCampoInscricao,
 )
 from .utils_imagem import substituir_fundo_logo_por_navy
+from .cobranca_inscricao import (
+    ajustar_cobrancas_ao_cancelar_inscricao,
+    recalcular_cobranca_apos_mudanca_itens,
+)
 from .serializers import (
     MembroSerializer, MembroResumoSerializer,
     EventoSerializer, EventoListaSerializer,
@@ -2007,13 +2011,20 @@ class InscricaoViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'])
     def cancelar(self, request, pk=None):
-        """Cancela uma inscrição."""
+        """
+        Cancela a inscrição. Na cobrança, se for a única inscrição, grava status *cancelado*
+        (e valor zerado) mantendo o registo; com mais de um, remove só o item e recalcula.
+        """
         inscricao = self.get_object()
         inscricao.status = 'cancelada'
+        if inscricao.status_pagamento == 'pendente':
+            inscricao.status_pagamento = 'nao_aplicavel'
         inscricao.save()
+        ajustar_cobrancas_ao_cancelar_inscricao(inscricao)
+        inscricao.refresh_from_db()
         serializer = InscricaoSerializer(inscricao)
         return Response(serializer.data)
-    
+
     def _disparar_webhook_pagamento(self, request, inscricao):
         """Helper para disparar webhook após confirmação de pagamento."""
         membro = inscricao.membro
@@ -2920,26 +2931,9 @@ class CobrancaViewSet(viewsets.ModelViewSet):
     
     def _atualizar_status_cobranca_apos_itens(self, cobranca):
         """Recalcula valor e status da cobrança após alteração em um item."""
-        itens = list(cobranca.itens.select_related('inscricao').all())
-        statuses = [item.inscricao.status_pagamento for item in itens]
-        # Valor = soma apenas itens não cancelados
-        novo_valor = sum(float(item.valor) for item in itens if item.inscricao.status_pagamento != 'cancelado')
-        cobranca.valor = novo_valor
-        if all(s == 'cancelado' for s in statuses):
-            cobranca.status = 'cancelado'
-            cobranca.save()
-            return
-        if all(s in ('pago', 'isento') for s in statuses):
-            cobranca.status = 'isento' if all(s == 'isento' for s in statuses) else 'pago'
-            cobranca.data_pagamento = timezone.now()
-            cobranca.save()
-            _disparar_webhook_cobranca_confirmada(
-                cobranca,
-                tipo='isento' if cobranca.status == 'isento' else 'confirmado_pagamento_manual',
-                request=self.request
-            )
-            return
-        cobranca.save()
+        recalcular_cobranca_apos_mudanca_itens(
+            cobranca, request=self.request, disparar_webhook=True
+        )
     
     @action(detail=True, methods=['post'], url_path='itens/(?P<item_id>[^/.]+)/confirmar')
     def confirmar_item(self, request, pk=None, item_id=None):

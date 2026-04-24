@@ -7,6 +7,9 @@ WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
+# Sem .git neste stage: vite usa VITE_APP_VERSION / APP_VERSION ou package.json
+ARG VITE_APP_VERSION=
+ENV VITE_APP_VERSION=${VITE_APP_VERSION}
 RUN npm run build
 
 # Stage 2: Build dependências Python

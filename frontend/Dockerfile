@@ -16,6 +16,11 @@ RUN npm ci
 # Copiar código fonte
 COPY . .
 
+# Versão no painel admin (__APP_VERSION__). Em CI/Docker normalmente não há .git no contexto.
+# Coolify: Build Argument / Variável VITE_APP_VERSION=1.15 (ou APP_VERSION)
+ARG VITE_APP_VERSION=
+ENV VITE_APP_VERSION=${VITE_APP_VERSION}
+
 # Build da aplicação
 RUN npm run build
 

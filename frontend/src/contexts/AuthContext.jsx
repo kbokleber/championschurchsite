@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import api from '../services/api'
+import api, { formatApiError } from '../services/api'
 
 const AuthContext = createContext(null)
 
@@ -59,9 +59,14 @@ export function AuthProvider({ children }) {
       return { success: true }
     } catch (error) {
       console.error('Erro no login:', error)
+      const status = error.response?.status
+      const isAuthFailed = status === 401 || status === 400
+      const defaultMsg = isAuthFailed
+        ? 'Usuário e/ou senha incorreto(s)'
+        : 'Não foi possível entrar. Tente novamente.'
       return {
         success: false,
-        error: error.response?.data?.detail || 'Credenciais inválidas'
+        error: formatApiError(error, defaultMsg),
       }
     }
   }

@@ -20,6 +20,49 @@ const api = axios.create({
   },
 })
 
+/**
+ * Extrai mensagem legível de erros DRF/Axios (detail, campos, 500 genérico).
+ */
+export function formatApiError(error, fallback = 'Ocorreu um erro. Tente novamente.') {
+  const status = error.response?.status
+  const data = error.response?.data
+
+  if (data == null) {
+    if (error.code === 'ECONNABORTED') return 'Tempo esgotado. Verifique se o backend está rodando.'
+    if (error.message === 'Network Error') return 'Não foi possível conectar ao servidor. Verifique o backend e a URL da API.'
+    return fallback
+  }
+
+  if (typeof data === 'string') {
+    const s = data.replace(/<[^>]+>/g, '').trim()
+    if (s.length > 0 && s.length < 400) return s
+    if (status >= 500) return 'Erro no servidor. Veja o terminal do Django para o traceback.'
+    return fallback
+  }
+
+  if (data.detail != null) {
+    const d = data.detail
+    if (typeof d === 'string') return d
+    if (Array.isArray(d) && d.length) {
+      const first = d[0]
+      if (typeof first === 'string') return first
+      if (first && typeof first === 'object' && first.string) return String(first.string)
+    }
+  }
+
+  const fieldKeys = Object.keys(data).filter((k) => k !== 'detail')
+  for (const k of fieldKeys) {
+    const v = data[k]
+    if (Array.isArray(v) && v.length && typeof v[0] === 'string') return `${k}: ${v[0]}`
+  }
+
+  if (status >= 500) {
+    return 'Erro no servidor (500). Confira o log do Django e se as migrations foram aplicadas (ex.: token_blacklist).'
+  }
+
+  return fallback
+}
+
 // Interceptor para adicionar token de autenticação (apenas para rotas do admin)
 // Rotas /participante/ usam o token do participante passado no header de cada requisição
 api.interceptors.request.use(

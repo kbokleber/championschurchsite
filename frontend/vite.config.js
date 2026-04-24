@@ -7,8 +7,25 @@ import { execSync } from 'child_process'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-/** Versão a partir do Git: tag (ex: v1.0) + commits desde a tag → 1.0, 1.1, 1.2... */
+/** "1.2.3", "v1.15" ou "1.15" → "1.2" / "1.15" / "1.15" */
+function versionFromEnv(raw) {
+  if (raw == null) return null
+  const s = String(raw).trim().replace(/^v/i, '')
+  if (!s) return null
+  const parts = s.split('.').filter((p) => p !== '')
+  if (parts.length >= 2) return `${parts[0]}.${parts[1]}`
+  if (parts.length === 1) return `${parts[0]}.0`
+  return null
+}
+
+/**
+ * Ordem: (1) VITE_APP_VERSION ou APP_VERSION no build — obrigatório em Docker sem .git;
+ * (2) Git: última tag + commits desde a tag; (3) package.json; (4) 1.0
+ */
 function getAppVersion() {
+  const fromEnv = versionFromEnv(process.env.VITE_APP_VERSION || process.env.APP_VERSION)
+  if (fromEnv) return fromEnv
+
   const gitCwd = path.join(__dirname, '..')
   try {
     const tag = execSync('git describe --tags --abbrev=0', { encoding: 'utf-8', cwd: gitCwd }).trim()

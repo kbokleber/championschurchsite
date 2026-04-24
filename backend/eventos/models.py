@@ -553,10 +553,18 @@ class Inscricao(models.Model):
         self.qrcode.save(filename, ContentFile(buffer.read()), save=True)
     
     def delete(self, *args, **kwargs):
-        """Remove o arquivo do QR Code do storage ao excluir a inscrição."""
+        """Remove o arquivo do QR Code; após CASCADE remove itens, recalcula ou exclui cobranças (incl. pagas)."""
+        from .cobranca_inscricao import pos_delete_inscricao_cascade_cobrancas
+
+        cids = set(
+            CobrancaItem.objects.filter(inscricao=self).values_list(
+                'cobranca_id', flat=True
+            )
+        )
         if self.qrcode:
             self.qrcode.delete(save=False)
         super().delete(*args, **kwargs)
+        pos_delete_inscricao_cascade_cobrancas(cids)
 
 
 class Cobranca(models.Model):

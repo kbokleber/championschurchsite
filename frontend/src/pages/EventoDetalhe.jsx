@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { Calendar, MapPin, Users, Clock, ArrowLeft, Check, AlertCircle, Lock, DollarSign, QrCode, Download, Phone, Smartphone, UserPlus, X, UserCheck, ExternalLink } from 'lucide-react'
+import { Calendar, MapPin, Users, Clock, ArrowLeft, Check, AlertCircle, Lock, DollarSign, QrCode, Download, Phone, Smartphone, UserPlus, X, UserCheck, ExternalLink, FileText } from 'lucide-react'
 import LoadingSpinner from '../components/LoadingSpinner'
 import ConfirmModal from '../components/ConfirmModal'
 import FormularioDinamico from '../components/FormularioDinamico'
@@ -1181,24 +1181,32 @@ function EventoDetalhe() {
                             </div>
                           )}
 
-                          {/* Só o link "Editar questionário" (discreto), se o evento tiver
-                              questionário e as respostas obrigatórias já estiverem preenchidas. */}
+                          {/* Antes de confirmar a inscrição: acesso claro ao questionário (pós-inscrição só admins). */}
                           {identificacaoConcluida
                             && !somenteAdicionandoAcompanhantes
                             && formularioDinamico
-                            && questionarioCompleto && (
-                            <div className="flex justify-end -mt-1 mb-1">
+                            && formularioDinamico.campos?.length > 0 && (
+                            <div className="space-y-2 border-t border-gray-100 pt-4">
                               <button
                                 type="button"
                                 onClick={() => {
                                   setInscricaoErro('')
+                                  setErrosForm({})
                                   setShowFormularioModal(true)
                                 }}
                                 disabled={inscricaoLoading}
-                                className="text-sm font-medium text-primary-700 hover:text-primary-900 hover:underline disabled:opacity-50"
+                                className="w-full flex items-center justify-center gap-2 rounded-lg border-2 border-primary-600 bg-white px-4 py-2.5 text-sm font-semibold text-primary-800 shadow-sm hover:bg-primary-50 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
-                                Editar questionário
+                                <FileText className="h-4 w-4 flex-shrink-0" />
+                                {questionarioCompleto
+                                  ? 'Voltar ao questionário do evento'
+                                  : 'Abrir questionário do evento'}
                               </button>
+                              <p className="text-xs text-center text-gray-500 leading-snug">
+                                {questionarioCompleto
+                                  ? 'Revise ou altere as respostas a qualquer momento antes de confirmar a inscrição. Depois de enviada, você não poderá ver essas respostas aqui.'
+                                  : 'É obrigatório responder o questionário para concluir a inscrição.'}
+                              </p>
                             </div>
                           )}
 
@@ -1294,6 +1302,22 @@ function EventoDetalhe() {
                 <span className="font-bold text-base sm:text-lg">{totalPessoasInscricao}</span> pessoa(s) {somenteAdicionandoAcompanhantes ? 'a adicionar' : 'inscrita(s)'}
               </p>
             </div>
+
+            {temQuestionarioInscricao && !somenteAdicionandoAcompanhantes && (
+              <div className="pt-2 text-center border-t border-gray-200 mt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowConfirmModal(false)
+                    setShowFormularioModal(true)
+                  }}
+                  disabled={inscricaoLoading}
+                  className="text-sm text-primary-700 font-medium hover:underline disabled:opacity-50"
+                >
+                  Voltar e ajustar o questionário
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </ConfirmModal>
@@ -1309,7 +1333,7 @@ function EventoDetalhe() {
           <button
             type="button"
             className="absolute inset-0 bg-black/50 backdrop-blur-[1px]"
-            aria-label="Fechar"
+            aria-label="Voltar à inscrição"
             onClick={() => !inscricaoLoading && setShowFormularioModal(false)}
           />
           <div
@@ -1357,9 +1381,10 @@ function EventoDetalhe() {
                 type="button"
                 disabled={inscricaoLoading}
                 onClick={() => setShowFormularioModal(false)}
-                className="w-full sm:w-auto order-2 sm:order-1 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-800 hover:bg-gray-50"
+                className="w-full sm:w-auto order-2 sm:order-1 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-800 hover:bg-gray-50 inline-flex items-center justify-center gap-2"
               >
-                Fechar
+                <ArrowLeft className="h-4 w-4" />
+                Voltar à inscrição
               </button>
               <button
                 type="button"

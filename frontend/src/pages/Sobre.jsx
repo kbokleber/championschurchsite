@@ -1,4 +1,4 @@
-import { Heart, Target, Eye, Anchor, Users, BookOpen, Music, MapPin } from 'lucide-react'
+import { Heart, HeartHandshake, Eye, Users, BookOpen, Music, MapPin } from 'lucide-react'
 import { useConfiguracao } from '../contexts/ConfiguracaoContext'
 import { useMemo } from 'react'
 
@@ -172,7 +172,7 @@ function Sobre() {
             <div className="bg-white rounded-xl shadow-lg p-8">
               <div className="flex items-center mb-6">
                 <div className="w-14 h-14 bg-primary-100 rounded-full flex items-center justify-center mr-4">
-                  <Target className="h-7 w-7 text-primary-600" />
+                  <HeartHandshake className="h-7 w-7 text-primary-600" />
                 </div>
                 <h3 className="text-2xl font-bold text-church-navy">Missão</h3>
               </div>
@@ -196,7 +196,7 @@ function Sobre() {
             <div className="bg-white rounded-xl shadow-lg p-8 md:col-span-2 lg:col-span-1">
               <div className="flex items-center mb-6">
                 <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mr-4">
-                  <Anchor className="h-7 w-7 text-emerald-700" />
+                  <BookOpen className="h-7 w-7 text-emerald-700" />
                 </div>
                 <h3 className="text-2xl font-bold text-church-navy">Valores</h3>
               </div>

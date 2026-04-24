@@ -178,7 +178,8 @@ function MeusIngressos() {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && isLoggedIn) {
-        atualizarIngressos()
+        // Atualização silenciosa ao voltar para a aba: não deve derrubar a tela.
+        atualizarIngressos({ silent: true })
       }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)

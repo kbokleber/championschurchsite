@@ -1707,20 +1707,16 @@ def meus_ingressos(request):
             status=status.HTTP_404_NOT_FOUND
         )
     
-    # Verificar se tem inscrições
-    tem_inscricoes = Inscricao.objects.filter(membro=membro, status='confirmada').exists()
-    
-    if not tem_inscricoes:
-        return Response(
-            {'error': 'Nenhuma inscrição encontrada', 'encontrado': False},
-            status=status.HTTP_404_NOT_FOUND
-        )
-    
     return Response({
         'encontrado': True,
         'nome': membro.nome,
         'telefone_parcial': f"****{membro.telefone[-4:]}",
-        'message': 'Cadastro encontrado! Faça login para ver seus ingressos.'
+        'message': 'Cadastro encontrado! Faça login para acessar Meus Ingressos.',
+        # Permite acesso mesmo sem inscrições; frontend exibirá estado vazio.
+        'tem_inscricoes': Inscricao.objects.filter(
+            membro=membro,
+            status__in=['confirmada', 'pendente']
+        ).exists(),
     })
 
 

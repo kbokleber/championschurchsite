@@ -197,6 +197,10 @@ function MeusIngressos() {
 
   const handleTelefoneChange = (e) => {
     setTelefone(formatarTelefone(e.target.value))
+    if (esqueciSenhaMsg) {
+      setEsqueciSenhaMsg('')
+      setEsqueciSenhaMsgTipo('neutral')
+    }
   }
 
   const handleLogin = async (e) => {
@@ -205,6 +209,9 @@ function MeusIngressos() {
 
     setLoginLoading(true)
     setErro('')
+    // Evita confusão visual: ao tentar login, limpamos feedback antigo de "esqueci senha".
+    setEsqueciSenhaMsg('')
+    setEsqueciSenhaMsgTipo('neutral')
 
     try {
       const result = await login(telefone, senha)
@@ -425,7 +432,13 @@ function MeusIngressos() {
                     type="password"
                     id="senha"
                     value={senha}
-                    onChange={(e) => setSenha(e.target.value)}
+                    onChange={(e) => {
+                      setSenha(e.target.value)
+                      if (esqueciSenhaMsg) {
+                        setEsqueciSenhaMsg('')
+                        setEsqueciSenhaMsgTipo('neutral')
+                      }
+                    }}
                     placeholder="Digite sua senha"
                     required
                     className="input-field"

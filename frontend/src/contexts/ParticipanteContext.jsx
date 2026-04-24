@@ -202,9 +202,12 @@ export function ParticipanteProvider({ children }) {
       }
       return { success: false, error: response.data.error }
     } catch (err) {
-      const msg = err.response?.data?.error || err.response?.status === 401
-        ? 'Telefone ou senha incorretos.'
-        : 'Erro ao fazer login. Tente novamente.'
+      const apiError = err.response?.data?.error
+      const msg = apiError
+        ? apiError
+        : err.response?.status === 401
+          ? 'Telefone ou senha incorretos.'
+          : 'Erro ao fazer login. Tente novamente.'
       return { success: false, error: msg }
     }
   }

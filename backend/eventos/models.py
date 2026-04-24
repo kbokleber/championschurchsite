@@ -228,6 +228,15 @@ class Evento(models.Model):
         verbose_name='Evento em Destaque',
         help_text='Marque para exibir na página inicial'
     )
+    formulario_inscricao = models.ForeignKey(
+        'FormularioInscricao',
+        on_delete=models.SET_NULL,
+        related_name='eventos',
+        verbose_name='Formulário de Inscrição',
+        null=True,
+        blank=True,
+        help_text='Formulário opcional exibido durante a inscrição. Se vazio, o evento não coleta respostas extras.'
+    )
     criado_em = models.DateTimeField(auto_now_add=True, verbose_name='Criado em')
     atualizado_em = models.DateTimeField(auto_now=True, verbose_name='Atualizado em')
     
@@ -1022,6 +1031,209 @@ class ConfiguracaoSite(models.Model):
         return self.mp_public_key_sandbox
 
 
+class FormularioInscricao(models.Model):
+    """Template de formulário reaproveitável associado opcionalmente a eventos.
+
+    Pode ser editado mesmo com inscrições existentes: novas perguntas passam a
+    valer para quem se inscreve depois; inscrições antigas mantêm as respostas
+    que já enviaram (até o admin remover um campo, o que apaga as respostas
+    vinculadas a esse campo).
+    """
+
+    nome = models.CharField(
+        max_length=150,
+        verbose_name='Nome do Formulário',
+        help_text='Nome interno para reutilização (ex: Retiro Adultos 2026)'
+    )
+    descricao = models.TextField(
+        verbose_name='Descrição',
+        blank=True,
+        help_text='Descrição curta exibida para o admin ao selecionar o formulário'
+    )
+    ativo = models.BooleanField(
+        default=True,
+        verbose_name='Ativo',
+        help_text='Apenas formulários ativos aparecem na seleção de eventos'
+    )
+    criado_em = models.DateTimeField(auto_now_add=True, verbose_name='Criado em')
+    atualizado_em = models.DateTimeField(auto_now=True, verbose_name='Atualizado em')
+
+    class Meta:
+        verbose_name = 'Formulário de Inscrição'
+        verbose_name_plural = 'Formulários de Inscrição'
+        ordering = ['-atualizado_em', 'nome']
+
+    def __str__(self):
+        return self.nome
+
+    @property
+    def tem_inscricoes(self):
+        """Retorna True se qualquer evento vinculado já tiver inscrições."""
+        return Inscricao.objects.filter(
+            evento__formulario_inscricao=self
+        ).exists()
+
+    @property
+    def total_inscricoes(self):
+        """Quantidade total de inscrições existentes em eventos que usam este formulário."""
+        return Inscricao.objects.filter(
+            evento__formulario_inscricao=self
+        ).count()
+
+    def duplicar(self, novo_nome=None):
+        """Cria uma cópia deste formulário (sem inscrições) com os mesmos campos."""
+        original_campos = list(self.campos.all().order_by('ordem', 'id'))
+        novo = FormularioInscricao.objects.create(
+            nome=novo_nome or f'{self.nome} (cópia)',
+            descricao=self.descricao,
+            ativo=self.ativo,
+        )
+        for campo in original_campos:
+            CampoFormulario.objects.create(
+                formulario=novo,
+                ordem=campo.ordem,
+                label=campo.label,
+                tipo=campo.tipo,
+                obrigatorio=campo.obrigatorio,
+                placeholder=campo.placeholder,
+                help_text=campo.help_text,
+                opcoes=campo.opcoes,
+                tamanho_max=campo.tamanho_max,
+            )
+        return novo
+
+
+class CampoFormulario(models.Model):
+    """Campo individual de um formulário de inscrição reaproveitável."""
+
+    TIPO_CHOICES = [
+        ('texto_curto', 'Texto curto'),
+        ('texto_longo', 'Texto longo'),
+        ('numero', 'Número'),
+        ('data', 'Data'),
+        ('boolean', 'Sim/Não'),
+        ('select_unico', 'Seleção única'),
+        ('select_multiplo', 'Seleção múltipla'),
+        ('email', 'E-mail'),
+        ('telefone', 'Telefone'),
+        ('cpf', 'CPF'),
+        ('arquivo', 'Arquivo'),
+    ]
+
+    TIPOS_COM_OPCOES = {'select_unico', 'select_multiplo'}
+
+    formulario = models.ForeignKey(
+        FormularioInscricao,
+        on_delete=models.CASCADE,
+        related_name='campos',
+        verbose_name='Formulário'
+    )
+    ordem = models.PositiveIntegerField(
+        default=0,
+        verbose_name='Ordem',
+        help_text='Ordem de exibição (menor = primeiro)'
+    )
+    label = models.CharField(
+        max_length=200,
+        verbose_name='Rótulo',
+        help_text='Texto exibido para o participante'
+    )
+    tipo = models.CharField(
+        max_length=20,
+        choices=TIPO_CHOICES,
+        default='texto_curto',
+        verbose_name='Tipo'
+    )
+    obrigatorio = models.BooleanField(default=False, verbose_name='Obrigatório')
+    placeholder = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name='Placeholder',
+        help_text='Texto de apoio dentro do campo (opcional)'
+    )
+    help_text = models.CharField(
+        max_length=300,
+        blank=True,
+        verbose_name='Texto de ajuda',
+        help_text='Texto exibido abaixo do campo'
+    )
+    opcoes = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name='Opções',
+        help_text='Lista de opções para campos de seleção (apenas select_unico/select_multiplo)'
+    )
+    tamanho_max = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name='Tamanho máximo',
+        help_text='Tamanho máximo em caracteres (texto) ou em MB (arquivo). Opcional.'
+    )
+
+    class Meta:
+        verbose_name = 'Campo de Formulário'
+        verbose_name_plural = 'Campos de Formulário'
+        ordering = ['ordem', 'id']
+
+    def __str__(self):
+        return f'{self.formulario.nome} · {self.label}'
+
+    @property
+    def aceita_opcoes(self):
+        return self.tipo in self.TIPOS_COM_OPCOES
+
+
+def _upload_path_resposta(instance, filename):
+    """Salva anexos de respostas com nome anônimo (UUID) para evitar enumeração."""
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'bin'
+    return f'respostas_inscricao/{uuid.uuid4().hex}.{ext}'
+
+
+class RespostaCampoInscricao(models.Model):
+    """Resposta de um participante para um campo específico do formulário."""
+
+    inscricao = models.ForeignKey(
+        'Inscricao',
+        on_delete=models.CASCADE,
+        related_name='respostas',
+        verbose_name='Inscrição'
+    )
+    campo = models.ForeignKey(
+        CampoFormulario,
+        on_delete=models.PROTECT,
+        related_name='respostas',
+        verbose_name='Campo'
+    )
+    valor = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name='Valor',
+        help_text='Valor escalar (texto, número, boolean, lista de opções).'
+    )
+    arquivo = models.FileField(
+        upload_to=_upload_path_resposta,
+        verbose_name='Arquivo',
+        null=True,
+        blank=True,
+        help_text='Usado apenas quando o campo é do tipo arquivo'
+    )
+    criado_em = models.DateTimeField(auto_now_add=True, verbose_name='Criado em')
+
+    class Meta:
+        verbose_name = 'Resposta de Inscrição'
+        verbose_name_plural = 'Respostas de Inscrição'
+        unique_together = [('inscricao', 'campo')]
+        ordering = ['campo__ordem', 'campo_id']
+
+    def __str__(self):
+        return f'{self.inscricao_id} · {self.campo.label}'
+
+    def delete(self, *args, **kwargs):
+        if self.arquivo:
+            self.arquivo.delete(save=False)
+        super().delete(*args, **kwargs)
+
+
 class PermissaoMenu(models.Model):
     """Modelo para definir permissões de acesso a menus do sistema administrativo."""
     
@@ -1036,9 +1248,10 @@ class PermissaoMenu(models.Model):
         {'codigo': 'checkin', 'nome': 'Check-in', 'ordem': 6, 'descricao': 'Realizar check-in de participantes'},
         {'codigo': 'contatos', 'nome': 'Contatos', 'ordem': 7, 'descricao': 'Visualizar mensagens de contato'},
         {'codigo': 'categorias', 'nome': 'Categorias', 'ordem': 8, 'descricao': 'Gerenciar categorias de participantes'},
-        {'codigo': 'configuracoes', 'nome': 'Configurações', 'ordem': 9, 'descricao': 'Configurações gerais do sistema'},
-        {'codigo': 'usuarios', 'nome': 'Usuários', 'ordem': 10, 'descricao': 'Gerenciar usuários administrativos'},
-        {'codigo': 'grupos', 'nome': 'Grupos', 'ordem': 11, 'descricao': 'Gerenciar grupos e permissões'},
+        {'codigo': 'formularios_inscricao', 'nome': 'Formulários de Inscrição', 'ordem': 9, 'descricao': 'Gerenciar formulários reaproveitáveis e ver respostas'},
+        {'codigo': 'configuracoes', 'nome': 'Configurações', 'ordem': 10, 'descricao': 'Configurações gerais do sistema'},
+        {'codigo': 'usuarios', 'nome': 'Usuários', 'ordem': 11, 'descricao': 'Gerenciar usuários administrativos'},
+        {'codigo': 'grupos', 'nome': 'Grupos', 'ordem': 12, 'descricao': 'Gerenciar grupos e permissões'},
     ]
     
     codigo = models.CharField(

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Search, FileText, Check, X, Calendar, Trash2, Tag, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Search, FileText, Check, X, Calendar, Trash2, Tag, ChevronLeft, ChevronRight, ClipboardList, Download, FileSpreadsheet } from 'lucide-react'
 import api from '../../services/api'
 import { formatDateTimeBR } from '../../services/utils'
 import LoadingSpinner from '../../components/LoadingSpinner'
@@ -15,6 +15,7 @@ function AdminInscricoes() {
   const [filtroPagamento, setFiltroPagamento] = useState('todos')
   const [filtroEvento, setFiltroEvento] = useState('todos')
   const [page, setPage] = useState(1)
+  const [exportando, setExportando] = useState(false)
   
   // Estado do modal de confirmação
   const [modalConfig, setModalConfig] = useState({
@@ -27,6 +28,15 @@ function AdminInscricoes() {
     action: null, // 'cancelar' | 'deletar'
   })
   const [actionLoading, setActionLoading] = useState(false)
+
+  // Modal "Ver respostas"
+  const [respostasModal, setRespostasModal] = useState({
+    isOpen: false,
+    loading: false,
+    error: '',
+    inscricao: null,
+    respostas: [],
+  })
 
   useEffect(() => {
     fetchInscricoes()
@@ -147,6 +157,88 @@ function AdminInscricoes() {
     }
   }
 
+  const abrirRespostas = async (inscricao) => {
+    setRespostasModal({
+      isOpen: true,
+      loading: true,
+      error: '',
+      inscricao,
+      respostas: [],
+    })
+    try {
+      const response = await api.get(`/admin/inscricoes/${inscricao.id}/respostas/`)
+      const data = response.data || {}
+      const lista = Array.isArray(data)
+        ? data
+        : (Array.isArray(data.respostas) ? data.respostas : (data.results || []))
+      setRespostasModal(prev => ({
+        ...prev,
+        loading: false,
+        respostas: lista,
+      }))
+    } catch (err) {
+      console.error('Erro ao carregar respostas:', err)
+      const msg = err?.response?.status === 403
+        ? 'Você não tem permissão para ver respostas.'
+        : err?.response?.data?.detail || 'Erro ao carregar respostas.'
+      setRespostasModal(prev => ({
+        ...prev,
+        loading: false,
+        error: msg,
+      }))
+    }
+  }
+
+  const fecharRespostas = () => {
+    setRespostasModal({
+      isOpen: false,
+      loading: false,
+      error: '',
+      inscricao: null,
+      respostas: [],
+    })
+  }
+
+  const baixarArquivo = async (resposta) => {
+    if (!resposta.arquivo_url) return
+    try {
+      // resposta.arquivo_url = /api/admin/inscricoes/<id>/respostas/<campo_id>/arquivo/
+      // Usamos api (axios) com responseType blob para herdar auth
+      const path = resposta.arquivo_url.replace(/^\/api/, '')
+      const response = await api.get(path, { responseType: 'blob' })
+      const blob = new Blob([response.data])
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = resposta.arquivo_nome || 'arquivo'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Erro ao baixar arquivo:', err)
+      alert('Erro ao baixar arquivo.')
+    }
+  }
+
+  const formatarValorResposta = (r) => {
+    if (r.tipo === 'arquivo') return null
+    if (r.valor === null || r.valor === undefined || r.valor === '') return <span className="text-gray-400">-</span>
+    if (r.tipo === 'boolean') return r.valor ? 'Sim' : 'Não'
+    if (r.tipo === 'select_multiplo') {
+      if (Array.isArray(r.valor)) return r.valor.join(', ')
+      return String(r.valor)
+    }
+    if (r.tipo === 'data') {
+      try {
+        const d = new Date(r.valor)
+        if (!isNaN(d.getTime())) return d.toLocaleDateString('pt-BR')
+      } catch { /* noop */ }
+    }
+    if (typeof r.valor === 'object') return JSON.stringify(r.valor)
+    return String(r.valor)
+  }
+
   const getStatusBadge = (status) => {
     const statusConfig = {
       pendente: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Pendente' },
@@ -231,6 +323,57 @@ function AdminInscricoes() {
   const endItem = Math.min(page * PAGE_SIZE, totalCount)
   const inscricoesPagina = inscricoesFiltradas.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
+  const handleExportarXlsx = async () => {
+    setExportando(true)
+    try {
+      const params = {
+        q: (busca || '').trim() || undefined,
+        status: filtroStatus,
+        status_pagamento: filtroPagamento,
+      }
+      if (filtroEvento !== 'todos') {
+        const eventoId = filtroEvento.split('|')[0]
+        if (eventoId) params.evento_id = eventoId
+      }
+      const response = await api.get('/admin/inscricoes/exportar/', {
+        params,
+        responseType: 'blob',
+        timeout: 120000,
+      })
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      const dispo = response.headers['content-disposition'] || response.headers['Content-Disposition'] || ''
+      const match = /filename="?([^";]+)"?/i.exec(dispo)
+      const filename = match && match[1] ? match[1].trim() : `inscricoes_champions.xlsx`
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Erro ao exportar inscrições:', err)
+      let msg = 'Não foi possível gerar a planilha. Tente de novo.'
+      if (err.response?.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text()
+          const j = JSON.parse(text)
+          if (j?.detail) msg = j.detail
+        } catch {
+          /* manter genérico */
+        }
+      } else if (err.response?.data?.detail) {
+        msg = err.response.data.detail
+      }
+      alert(msg)
+    } finally {
+      setExportando(false)
+    }
+  }
+
   if (loading) {
     return <LoadingSpinner text="Carregando inscrições..." />
   }
@@ -245,58 +388,73 @@ function AdminInscricoes() {
 
       {/* Filters */}
       <div className="bg-white rounded-xl shadow-md p-4 mb-6">
-        <div className="flex flex-col md:flex-row gap-4">
-          {/* Search */}
-          <div className="relative flex-grow">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Buscar por membro ou evento..."
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              className="input-field pl-10"
-            />
+        <div className="flex flex-col lg:flex-row gap-4 lg:items-end">
+          <div className="flex flex-col md:flex-row flex-1 gap-4 min-w-0">
+            {/* Search */}
+            <div className="relative flex-grow min-w-0">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Buscar por membro ou evento..."
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                className="input-field pl-10"
+              />
+            </div>
+            
+            {/* Status Filter */}
+            <select
+              value={filtroStatus}
+              onChange={(e) => setFiltroStatus(e.target.value)}
+              className="input-field md:w-48"
+            >
+              <option value="todos">Todos os Status</option>
+              <option value="pendente">Pendente</option>
+              <option value="confirmada">Confirmada</option>
+              <option value="cancelada">Cancelada</option>
+              <option value="lista_espera">Lista de Espera</option>
+            </select>
+            
+            {/* Payment Filter */}
+            <select
+              value={filtroPagamento}
+              onChange={(e) => setFiltroPagamento(e.target.value)}
+              className="input-field md:w-48"
+            >
+              <option value="todos">Todos Pagamentos</option>
+              <option value="pendente">Pgto Pendente</option>
+              <option value="pago">Pago</option>
+              <option value="isento">Isento</option>
+              <option value="nao_aplicavel">Gratuito</option>
+            </select>
+            
+            {/* Event Filter (nome + data) */}
+            <select
+              value={filtroEvento}
+              onChange={(e) => setFiltroEvento(e.target.value)}
+              className="input-field md:w-64"
+              title="Filtrar por evento e data"
+            >
+              <option value="todos">Todos os Eventos</option>
+              {opcoesEventos.map(op => (
+                <option key={op.value} value={op.value}>{op.label}</option>
+              ))}
+            </select>
           </div>
-          
-          {/* Status Filter */}
-          <select
-            value={filtroStatus}
-            onChange={(e) => setFiltroStatus(e.target.value)}
-            className="input-field md:w-48"
+          <button
+            type="button"
+            onClick={handleExportarXlsx}
+            disabled={exportando || totalCount === 0}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border-2 border-church-navy bg-white text-church-navy font-medium hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed shrink-0 whitespace-nowrap"
+            title="Exporta as inscrições listadas (respeitando busca e filtros), uma linha por inscrição, com colunas do formulário"
           >
-            <option value="todos">Todos os Status</option>
-            <option value="pendente">Pendente</option>
-            <option value="confirmada">Confirmada</option>
-            <option value="cancelada">Cancelada</option>
-            <option value="lista_espera">Lista de Espera</option>
-          </select>
-          
-          {/* Payment Filter */}
-          <select
-            value={filtroPagamento}
-            onChange={(e) => setFiltroPagamento(e.target.value)}
-            className="input-field md:w-48"
-          >
-            <option value="todos">Todos Pagamentos</option>
-            <option value="pendente">Pgto Pendente</option>
-            <option value="pago">Pago</option>
-            <option value="isento">Isento</option>
-            <option value="nao_aplicavel">Gratuito</option>
-          </select>
-          
-          {/* Event Filter (nome + data) */}
-          <select
-            value={filtroEvento}
-            onChange={(e) => setFiltroEvento(e.target.value)}
-            className="input-field md:w-64"
-            title="Filtrar por evento e data"
-          >
-            <option value="todos">Todos os Eventos</option>
-            {opcoesEventos.map(op => (
-              <option key={op.value} value={op.value}>{op.label}</option>
-            ))}
-          </select>
+            <FileSpreadsheet className="h-5 w-5 shrink-0" />
+            {exportando ? 'Gerando...' : 'Exportar Excel'}
+          </button>
         </div>
+        <p className="text-xs text-gray-500 mt-2">
+          A planilha inclui os mesmos registros exibidos com os filtros atuais, mais uma coluna por pergunta do formulário.
+        </p>
       </div>
 
       {/* Lista vazia */}
@@ -371,6 +529,9 @@ function AdminInscricoes() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-1">
+                        {inscricao.evento_tem_formulario && (
+                          <button onClick={() => abrirRespostas(inscricao)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="Ver respostas do formulário"><ClipboardList className="h-5 w-5" /></button>
+                        )}
                         {inscricao.status === 'pendente' && inscricao.status_pagamento !== 'pendente' && (
                           <button onClick={() => handleConfirmar(inscricao.id)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Confirmar"><Check className="h-5 w-5" /></button>
                         )}
@@ -441,6 +602,9 @@ function AdminInscricoes() {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-1 flex-shrink-0">
+                    {inscricao.evento_tem_formulario && (
+                      <button onClick={() => abrirRespostas(inscricao)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="Ver respostas do formulário"><ClipboardList className="h-5 w-5" /></button>
+                    )}
                     {inscricao.status === 'pendente' && inscricao.status_pagamento !== 'pendente' && (
                       <button onClick={() => handleConfirmar(inscricao.id)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Confirmar"><Check className="h-5 w-5" /></button>
                     )}
@@ -539,6 +703,92 @@ function AdminInscricoes() {
           </div>
         )}
       </ConfirmModal>
+
+      {/* Modal Ver Respostas */}
+      {respostasModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={fecharRespostas}>
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <div className="min-w-0">
+                <h3 className="text-lg font-semibold text-church-navy flex items-center gap-2">
+                  <ClipboardList className="h-5 w-5" /> Respostas do formulário
+                </h3>
+                {respostasModal.inscricao && (
+                  <p className="text-sm text-gray-500 truncate">
+                    {respostasModal.inscricao.membro_nome || `Membro #${respostasModal.inscricao.membro}`}
+                    {' • '}
+                    {respostasModal.inscricao.evento_titulo || `Evento #${respostasModal.inscricao.evento}`}
+                  </p>
+                )}
+              </div>
+              <button onClick={fecharRespostas} className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg" title="Fechar">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1">
+              {respostasModal.loading && (
+                <div className="py-10 flex justify-center">
+                  <LoadingSpinner />
+                </div>
+              )}
+              {!respostasModal.loading && respostasModal.error && (
+                <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+                  {respostasModal.error}
+                </div>
+              )}
+              {!respostasModal.loading && !respostasModal.error && respostasModal.respostas.length === 0 && (
+                <p className="text-sm text-gray-500 text-center py-6">Nenhuma resposta registrada.</p>
+              )}
+              {!respostasModal.loading && !respostasModal.error && respostasModal.respostas.length > 0 && (
+                <ul className="space-y-5">
+                  {respostasModal.respostas.map((r) => {
+                    const pergunta = r.label || r.campo_label || `Campo #${r.campo_id}`
+                    return (
+                      <li
+                        key={r.id || `${r.campo_id}`}
+                        className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden"
+                      >
+                        <div className="border-l-4 border-church-navy pl-4 pr-4 py-3.5">
+                          <p className="text-xs font-medium text-slate-500 tracking-wide">Pergunta</p>
+                          <p className="mt-1 text-base font-semibold text-church-navy leading-snug">{pergunta}</p>
+                        </div>
+                        <div className="px-4 pb-4 -mt-0.5">
+                          <div className="rounded-lg bg-slate-50 border border-slate-100 px-3.5 py-3">
+                            <p className="text-xs font-medium text-slate-500 mb-1.5">Resposta</p>
+                            <div className="text-sm text-slate-900 break-words leading-relaxed">
+                              {r.tipo === 'arquivo' ? (
+                                r.arquivo_url ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => baixarArquivo(r)}
+                                    className="inline-flex items-center gap-2 text-primary-600 font-medium hover:underline"
+                                  >
+                                    <Download className="h-4 w-4 shrink-0" />
+                                    {r.arquivo_nome || 'Baixar arquivo'}
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-400">Sem arquivo anexado</span>
+                                )
+                              ) : (
+                                formatarValorResposta(r)
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+
+            <div className="px-6 py-3 border-t bg-gray-50 flex justify-end">
+              <button onClick={fecharRespostas} className="btn-secondary">Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

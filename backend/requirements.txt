@@ -16,6 +16,9 @@ whitenoise>=6.6.0
 # Processamento de imagens
 Pillow>=10.2.0
 
+# Planilhas (export admin)
+openpyxl>=3.1.0
+
 # Utilitários
 python-decouple>=3.8  # Variáveis de ambiente
 python-dotenv>=1.0.1  # Carregamento de arquivo .env

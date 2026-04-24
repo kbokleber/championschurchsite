@@ -39,7 +39,9 @@ function EventoForm() {
     status: 'agendado',
     evento_pago: false,
     valor_inscricao: '',
+    formulario_inscricao: '',
   })
+  const [formulariosDisponiveis, setFormulariosDisponiveis] = useState([])
 
   const tiposEvento = [
     { value: 'culto', label: 'Culto' },
@@ -79,6 +81,22 @@ function EventoForm() {
     }
   }, [id])
 
+  // Carregar lista de formulários disponíveis (somente ativos)
+  useEffect(() => {
+    const carregarFormularios = async () => {
+      try {
+        const response = await api.get('/formularios/')
+        setFormulariosDisponiveis(response.data.results || response.data)
+      } catch (err) {
+        // Se o usuário não tiver permissão, apenas ignora silenciosamente
+        if (err?.response?.status !== 403) {
+          console.error('Erro ao carregar formulários:', err)
+        }
+      }
+    }
+    carregarFormularios()
+  }, [])
+
   // Preencher campos com configurações quando criar novo evento
   // Aguardar configurações carregarem e só preencher uma vez
   useEffect(() => {
@@ -115,6 +133,7 @@ function EventoForm() {
         status: evento.status || 'agendado',
         evento_pago: evento.evento_pago || false,
         valor_inscricao: evento.valor_inscricao || '',
+        formulario_inscricao: evento.formulario_inscricao ?? '',
       })
       
       const parsedDataInicio = parseDate(evento.data_inicio)
@@ -256,6 +275,13 @@ function EventoForm() {
         data.append('imagem', imagemFile)
       } else if (isEditing && imagemRemovida) {
         data.append('imagem', '')
+      }
+
+      // Formulário de inscrição (opcional)
+      if (formData.formulario_inscricao) {
+        data.append('formulario_inscricao', formData.formulario_inscricao)
+      } else if (isEditing) {
+        data.append('formulario_inscricao', '')
       }
 
       if (typeof console !== 'undefined' && console.debug) {
@@ -433,6 +459,31 @@ function EventoForm() {
                 ))}
               </select>
             </div>
+          </div>
+
+          {/* Formulário de Inscrição (opcional) */}
+          <div>
+            <label htmlFor="formulario_inscricao" className="label">
+              Formulário de Inscrição
+            </label>
+            <select
+              id="formulario_inscricao"
+              name="formulario_inscricao"
+              value={formData.formulario_inscricao || ''}
+              onChange={handleChange}
+              className="input-field"
+            >
+              <option value="">Nenhum (somente dados básicos)</option>
+              {formulariosDisponiveis.map(f => (
+                <option key={f.id} value={f.id}>
+                  {f.nome}{!f.ativo ? ' (inativo)' : ''}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              Opcional. As respostas ficam visíveis apenas para administradores. Gerencie formulários em{' '}
+              <Link to="/admin/formularios" className="text-primary-600 hover:underline">Formulários de Inscrição</Link>.
+            </p>
           </div>
 
           {/* Datas do Evento */}

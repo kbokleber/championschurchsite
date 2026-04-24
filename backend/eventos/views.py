@@ -2,9 +2,12 @@
 Views da API REST para Champions Church.
 """
 
+import json
 import requests
 import threading
 import logging
+from collections import Counter
+from io import BytesIO
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
@@ -14,21 +17,27 @@ from rest_framework.exceptions import ValidationError
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
+from django.db.models import Q, Prefetch
+from django.http import HttpResponse
 from django.contrib.auth.models import User
 from django.conf import settings
 from .models import (
     Membro, Evento, Inscricao, Contato, ConfiguracaoSite, 
     CategoriaParticipante, Cobranca, CobrancaItem,
     PermissaoMenu, Grupo, WebhookEventLog,
+    FormularioInscricao, CampoFormulario, RespostaCampoInscricao,
 )
 from .utils_imagem import substituir_fundo_logo_por_navy
 from .serializers import (
     MembroSerializer, MembroResumoSerializer,
     EventoSerializer, EventoListaSerializer,
-    InscricaoSerializer, ContatoSerializer,
+    InscricaoSerializer, InscricaoAdminSerializer, ContatoSerializer,
     UserSerializer, ConfiguracaoSiteSerializer, ConfiguracaoSitePublicSerializer,
     CategoriaParticipanteSerializer, CobrancaSerializer,
-    PermissaoMenuSerializer, GrupoSerializer, UsuarioAdminSerializer
+    PermissaoMenuSerializer, GrupoSerializer, UsuarioAdminSerializer,
+    FormularioInscricaoSerializer, FormularioInscricaoResumoSerializer,
+    RespostaCampoInscricaoAdminSerializer,
+    validar_respostas_formulario,
 )
 
 logger = logging.getLogger(__name__)
@@ -150,23 +159,75 @@ def enviar_webhook_inscricao(dados_webhook):
         logger.error(f'Erro ao enviar webhook: {str(e)}')
 
 
+def _resposta_2xx_json_indica_falha(response):
+    """
+    Alguns orquestradores (ex.: n8n com "continuar com erro") respondem 200, mas o JSON
+    descreve falha no passo de envio. Nesse caso trataremos como não entregue.
+    """
+    if not (200 <= response.status_code < 300):
+        return False
+    try:
+        data = response.json()
+    except (ValueError, TypeError):
+        return False
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict) and _resposta_2xx_item_dict_indica_falha(item):
+                return True
+        return False
+    if isinstance(data, dict) and _resposta_2xx_item_dict_indica_falha(data):
+        return True
+    return False
+
+
+def _resposta_2xx_item_dict_indica_falha(d: dict) -> bool:
+    if d.get('success') is False or d.get('ok') is False:
+        return True
+    if d.get('name') == 'AxiosError':
+        return True
+    st = d.get('status')
+    if isinstance(st, int) and st >= 400:
+        return True
+    msg = d.get('message')
+    if isinstance(msg, str) and msg.strip():
+        s = msg
+        if 'Request failed' in s or (s.strip().startswith('5') and ' -' in s) or s.strip().startswith('500 '):
+            return True
+    err = d.get('error')
+    if err is not None and err is not False:
+        if isinstance(err, (str, int, float)) and str(err).strip() != '':
+            return True
+        if isinstance(err, (dict, list)) and err:
+            return True
+    for key in ('json', 'data', 'response', 'body'):
+        nested = d.get(key)
+        if isinstance(nested, dict) and _resposta_2xx_item_dict_indica_falha(nested):
+            return True
+    return False
+
+
 def enviar_webhook_reset_senha(dados_webhook):
     """
-    Envia webhook de "esqueci minha senha" de forma assíncrona.
-    Chamado quando o participante solicita lembrete de senha na tela Meus Ingressos.
-    Usa webhook_reset_senha se configurado; senão usa webhook_inscricao (mesma URL com tipo=reset_senha).
+    Envia webhook de "esqueci minha senha" (síncrono) para a mesma URL de inscrição.
+
+    Retorno:
+        entregue (bool): True se a resposta HTTP for 2xx e o corpo não indicar falha
+        motivo (str): webhook_inativo | url_nao_configurada | corpo_indica_falha | http_erro | requisicao_erro
+        detalhe (str|None): resumo para log (e opcional envio_ao_cliente, sem vazar se não cadastrado)
     """
+    resultado = {'entregue': False, 'motivo': 'requisicao_erro', 'http_status': None, 'url_usada': None, 'erro': None}
     try:
         config = ConfiguracaoSite.get_config()
         if not config.webhook_ativo:
-            logger.info('Webhook inativo - reset senha não enviado')
-            return
-        url = (getattr(config, 'webhook_reset_senha', None) or '').strip()
+            logger.info('Webhook inativo - reset senha: não enviado (webhook_ativo=False)')
+            resultado['motivo'] = 'webhook_inativo'
+            return resultado
+        url = (getattr(config, 'webhook_inscricao', None) or '').strip()
         if not url:
-            url = (getattr(config, 'webhook_inscricao', None) or '').strip()
-        if not url:
-            logger.info('Nenhuma URL de webhook configurada (reset_senha nem webhook_inscricao)')
-            return
+            logger.info('Nenhuma URL: webhook_inscricao vazio')
+            resultado['motivo'] = 'url_nao_configurada'
+            return resultado
+        resultado['url_usada'] = url
         payload = {
             'tipo': 'reset_senha',
             'timestamp': timezone.now().isoformat(),
@@ -177,33 +238,52 @@ def enviar_webhook_reset_senha(dados_webhook):
             'email': dados_webhook.get('email'),
             'senha': dados_webhook.get('senha'),
         }
-        
-        # Preparar headers com informações da Evolution API
+
         headers = {
             'Content-Type': 'application/json',
             'User-Agent': 'ChampionsChurch-Webhook/1.0'
         }
-        
-        # Adicionar informações da Evolution API nos headers
         if config.evolution_api_url:
             headers['X-Evolution-API-URL'] = config.evolution_api_url
         if config.evolution_api_key:
             headers['X-Evolution-API-Key'] = config.evolution_api_key
         if config.evolution_api_instance:
             headers['X-Evolution-Instance'] = config.evolution_api_instance
-        
-        print(f'>>> WEBHOOK RESET SENHA: Enviando para {url}')
+
+        logger.info('Enviando webhook reset_senha para %s', url)
         response = requests.post(
             url,
             json=payload,
             headers=headers,
             timeout=30
         )
-        logger.info(f'Webhook reset senha enviado: {response.status_code} - {url}')
-        print(f'>>> WEBHOOK RESET SENHA: Resposta {response.status_code}')
+        resultado['http_status'] = response.status_code
+        if 200 <= response.status_code < 300:
+            if _resposta_2xx_json_indica_falha(response):
+                body_preview = (response.text or '')[:500]
+                resultado['erro'] = body_preview
+                resultado['motivo'] = 'corpo_indica_falha'
+                logger.error(
+                    'Webhook reset_senha: HTTP 2xx mas resposta indica falha (corpo) - %s - %s',
+                    url, body_preview
+                )
+            else:
+                resultado['entregue'] = True
+                resultado['motivo'] = 'ok'
+                logger.info('Webhook reset_senha OK: HTTP %s - %s', response.status_code, url)
+        else:
+            resultado['motivo'] = 'http_erro'
+            body_preview = (response.text or '')[:500]
+            resultado['erro'] = body_preview
+            logger.error(
+                'Webhook reset_senha falhou: HTTP %s - %s - corpo: %s',
+                response.status_code, url, body_preview
+            )
     except Exception as e:
-        logger.error(f'Erro ao enviar webhook reset senha: {str(e)}')
-        print(f'>>> WEBHOOK RESET SENHA: Erro {e}')
+        resultado['motivo'] = 'requisicao_erro'
+        resultado['erro'] = str(e)
+        logger.error('Exceção ao enviar webhook reset_senha: %s', e, exc_info=True)
+    return resultado
 
 
 def _payload_evento_webhook(evento, acao):
@@ -242,13 +322,13 @@ def _payload_evento_webhook(evento, acao):
 def enviar_webhook_evento(evento, acao):
     """
     Envia webhook de eventos (criado/atualizado/excluído) de forma assíncrona.
-    Só envia se webhook_ativo e webhook_eventos estiverem configurados.
+    Usa a mesma URL de inscrição (webhook_inscricao).
     """
     try:
         config = ConfiguracaoSite.get_config()
-        url = getattr(config, 'webhook_eventos', None) and (config.webhook_eventos or '').strip()
+        url = (getattr(config, 'webhook_inscricao', None) or '').strip()
         if not config.webhook_ativo or not url:
-            logger.info('Webhook de eventos inativo ou URL não configurada')
+            logger.info('Webhook de eventos: inativo ou URL de inscrição não configurada')
             return
         payload = _payload_evento_webhook(evento, acao)
         headers = {'Content-Type': 'application/json', 'User-Agent': 'ChampionsChurch-Webhook/1.0'}
@@ -560,9 +640,10 @@ def participante_login(request):
 @permission_classes([AllowAny])
 def participante_esqueci_senha(request):
     """
-    Esqueci minha senha: envia os dados (telefone, nome, senha) para o webhook
-    configurado (ex.: integração WhatsApp) para o usuário receber a senha.
-    Sempre retorna sucesso para não revelar se o telefone está cadastrado.
+    Esqueci minha senha: gera uma nova senha e só persiste no banco após a
+    integração (webhook ``reset_senha`` em ``webhook_inscricao``) retornar
+    entregue/positivo. Assim a senha antiga continua válida se o envio falhar.
+    Resposta opaca se o telefone não existir.
     """
     telefone = (request.data.get('telefone') or '').strip()
     if not telefone:
@@ -583,15 +664,16 @@ def participante_esqueci_senha(request):
             {'success': True, 'message': 'Se este número estiver cadastrado, você receberá a senha em instantes.'},
             status=status.HTTP_200_OK
         )
-    # Gerar nova senha e salvar no sistema (a senha é trocada ao requerer)
-    nova_senha = membro.definir_senha()
-    membro.save()
-    # Formatar telefone para exibição
+    # Formatar telefone para o payload (não exige save)
     telefone_formatado = membro.telefone
     if len(membro.telefone) == 11:
         telefone_formatado = f"({membro.telefone[:2]}) {membro.telefone[2:7]}-{membro.telefone[7:]}"
     elif len(membro.telefone) == 10:
         telefone_formatado = f"({membro.telefone[:2]}) {membro.telefone[2:6]}-{membro.telefone[6:]}"
+
+    senha_hash_antes = membro.senha
+    senha_texto_antes = membro.senha_texto
+    nova_senha = membro.definir_senha()  # só em memória; persistimos só se o webhook for OK
     dados_webhook = {
         'participante_id': membro.id,
         'nome': membro.nome,
@@ -600,11 +682,35 @@ def participante_esqueci_senha(request):
         'email': membro.email or '',
         'senha': nova_senha,
     }
-    thread = threading.Thread(target=enviar_webhook_reset_senha, args=(dados_webhook,))
-    thread.daemon = True
-    thread.start()
+    res_wh = enviar_webhook_reset_senha(dados_webhook)
+    entregue = bool(res_wh.get('entregue'))
+    if entregue:
+        membro.save(update_fields=['senha', 'senha_texto'])
+        message = (
+            'Pronto! Sua senha foi alterada e a mensagem com a nova senha foi enviada. '
+            'Confira no seu celular.'
+        )
+    else:
+        membro.senha = senha_hash_antes
+        membro.senha_texto = senha_texto_antes
+        motivo = (res_wh.get('motivo') or '') if isinstance(res_wh, dict) else ''
+        if motivo in ('webhook_inativo', 'url_nao_configurada'):
+            message = (
+                'Não foi possível enviar a nova senha agora: o aviso no celular não está disponível. '
+                'Sua senha permanece a mesma. Fale com a equipe da igreja se precisar de acesso imediato.'
+            )
+        else:
+            message = (
+                'Não foi possível enviar a nova senha agora. Sua senha permanece a mesma. '
+                'Tente de novo em alguns minutos; se continuar, fale com a equipe da igreja.'
+            )
     return Response(
-        {'success': True, 'message': 'A senha foi enviada para o número cadastrado.'},
+        {
+            'success': True,
+            'message': message,
+            'envio_integracao_ok': entregue,
+            'mensagem_enviada': entregue,
+        },
         status=status.HTTP_200_OK
     )
 
@@ -626,6 +732,15 @@ def participante_registro(request):
     email = (request.data.get('email') or '').strip() or None
     evento_id = request.data.get('evento_id')
     acompanhantes = request.data.get('acompanhantes', [])  # Lista de {nome, categoria_id}
+    # Quando enviado via multipart/form-data (upload de arquivos do formulário
+    # dinâmico), o campo chega como string JSON. Parse defensivo.
+    if isinstance(acompanhantes, str):
+        try:
+            acompanhantes = json.loads(acompanhantes) if acompanhantes else []
+        except (ValueError, TypeError):
+            acompanhantes = []
+    if not isinstance(acompanhantes, list):
+        acompanhantes = []
     
     if not nome or not telefone:
         return Response(
@@ -1012,7 +1127,106 @@ def participante_registro(request):
                 {'error': f'Vagas insuficientes. Disponível: {vagas_disponiveis}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-    
+
+    # --- Formulário de inscrição (opcional) ---
+    # Extrai e valida respostas do formulário se o evento tiver um vinculado.
+    # Respostas de texto/numero/boolean/data/email/telefone/cpf/select vêm em
+    # request.data['respostas'] (JSON). Arquivos vêm em request.FILES com a
+    # convenção "resposta_arquivo_{campo_id}".
+    formulario_do_evento = evento.formulario_inscricao
+    respostas_validadas = []
+    arquivos_respostas_formulario = {}
+
+    if formulario_do_evento:
+        respostas_raw = request.data.get('respostas')
+        if isinstance(respostas_raw, str):
+            try:
+                respostas_raw = json.loads(respostas_raw)
+            except (ValueError, TypeError):
+                respostas_raw = None
+
+        # Coleta arquivos do multipart/form-data
+        for chave, arquivo_upload in request.FILES.items():
+            if chave.startswith('resposta_arquivo_'):
+                try:
+                    cid = int(chave.replace('resposta_arquivo_', ''))
+                except ValueError:
+                    continue
+                arquivos_respostas_formulario[cid] = arquivo_upload
+
+        # Valida respostas de texto/numero/etc.
+        try:
+            respostas_validadas = validar_respostas_formulario(evento, respostas_raw)
+        except ValidationError as e:
+            detail = getattr(e, 'detail', {}) or {}
+            errors = {}
+            if isinstance(detail, dict):
+                errors = detail.get('errors_por_campo', detail)
+            return Response(
+                {
+                    'success': False,
+                    'error': 'Formulário inválido',
+                    'errors_por_campo': errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Valida campos de arquivo (obrigatoriedade, extensão e tamanho)
+        EXTENSOES_OK = {'pdf', 'jpg', 'jpeg', 'png'}
+        MAX_BYTES_ARQUIVO = 5 * 1024 * 1024
+        erros_arquivo = {}
+        for campo_arq in formulario_do_evento.campos.filter(tipo='arquivo'):
+            upload = arquivos_respostas_formulario.get(campo_arq.id)
+            if campo_arq.obrigatorio and not upload:
+                erros_arquivo[campo_arq.id] = 'Arquivo obrigatório.'
+                continue
+            if upload is not None:
+                nome_arq = getattr(upload, 'name', '') or ''
+                ext = nome_arq.rsplit('.', 1)[-1].lower() if '.' in nome_arq else ''
+                if ext not in EXTENSOES_OK:
+                    erros_arquivo[campo_arq.id] = 'Extensão não permitida (use pdf, jpg ou png).'
+                    continue
+                if getattr(upload, 'size', 0) > MAX_BYTES_ARQUIVO:
+                    erros_arquivo[campo_arq.id] = 'Arquivo excede 5 MB.'
+                    continue
+
+        if erros_arquivo:
+            return Response(
+                {
+                    'success': False,
+                    'error': 'Formulário inválido',
+                    'errors_por_campo': erros_arquivo,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    def _salvar_respostas_formulario(inscricao_obj):
+        """Grava respostas + arquivos do formulário na inscrição principal.
+
+        Substitui eventuais respostas existentes (útil ao reativar uma
+        inscrição previamente cancelada).
+        """
+        if not formulario_do_evento:
+            return
+        RespostaCampoInscricao.objects.filter(inscricao=inscricao_obj).delete()
+        for item in respostas_validadas:
+            campo = item['campo']
+            RespostaCampoInscricao.objects.create(
+                inscricao=inscricao_obj,
+                campo=campo,
+                valor=item['valor'],
+            )
+        for campo_arq in formulario_do_evento.campos.filter(tipo='arquivo'):
+            upload = arquivos_respostas_formulario.get(campo_arq.id)
+            if not upload:
+                continue
+            RespostaCampoInscricao.objects.create(
+                inscricao=inscricao_obj,
+                campo=campo_arq,
+                valor={'nome_original': getattr(upload, 'name', '')},
+                arquivo=upload,
+            )
+
     # Buscar ou criar categoria "Adulto" para o responsável
     categoria_adulto = None
     if evento.evento_pago:
@@ -1086,6 +1300,8 @@ def participante_registro(request):
         inscricao.valor_inscricao = valor_total
         inscricao.categoria = categoria_adulto
         inscricao.save(update_fields=['status', 'status_pagamento', 'valor_inscricao', 'categoria'])
+        # Gravar respostas do formulário (se houver)
+        _salvar_respostas_formulario(inscricao)
         # Criar acompanhantes (novos membros + inscrições)
         inscricoes_acompanhantes = []
         for acomp_info in acompanhantes_para_criar:
@@ -1209,7 +1425,10 @@ def participante_registro(request):
         valor_inscricao=valor_total,  # Valor total do grupo
         status_pagamento=status_pagamento
     )
-    
+
+    # Gravar respostas do formulário (se houver)
+    _salvar_respostas_formulario(inscricao)
+
     # Criar inscrições para acompanhantes (valor = 0, pois responsável paga tudo)
     inscricoes_acompanhantes = []
     
@@ -2517,7 +2736,12 @@ def configuracao_admin(request):
         serializer = ConfiguracaoSiteSerializer(config, data=request.data, partial=partial)
         
         if serializer.is_valid():
-            serializer.save()
+            instance = serializer.save()
+            # Webhook unificado: URLs legadas não são mais usadas (evita resíduo no banco)
+            ConfiguracaoSite.objects.filter(pk=instance.pk).update(
+                webhook_reset_senha=None,
+                webhook_eventos=None,
+            )
             # Remover quadriculado de logos (substituir fundo por azul do header)
             if 'logo' in request.FILES and config.logo:
                 try:
@@ -3818,3 +4042,390 @@ def popular_permissoes_menu(request):
             },
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+# =====================================================================
+# Formulários de inscrição (admin) e acesso admin a respostas
+# =====================================================================
+
+
+def _admin_tem_permissao_formularios(user):
+    """Verifica se o usuário admin tem permissão para gerenciar formulários.
+
+    Superusuários sempre têm acesso. Demais usuários precisam ser staff e ter
+    o menu ``formularios_inscricao`` permitido via grupos.
+    """
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    if not user.is_staff:
+        return False
+    try:
+        return Grupo.usuario_tem_permissao_menu(user, 'formularios_inscricao')
+    except Exception:
+        return False
+
+
+def _admin_tem_permissao_inscricoes(user):
+    """Permissão para listar/exportar inscrições (menu ``inscricoes``)."""
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    if not user.is_staff:
+        return False
+    try:
+        return Grupo.usuario_tem_permissao_menu(user, 'inscricoes')
+    except Exception:
+        return False
+
+
+def _export_evento_data_str(evento):
+    if evento and evento.data_inicio:
+        return timezone.localtime(evento.data_inicio).strftime('%d/%m/%Y %H:%M')
+    return ''
+
+
+def _export_format_valor_campo(resp: RespostaCampoInscricao) -> str:
+    from datetime import datetime, date
+    campo = resp.campo
+    t = campo.tipo
+    v = resp.valor
+    if t == 'arquivo':
+        if resp.arquivo:
+            if isinstance(v, dict) and v.get('nome_original'):
+                return str(v['nome_original'])
+            name = resp.arquivo.name
+            return name.rsplit('/', 1)[-1] if name else 'Arquivo anexado'
+        return ''
+    if t == 'boolean':
+        return 'Sim' if v else 'Não'
+    if v is None or v == '':
+        return ''
+    if t == 'select_multiplo' and isinstance(v, list):
+        return ', '.join(str(x) for x in v)
+    if t == 'data':
+        if isinstance(v, date) and not isinstance(v, datetime):
+            return v.strftime('%d/%m/%Y')
+        if isinstance(v, datetime):
+            dt = timezone.localtime(v) if timezone.is_aware(v) else v
+            return dt.strftime('%d/%m/%Y %H:%M')
+        s = str(v).strip()
+        if not s:
+            return ''
+        try:
+            s2 = s.replace('Z', '+00:00')
+            dtp = datetime.fromisoformat(s2)
+            dtp = timezone.localtime(dtp) if timezone.is_aware(dtp) else dtp
+            return dtp.strftime('%d/%m/%Y %H:%M')
+        except (ValueError, TypeError, OSError):
+            return s
+    if isinstance(v, (dict, list)):
+        return json.dumps(v, ensure_ascii=False)
+    return str(v)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def admin_exportar_inscricoes_xlsx(request):
+    """Exporta inscrições filtradas para XLSX, uma linha por inscrição, com colunas do formulário.
+
+    Query params (mesma ideia do admin em tela):
+        q — busca por nome do membro ou título do evento
+        status — pendente, confirmada, ... ou ``todos`` (omitir)
+        status_pagamento — idem
+        evento_id — restringe ao evento (id numérico)
+    """
+    if not _admin_tem_permissao_inscricoes(request.user):
+        return Response(
+            {'detail': 'Sem permissão para exportar inscrições.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    q_text = (request.query_params.get('q') or '').strip()
+    status_f = (request.query_params.get('status') or '').strip()
+    pag_f = (request.query_params.get('status_pagamento') or '').strip()
+    evento_id = (request.query_params.get('evento_id') or '').strip()
+
+    respostas_qs = RespostaCampoInscricao.objects.select_related('campo').order_by(
+        'campo__ordem', 'campo__id'
+    )
+    qs = (
+        Inscricao.objects.all()
+        .select_related('membro', 'evento', 'categoria', 'responsavel')
+        .prefetch_related(Prefetch('respostas', queryset=respostas_qs))
+    )
+
+    if q_text:
+        qs = qs.filter(
+            Q(membro__nome__icontains=q_text) | Q(evento__titulo__icontains=q_text)
+        )
+    if status_f and status_f != 'todos':
+        qs = qs.filter(status=status_f)
+    if pag_f and pag_f != 'todos':
+        qs = qs.filter(status_pagamento=pag_f)
+    if evento_id and evento_id != 'todos':
+        try:
+            qs = qs.filter(evento_id=int(evento_id))
+        except (TypeError, ValueError):
+            pass
+
+    inscricoes = list(qs.order_by('data_inscricao', 'id'))
+    campo_por_id = {}
+    for insc in inscricoes:
+        for r in insc.respostas.all():
+            if r.campo_id not in campo_por_id:
+                campo_por_id[r.campo_id] = r.campo
+    dynamic_ids = sorted(
+        campo_por_id.keys(),
+        key=lambda cid: (
+            campo_por_id[cid].formulario_id,
+            campo_por_id[cid].ordem,
+            cid,
+        ),
+    )
+    labels = [campo_por_id[cid].label or f'Campo {cid}' for cid in dynamic_ids]
+    cnt = Counter(labels)
+
+    def header_campo(cid):
+        lab = campo_por_id[cid].label or f'Campo {cid}'
+        if cnt[lab] > 1:
+            return f'{lab} (id {cid})'
+        return lab
+
+    fixed_headers = [
+        'ID',
+        'Código',
+        'Nome',
+        'E-mail',
+        'Telefone',
+        'Evento',
+        'Data do evento',
+        'Data inscrição',
+        'Status',
+        'Pagamento',
+        'Categoria',
+        'Valor inscrição',
+        'Presente',
+        'Acompanhante',
+        'Responsável',
+    ]
+    dynamic_headers = [header_campo(cid) for cid in dynamic_ids]
+    all_headers = fixed_headers + dynamic_headers
+
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Inscrições'
+    ws.append(all_headers)
+
+    for insc in inscricoes:
+        m = insc.membro
+        ev = insc.evento
+        valor_f = insc.valor_inscricao
+        if valor_f is None or float(valor_f) == 0:
+            valor_str = 'Gratuito' if insc.status_pagamento in ('isento', 'nao_aplicavel') else 'R$ 0,00'
+        else:
+            valor_str = f'R$ {float(valor_f):,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+        by_cid = {r.campo_id: _export_format_valor_campo(r) for r in insc.respostas.all()}
+
+        row = [
+            insc.id,
+            str(insc.codigo),
+            m.nome if m else '',
+            (m.email or '') if m else '',
+            (m.telefone or '') if m else '',
+            ev.titulo if ev else '',
+            _export_evento_data_str(ev),
+            timezone.localtime(insc.data_inscricao).strftime('%d/%m/%Y %H:%M:%S') if insc.data_inscricao else '',
+            insc.get_status_display(),
+            insc.get_status_pagamento_display(),
+            insc.categoria.nome if insc.categoria else '',
+            valor_str,
+            'Sim' if insc.presente else 'Não',
+            'Sim' if insc.is_acompanhante else 'Não',
+            insc.responsavel.nome if insc.is_acompanhante and insc.responsavel else '',
+        ]
+        row.extend(by_cid.get(cid, '') for cid in dynamic_ids)
+        ws.append(row)
+
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    stamp = timezone.now().strftime('%Y-%m-%d_%H%M')
+    filename = f'inscricoes_champions_{stamp}.xlsx'
+    response = HttpResponse(
+        bio.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
+
+
+class FormularioInscricaoViewSet(viewsets.ModelViewSet):
+    """CRUD de formulários de inscrição reaproveitáveis.
+
+    - Lista usa serializer resumido.
+    - Detalhe/escrita usa serializer completo com os campos aninhados.
+    - Edição com inscrições existentes é permitida; campos sincronizados por id
+      na API (ou duplicar para clonar tudo de uma vez).
+    - Action ``duplicar`` gera um novo formulário a partir de um existente.
+    """
+
+    queryset = FormularioInscricao.objects.all().order_by('-atualizado_em', '-id')
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return FormularioInscricaoResumoSerializer
+        return FormularioInscricaoSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        incluir_inativos = self.request.query_params.get('incluir_inativos')
+        if incluir_inativos != 'true':
+            qs = qs.filter(ativo=True)
+        return qs.prefetch_related('campos')
+
+    def _checar_permissao(self):
+        if not _admin_tem_permissao_formularios(self.request.user):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Usuário sem permissão para gerenciar formulários de inscrição.')
+
+    def list(self, request, *args, **kwargs):
+        self._checar_permissao()
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        self._checar_permissao()
+        return super().retrieve(request, *args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        self._checar_permissao()
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        self._checar_permissao()
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        self._checar_permissao()
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        self._checar_permissao()
+        instance = self.get_object()
+        if instance.tem_inscricoes:
+            return Response(
+                {'detail': 'Formulário possui inscrições associadas. Desative-o em vez de excluir.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=['post'], url_path='duplicar')
+    def duplicar(self, request, pk=None):
+        """Duplica o formulário atual em uma nova versão editável."""
+        self._checar_permissao()
+        formulario = self.get_object()
+        novo = formulario.duplicar()
+        serializer = FormularioInscricaoSerializer(novo, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def admin_respostas_inscricao(request, inscricao_id):
+    """Retorna as respostas de formulário de uma inscrição (apenas admin).
+
+    Não expõe arquivos diretamente: devolve URL protegida via endpoint
+    ``admin_arquivo_resposta`` para download seguro.
+    """
+    if not _admin_tem_permissao_formularios(request.user):
+        return Response(
+            {'detail': 'Sem permissão para visualizar respostas de formulários.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    inscricao = get_object_or_404(Inscricao.objects.select_related('evento', 'evento__formulario_inscricao'), id=inscricao_id)
+    respostas = RespostaCampoInscricao.objects.filter(inscricao=inscricao).select_related('campo').order_by('campo__ordem', 'campo__id')
+
+    serializer = RespostaCampoInscricaoAdminSerializer(respostas, many=True, context={'request': request})
+    return Response({
+        'inscricao': {
+            'id': inscricao.id,
+            'codigo': inscricao.codigo,
+            'participante': inscricao.membro.nome if inscricao.membro else None,
+        },
+        'evento': {
+            'id': inscricao.evento.id,
+            'titulo': inscricao.evento.titulo,
+        },
+        'formulario': (
+            {
+                'id': inscricao.evento.formulario_inscricao.id,
+                'nome': inscricao.evento.formulario_inscricao.nome,
+            }
+            if inscricao.evento and inscricao.evento.formulario_inscricao else None
+        ),
+        'respostas': serializer.data,
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def admin_arquivo_resposta(request, inscricao_id, campo_id):
+    """Download protegido de arquivo anexado em resposta de formulário.
+
+    Usa ``FileResponse`` para não expor diretamente a URL de MEDIA.
+    """
+    from django.http import FileResponse, Http404
+
+    if not _admin_tem_permissao_formularios(request.user):
+        return Response(
+            {'detail': 'Sem permissão para baixar arquivos de respostas.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    resposta = get_object_or_404(
+        RespostaCampoInscricao.objects.select_related('campo', 'inscricao'),
+        inscricao_id=inscricao_id,
+        campo_id=campo_id,
+    )
+
+    if not resposta.arquivo:
+        raise Http404('Arquivo não encontrado para esta resposta.')
+
+    try:
+        arquivo = resposta.arquivo.open('rb')
+    except FileNotFoundError:
+        raise Http404('Arquivo não encontrado no storage.')
+
+    nome_original = (resposta.valor or {}).get('nome_original') if isinstance(resposta.valor, dict) else None
+    filename = nome_original or resposta.arquivo.name.split('/')[-1]
+
+    response = FileResponse(arquivo, as_attachment=True, filename=filename)
+    return response
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def admin_inscricao_detalhe(request, inscricao_id):
+    """Retorna detalhes completos de uma inscrição incluindo as respostas do formulário.
+
+    Endpoint dedicado para a tela admin que mostra tudo junto.
+    """
+    if not _admin_tem_permissao_formularios(request.user) and not request.user.is_staff:
+        return Response(
+            {'detail': 'Sem permissão.'}, status=status.HTTP_403_FORBIDDEN
+        )
+
+    inscricao = get_object_or_404(
+        Inscricao.objects.select_related(
+            'membro', 'evento', 'evento__formulario_inscricao', 'categoria'
+        ).prefetch_related('respostas__campo'),
+        id=inscricao_id,
+    )
+    serializer = InscricaoAdminSerializer(inscricao, context={'request': request})
+    return Response(serializer.data)

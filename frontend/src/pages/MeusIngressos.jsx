@@ -20,6 +20,8 @@ function MeusIngressos() {
   const [atualizando, setAtualizando] = useState(false)
   const [esqueciSenhaLoading, setEsqueciSenhaLoading] = useState(false)
   const [esqueciSenhaMsg, setEsqueciSenhaMsg] = useState('')
+  /** 'success' | 'warning' | 'neutral' — só definido após resposta 200; erros de rede = warning */
+  const [esqueciSenhaMsgTipo, setEsqueciSenhaMsgTipo] = useState('neutral')
   const [telefoneEncontrado, setTelefoneEncontrado] = useState(false) // true só quando a API confirma que o telefone está cadastrado
   const [mostrarEventosPassados, setMostrarEventosPassados] = useState(false) // filtro: exibir eventos já realizados
   const [filtroAno, setFiltroAno] = useState('') // '' = todos, '2026', '2025'...
@@ -227,12 +229,34 @@ function MeusIngressos() {
     e.preventDefault()
     if (!telefone.trim() || esqueciSenhaLoading) return
     setEsqueciSenhaMsg('')
+    setEsqueciSenhaMsgTipo('neutral')
     setEsqueciSenhaLoading(true)
     try {
       const { data } = await api.post('/participante/esqueci-senha/', { telefone: telefone.trim() })
-      setEsqueciSenhaMsg(data.message || 'A senha foi enviada para o número cadastrado.')
+      setEsqueciSenhaMsg(
+        data.message
+        || 'Se este número estiver cadastrado, a solicitação foi processada.'
+      )
+      const enviada =
+        data.mensagem_enviada !== undefined
+          ? data.mensagem_enviada
+          : data.envio_integracao_ok !== undefined
+            ? data.envio_integracao_ok
+            : null
+      if (enviada === true) {
+        setEsqueciSenhaMsgTipo('success')
+      } else if (enviada === false) {
+        setEsqueciSenhaMsgTipo('warning')
+      } else {
+        setEsqueciSenhaMsgTipo('neutral')
+      }
     } catch (err) {
-      setEsqueciSenhaMsg('A senha foi enviada para o número cadastrado.')
+      const apiMsg = err.response?.data?.message || err.response?.data?.detail
+      setEsqueciSenhaMsg(
+        apiMsg
+        || 'Não foi possível processar o pedido agora. Verifique a conexão e tente de novo.'
+      )
+      setEsqueciSenhaMsgTipo('warning')
     } finally {
       setEsqueciSenhaLoading(false)
     }
@@ -426,7 +450,19 @@ function MeusIngressos() {
                 </div>
 
                 {esqueciSenhaMsg && (
-                  <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+                  <div
+                    className={
+                      esqueciSenhaMsgTipo === 'success'
+                        ? 'p-3 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm'
+                        : esqueciSenhaMsgTipo === 'warning'
+                          ? 'p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-sm'
+                          : 'p-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-sm'
+                    }
+                    role="status"
+                  >
+                    {esqueciSenhaMsgTipo === 'warning' && (
+                      <span className="block font-medium mb-1">Atenção</span>
+                    )}
                     {esqueciSenhaMsg}
                   </div>
                 )}

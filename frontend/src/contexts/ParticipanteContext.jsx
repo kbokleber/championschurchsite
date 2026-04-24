@@ -210,7 +210,14 @@ export function ParticipanteProvider({ children }) {
   }
 
   const registrar = async (dados) => {
-    const response = await api.post('/participante/registro/', dados)
+    // Suporta payload JSON padrão OU FormData (para upload de arquivos do
+    // formulário dinâmico). Quando FormData, o axios define o Content-Type
+    // correto automaticamente.
+    const isFormData = typeof FormData !== 'undefined' && dados instanceof FormData
+    const config = isFormData
+      ? { headers: { 'Content-Type': 'multipart/form-data' } }
+      : undefined
+    const response = await api.post('/participante/registro/', dados, config)
     if (response.data.success) {
       const token = response.data.token
       const p = response.data.participante

@@ -9,6 +9,9 @@ from .views import (
     MembroViewSet, EventoViewSet, InscricaoViewSet, ContatoViewSet,
     CategoriaParticipanteViewSet, CobrancaViewSet,
     PermissaoMenuViewSet, GrupoViewSet, UsuarioAdminViewSet,
+    FormularioInscricaoViewSet,
+    admin_respostas_inscricao, admin_arquivo_resposta, admin_inscricao_detalhe,
+    admin_exportar_inscricoes_xlsx,
     get_current_user, dashboard_stats, meus_ingressos,
     participante_login, participante_esqueci_senha, participante_registro, participante_perfil,
     buscar_participante_por_telefone,
@@ -44,6 +47,7 @@ router.register(r'cobrancas', CobrancaViewSet, basename='cobranca')
 router.register(r'permissoes-menu', PermissaoMenuViewSet, basename='permissaomenu')
 router.register(r'grupos', GrupoViewSet, basename='grupo')
 router.register(r'usuarios', UsuarioAdminViewSet, basename='usuario')
+router.register(r'formularios', FormularioInscricaoViewSet, basename='formulario')
 
 urlpatterns = [
     # Autenticação JWT
@@ -70,6 +74,25 @@ urlpatterns = [
     # Configurações do site
     path('configuracao/', configuracao_publica, name='configuracao_publica'),
     path('admin/configuracao/', configuracao_admin, name='configuracao_admin'),
+
+    # Admin - exportar inscrições (planilha)
+    path('admin/inscricoes/exportar/', admin_exportar_inscricoes_xlsx, name='admin_exportar_inscricoes'),
+    # Admin - respostas de formulário por inscrição (privado)
+    path(
+        'admin/inscricoes/<int:inscricao_id>/detalhe/',
+        admin_inscricao_detalhe,
+        name='admin_inscricao_detalhe',
+    ),
+    path(
+        'admin/inscricoes/<int:inscricao_id>/respostas/',
+        admin_respostas_inscricao,
+        name='admin_respostas_inscricao',
+    ),
+    path(
+        'admin/inscricoes/<int:inscricao_id>/respostas/<int:campo_id>/arquivo/',
+        admin_arquivo_resposta,
+        name='admin_arquivo_resposta',
+    ),
     
     # Mercado Pago
     path('mercadopago/criar-pix/', criar_pagamento_pix, name='mp_criar_pix'),

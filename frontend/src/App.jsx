@@ -32,6 +32,8 @@ import AdminCobrancas from './pages/admin/AdminCobrancas'
 import Checkin from './pages/admin/Checkin'
 import AdminUsuarios from './pages/admin/AdminUsuarios'
 import AdminGrupos from './pages/admin/AdminGrupos'
+import AdminFormularios from './pages/admin/AdminFormularios'
+import FormularioForm from './pages/admin/FormularioForm'
 
 function App() {
   return (
@@ -162,6 +164,21 @@ function App() {
         <Route path="/admin/grupos" element={
           <ProtectedRoute>
             <AdminLayout><AdminGrupos /></AdminLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/formularios" element={
+          <ProtectedRoute>
+            <AdminLayout><AdminFormularios /></AdminLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/formularios/novo" element={
+          <ProtectedRoute>
+            <AdminLayout><FormularioForm /></AdminLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/formularios/:id" element={
+          <ProtectedRoute>
+            <AdminLayout><FormularioForm /></AdminLayout>
           </ProtectedRoute>
         } />
       </Routes>

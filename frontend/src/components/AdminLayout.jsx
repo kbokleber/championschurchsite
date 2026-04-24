@@ -23,6 +23,7 @@ const MENU_MAPPING = {
   'configuracoes': { path: '/admin/configuracoes', label: 'Configurações', icon: Settings },
   'usuarios': { path: '/admin/usuarios', label: 'Usuários', icon: Shield },
   'grupos': { path: '/admin/grupos', label: 'Grupos', icon: Users },
+  'formularios_inscricao': { path: '/admin/formularios', label: 'Formulários', icon: FileText },
 }
 
 function AdminLayout({ children }) {

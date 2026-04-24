@@ -31,9 +31,16 @@ api.interceptors.request.use(
         config.headers.Authorization = `Bearer ${token}`
       }
     }
-    // FormData: não enviar Content-Type para o axios/navegador definir multipart/form-data com boundary
+    // FormData: o boundary é obrigatório; nunca forçar multipart sem boundary (falha no parse no Django)
     if (config.data instanceof FormData) {
-      delete config.headers['Content-Type']
+      const h = config.headers
+      if (h && typeof h.delete === 'function') {
+        h.delete('Content-Type')
+        h.delete('content-type')
+      } else if (h) {
+        delete h['Content-Type']
+        delete h['content-type']
+      }
     }
     return config
   },

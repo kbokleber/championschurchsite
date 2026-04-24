@@ -39,7 +39,6 @@ function AdminConfiguracoes() {
     cor_header_pagina: '#1a365d',
     webhook_inscricao: '',
     webhook_ativo: false,
-    webhook_eventos: '',
     // Mercado Pago
     mp_ambiente: 'sandbox',
     mp_ativo: false,
@@ -107,7 +106,6 @@ function AdminConfiguracoes() {
         cor_header_pagina: data.cor_header_pagina || '#1a365d',
         webhook_inscricao: data.webhook_inscricao || '',
         webhook_ativo: data.webhook_ativo || false,
-        webhook_eventos: data.webhook_eventos || '',
         // Mercado Pago
         mp_ambiente: data.mp_ambiente || 'sandbox',
         mp_ativo: data.mp_ativo || false,
@@ -215,12 +213,17 @@ function AdminConfiguracoes() {
         ? formData.descricao.replace(/\\n/g, '\n')
         : formData.descricao
       
-      // Adiciona todos os campos de texto
+      // Adiciona todos os campos (nunca null/undefined — vira "null" na string e quebra validação)
       Object.keys(formData).forEach(key => {
         if (key === 'descricao') {
-          data.append(key, descricaoProcessada)
+          data.append(key, descricaoProcessada ?? '')
         } else {
-          data.append(key, formData[key])
+          const v = formData[key]
+          if (v === null || v === undefined) {
+            data.append(key, '')
+          } else {
+            data.append(key, v)
+          }
         }
       })
 
@@ -245,9 +248,8 @@ function AdminConfiguracoes() {
         data.append('clear_imagem_banner', 'true')
       }
 
-      await api.patch('/admin/configuracao/', data, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
+      // Não defina Content-Type: o axios/boundary é obrigatório em multipart
+      await api.patch('/admin/configuracao/', data)
 
       setMessage({ type: 'success', text: 'Configurações salvas com sucesso!' })
       setNewLogo(null)
@@ -263,7 +265,23 @@ function AdminConfiguracoes() {
       }, 1500)
     } catch (error) {
       console.error('Erro ao salvar:', error)
-      setMessage({ type: 'error', text: 'Erro ao salvar configurações' })
+      const d = error.response?.data
+      let errText = 'Erro ao salvar configurações'
+      if (d) {
+        if (typeof d === 'string') {
+          errText = d
+        } else if (d.detail) {
+          errText = Array.isArray(d.detail) ? d.detail.map((x) => x).join(' ') : String(d.detail)
+        } else {
+          const entries = Object.entries(d).filter(([, v]) => v != null && v !== '')
+          if (entries.length) {
+            const [k, v] = entries[0]
+            const part = Array.isArray(v) ? v[0] : v
+            errText = `${k}: ${typeof part === 'string' ? part : JSON.stringify(part)}`
+          }
+        }
+      }
+      setMessage({ type: 'error', text: errText })
     } finally {
       setSaving(false)
     }
@@ -819,10 +837,11 @@ function AdminConfiguracoes() {
           {activeTab === 'integracoes' && (
             <div className="space-y-6">
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                <h3 className="font-medium text-blue-800 mb-2">Webhook de Inscrição</h3>
+                <h3 className="font-medium text-blue-800 mb-2">Webhook</h3>
                 <p className="text-sm text-blue-700">
-                  Configure um webhook para receber os dados de cada nova inscrição em tempo real.
-                  Ideal para integrar com sistemas de automação, WhatsApp, e-mail marketing, etc.
+                  Uma única URL recebe, em tempo real, novas inscrições, reset de senha (Meus Ingressos) e
+                  alterações de eventos no admin. O corpo do POST traz o campo <code className="bg-blue-100 px-1 rounded">tipo</code> para
+                  o automação (ex.: n8n) decidir o fluxo. Pagamentos do Mercado Pago usam outro fluxo.
                 </p>
               </div>
 
@@ -831,8 +850,8 @@ function AdminConfiguracoes() {
                 <div>
                   <label className="font-medium text-gray-700">Webhook Ativo</label>
                   <p className="text-sm text-gray-500">
-                    {formData.webhook_ativo 
-                      ? 'O webhook será enviado a cada nova inscrição' 
+                    {formData.webhook_ativo
+                      ? 'A URL abaixo receberá inscrições, reset de senha e avisos de evento'
                       : 'O webhook está desativado'}
                   </p>
                 </div>
@@ -865,25 +884,8 @@ function AdminConfiguracoes() {
                   placeholder="https://seu-servidor.com/webhook/inscricao"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  URL que receberá uma requisição POST com os dados da inscrição
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <Webhook className="inline h-4 w-4 mr-1" />
-                  URL do Webhook de Eventos <span className="text-gray-400 font-normal">(opcional)</span>
-                </label>
-                <input
-                  type="url"
-                  name="webhook_eventos"
-                  value={formData.webhook_eventos}
-                  onChange={handleChange}
-                  className="input-field"
-                  placeholder="Deixe em branco se não precisar"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Só para quando um <strong>evento</strong> for criado, alterado ou excluído no admin (titulo, data, local). Inscrições, reset de senha e pagamentos vão sempre para a &quot;URL do Webhook&quot; acima.
+                  Requisição POST em JSON. Use o campo <span className="font-mono">tipo</span> (ex.:{' '}
+                  <span className="font-mono">nova_inscricao</span>, <span className="font-mono">reset_senha</span>, <span className="font-mono">evento</span>) no seu fluxo.
                 </p>
               </div>
 

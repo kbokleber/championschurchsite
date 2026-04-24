@@ -4,11 +4,13 @@ Serializers para a API REST da Champions Church.
 
 from rest_framework import serializers
 from django.contrib.auth.models import User
+from django.db import transaction
 from django.utils import timezone
 from .models import (
     Membro, Evento, Inscricao, Contato, ConfiguracaoSite, 
     CategoriaParticipante, Cobranca, CobrancaItem,
-    PermissaoMenu, Grupo
+    PermissaoMenu, Grupo,
+    FormularioInscricao, CampoFormulario, RespostaCampoInscricao
 )
 
 
@@ -176,6 +178,215 @@ class MembroResumoSerializer(serializers.ModelSerializer):
         fields = ['id', 'nome', 'email', 'telefone', 'status', 'senha_texto']
 
 
+class CampoFormularioSerializer(serializers.ModelSerializer):
+    """Serializer público/admin para a ESTRUTURA de um campo.
+
+    Usado tanto pelo admin quanto pelo público: contém apenas a definição do
+    campo, NUNCA as respostas. Respostas são expostas apenas via endpoints
+    admin (vide ``InscricaoAdminSerializer``).
+
+    O ``id`` é opcional na escrita: usado no admin para manter o mesmo registro
+    ao editar o formulário (evita apagar e recriar, o que conflitava com
+    respostas e ``PROTECT`` em respostas).
+    """
+
+    tipo_display = serializers.CharField(source='get_tipo_display', read_only=True)
+    id = serializers.IntegerField(required=False, allow_null=True)
+
+    class Meta:
+        model = CampoFormulario
+        fields = [
+            'id', 'ordem', 'label', 'tipo', 'tipo_display', 'obrigatorio',
+            'placeholder', 'help_text', 'opcoes', 'tamanho_max',
+        ]
+        read_only_fields = ['tipo_display']
+
+    def validate(self, data):
+        tipo = data.get('tipo') or (self.instance.tipo if self.instance else None)
+        opcoes = data.get('opcoes')
+        if opcoes is None and self.instance is not None:
+            opcoes = self.instance.opcoes
+
+        if tipo in CampoFormulario.TIPOS_COM_OPCOES:
+            if not isinstance(opcoes, list) or len(opcoes) < 2:
+                raise serializers.ValidationError({
+                    'opcoes': 'Campos de seleção precisam de pelo menos 2 opções.'
+                })
+            normalizadas = []
+            seen = set()
+            for op in opcoes:
+                if op is None:
+                    continue
+                texto = str(op).strip()
+                if not texto or texto in seen:
+                    continue
+                seen.add(texto)
+                normalizadas.append(texto)
+            if len(normalizadas) < 2:
+                raise serializers.ValidationError({
+                    'opcoes': 'Informe pelo menos 2 opções distintas e não vazias.'
+                })
+            data['opcoes'] = normalizadas
+        else:
+            data['opcoes'] = []
+        return data
+
+
+class FormularioInscricaoSerializer(serializers.ModelSerializer):
+    """Serializer ADMIN de CRUD para formulários reaproveitáveis.
+
+    Com inscrições existentes, ainda é possível editar (novos participantes
+    passam a ver os campos atuais). A sincronização de campos preserva ``id``
+    quando o cliente reenvia os existentes; campos removidos apagam as
+    respostas vinculadas (``RespostaCampoInscricao``) antes de excluir o campo.
+    """
+
+    campos = CampoFormularioSerializer(many=True, required=False)
+    tem_inscricoes = serializers.ReadOnlyField()
+    total_inscricoes = serializers.ReadOnlyField()
+
+    class Meta:
+        model = FormularioInscricao
+        fields = [
+            'id', 'nome', 'descricao', 'ativo', 'campos',
+            'tem_inscricoes', 'total_inscricoes',
+            'criado_em', 'atualizado_em',
+        ]
+        read_only_fields = ['id', 'criado_em', 'atualizado_em', 'tem_inscricoes', 'total_inscricoes']
+
+    def _criar_campos(self, formulario, campos_data):
+        for idx, campo_data in enumerate(campos_data):
+            if isinstance(campo_data, dict):
+                campo_data = {**campo_data}
+            campo_data.pop('id', None)
+            campo_data.setdefault('ordem', idx)
+            CampoFormulario.objects.create(formulario=formulario, **campo_data)
+
+    def _sincronizar_campos(self, formulario, campos_data):
+        """Cria/atualiza campos por id; remove os que saíram da lista (e respostas)."""
+        present_ids = []
+        for idx, raw in enumerate(campos_data):
+            cdata = dict(raw)
+            field_id = cdata.pop('id', None)
+            cdata['ordem'] = idx
+            if field_id is not None:
+                try:
+                    campo = formulario.campos.get(pk=field_id)
+                except CampoFormulario.DoesNotExist:
+                    raise serializers.ValidationError({
+                        'campos': f'Campo id={field_id} não pertence a este formulário.',
+                    })
+                for k, v in cdata.items():
+                    setattr(campo, k, v)
+                campo.save()
+                present_ids.append(campo.pk)
+            else:
+                novo = CampoFormulario.objects.create(formulario=formulario, **cdata)
+                present_ids.append(novo.pk)
+
+        for campo in formulario.campos.exclude(pk__in=present_ids):
+            for resposta in RespostaCampoInscricao.objects.filter(campo=campo):
+                resposta.delete()
+            campo.delete()
+
+    def create(self, validated_data):
+        campos_data = validated_data.pop('campos', None)
+        if not campos_data:
+            raise serializers.ValidationError({'campos': 'Informe ao menos um campo no formulário.'})
+        formulario = FormularioInscricao.objects.create(**validated_data)
+        self._criar_campos(formulario, campos_data)
+        return formulario
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        campos_data = validated_data.pop('campos', None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        if campos_data is not None:
+            if len(campos_data) == 0:
+                raise serializers.ValidationError(
+                    {'campos': 'O formulário precisa de ao menos um campo. Use a action duplicar em vez de esvaziar.'}
+                )
+            self._sincronizar_campos(instance, campos_data)
+        return instance
+
+
+class FormularioInscricaoResumoSerializer(serializers.ModelSerializer):
+    """Resumo para listagens (sem campos)."""
+
+    tem_inscricoes = serializers.ReadOnlyField()
+    total_inscricoes = serializers.ReadOnlyField()
+    total_campos = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FormularioInscricao
+        fields = [
+            'id', 'nome', 'descricao', 'ativo',
+            'tem_inscricoes', 'total_inscricoes', 'total_campos',
+            'criado_em', 'atualizado_em',
+        ]
+        read_only_fields = fields
+
+    def get_total_campos(self, obj):
+        return obj.campos.count()
+
+
+class FormularioInscricaoPublicSerializer(serializers.ModelSerializer):
+    """Serializer PÚBLICO para expor somente a ESTRUTURA do formulário.
+
+    Nunca inclui respostas. Usado apenas para que o frontend possa renderizar
+    os campos para o participante preencher.
+    """
+
+    campos = CampoFormularioSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = FormularioInscricao
+        fields = ['id', 'nome', 'descricao', 'campos']
+        read_only_fields = fields
+
+
+class RespostaCampoInscricaoAdminSerializer(serializers.ModelSerializer):
+    """Serializer de RESPOSTAS — exclusivo para endpoints admin.
+
+    Jamais deve ser usado em endpoints públicos. Retorna valor preenchido e
+    URL protegida para download do arquivo (quando aplicável).
+    """
+
+    campo_id = serializers.IntegerField(source='campo.id', read_only=True)
+    label = serializers.CharField(source='campo.label', read_only=True)
+    tipo = serializers.CharField(source='campo.tipo', read_only=True)
+    tipo_display = serializers.CharField(source='campo.get_tipo_display', read_only=True)
+    ordem = serializers.IntegerField(source='campo.ordem', read_only=True)
+    opcoes = serializers.JSONField(source='campo.opcoes', read_only=True)
+    arquivo_url = serializers.SerializerMethodField()
+    arquivo_nome = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RespostaCampoInscricao
+        fields = [
+            'id', 'campo_id', 'label', 'tipo', 'tipo_display', 'ordem', 'opcoes',
+            'valor', 'arquivo_url', 'arquivo_nome',
+        ]
+        read_only_fields = fields
+
+    def get_arquivo_url(self, obj):
+        if obj.campo.tipo != 'arquivo' or not obj.arquivo:
+            return None
+        # URL do endpoint admin protegido (não o MEDIA direto).
+        return f'/api/admin/inscricoes/{obj.inscricao_id}/respostas/{obj.campo_id}/arquivo/'
+
+    def get_arquivo_nome(self, obj):
+        if obj.campo.tipo != 'arquivo' or not obj.arquivo:
+            return None
+        try:
+            return obj.arquivo.name.rsplit('/', 1)[-1]
+        except Exception:
+            return None
+
+
 class EventoSerializer(serializers.ModelSerializer):
     """Serializer para o modelo Evento."""
     
@@ -195,6 +406,11 @@ class EventoSerializer(serializers.ModelSerializer):
     
     # Campo formatado para valor
     valor_inscricao_formatado = serializers.SerializerMethodField()
+
+    # Estrutura do formulário (só estrutura, NUNCA respostas)
+    formulario_inscricao_detalhe = FormularioInscricaoPublicSerializer(
+        source='formulario_inscricao', read_only=True
+    )
     
     class Meta:
         model = Evento
@@ -206,6 +422,7 @@ class EventoSerializer(serializers.ModelSerializer):
             'inscricoes_abertas', 'status_inscricao',
             'evento_pago', 'valor_inscricao', 'valor_inscricao_formatado',
             'imagem', 'status', 'status_display', 'destaque',
+            'formulario_inscricao', 'formulario_inscricao_detalhe',
             'criado_em', 'atualizado_em', 'criado_em_formatado'
         ]
         read_only_fields = ['id', 'criado_em', 'atualizado_em']
@@ -215,7 +432,8 @@ class EventoSerializer(serializers.ModelSerializer):
         # Campos que podem ser nulos e devem aceitar string vazia como null
         nullable_fields = [
             'data_fim', 'inscricao_inicio', 'inscricao_fim', 
-            'vagas', 'valor_inscricao', 'endereco', 'imagem'
+            'vagas', 'valor_inscricao', 'endereco', 'imagem',
+            'formulario_inscricao',
         ]
         
         # Criar cópia mutável dos dados
@@ -303,8 +521,187 @@ class EventoListaSerializer(serializers.ModelSerializer):
         return data
 
 
+def _extensao_arquivo(nome):
+    if not nome or '.' not in nome:
+        return ''
+    return nome.rsplit('.', 1)[-1].lower()
+
+
+def _validar_cpf(cpf):
+    """Valida CPF por dígito verificador. Retorna True se válido."""
+    import re
+    cpf = re.sub(r'\D', '', cpf or '')
+    if len(cpf) != 11 or cpf == cpf[0] * 11:
+        return False
+    for i in (9, 10):
+        soma = sum(int(cpf[num]) * ((i + 1) - num) for num in range(0, i))
+        digito = (soma * 10) % 11
+        if digito == 10:
+            digito = 0
+        if digito != int(cpf[i]):
+            return False
+    return True
+
+
+def validar_respostas_formulario(evento, respostas_raw):
+    """Valida a lista de respostas contra o formulário do evento.
+
+    ``respostas_raw`` deve ser uma lista/dict no formato::
+
+        [{"campo": <id>, "valor": <qualquer>}, ...]
+
+    Retorna uma lista de dicts prontos para criação de ``RespostaCampoInscricao``
+    (sem o campo ``arquivo``, que é tratado separadamente no fluxo de upload).
+
+    Levanta ``serializers.ValidationError({'errors_por_campo': {campo_id: msg}})``
+    quando houver erros.
+    """
+    import re
+    from datetime import date as _date
+
+    formulario = getattr(evento, 'formulario_inscricao', None)
+    errors = {}
+
+    if not formulario:
+        # Evento sem formulário: ignora qualquer resposta enviada (por segurança).
+        return []
+
+    # Normaliza para dict {campo_id: valor}
+    respostas_map = {}
+    if isinstance(respostas_raw, dict):
+        for k, v in respostas_raw.items():
+            try:
+                respostas_map[int(k)] = v
+            except (TypeError, ValueError):
+                continue
+    elif isinstance(respostas_raw, list):
+        for item in respostas_raw:
+            if not isinstance(item, dict):
+                continue
+            cid = item.get('campo') or item.get('campo_id') or item.get('id')
+            try:
+                cid = int(cid)
+            except (TypeError, ValueError):
+                continue
+            respostas_map[cid] = item.get('valor', item.get('value'))
+
+    validadas = []
+    campos = list(formulario.campos.all().order_by('ordem', 'id'))
+
+    for campo in campos:
+        valor = respostas_map.get(campo.id, None)
+        # Detectar vazio conforme tipo
+        vazio = valor is None or (isinstance(valor, str) and not valor.strip()) or (
+            isinstance(valor, list) and len(valor) == 0
+        )
+
+        if campo.obrigatorio and vazio and campo.tipo != 'arquivo':
+            errors[campo.id] = 'Campo obrigatório.'
+            continue
+
+        if vazio and campo.tipo != 'arquivo':
+            # opcional e vazio: pula
+            continue
+
+        tipo = campo.tipo
+        try:
+            if tipo in ('texto_curto', 'texto_longo'):
+                v = str(valor)
+                if campo.tamanho_max and len(v) > campo.tamanho_max:
+                    errors[campo.id] = f'Máximo de {campo.tamanho_max} caracteres.'
+                    continue
+                validadas.append({'campo': campo, 'valor': v})
+            elif tipo == 'numero':
+                try:
+                    num = float(str(valor).replace(',', '.'))
+                except (TypeError, ValueError):
+                    errors[campo.id] = 'Informe um número válido.'
+                    continue
+                validadas.append({'campo': campo, 'valor': num})
+            elif tipo == 'data':
+                s = str(valor)
+                try:
+                    # Aceita ISO (YYYY-MM-DD) e dd/mm/yyyy
+                    if re.match(r'^\d{4}-\d{2}-\d{2}$', s):
+                        _date.fromisoformat(s)
+                        iso = s
+                    elif re.match(r'^\d{2}/\d{2}/\d{4}$', s):
+                        d, m, y = s.split('/')
+                        iso = _date(int(y), int(m), int(d)).isoformat()
+                    else:
+                        raise ValueError()
+                except ValueError:
+                    errors[campo.id] = 'Informe uma data válida (YYYY-MM-DD).'
+                    continue
+                validadas.append({'campo': campo, 'valor': iso})
+            elif tipo == 'boolean':
+                if isinstance(valor, bool):
+                    b = valor
+                else:
+                    s = str(valor).strip().lower()
+                    if s in ('true', '1', 'sim', 'yes', 's'):
+                        b = True
+                    elif s in ('false', '0', 'nao', 'não', 'no', 'n'):
+                        b = False
+                    else:
+                        errors[campo.id] = 'Informe Sim ou Não.'
+                        continue
+                validadas.append({'campo': campo, 'valor': b})
+            elif tipo == 'select_unico':
+                v = str(valor)
+                if v not in (campo.opcoes or []):
+                    errors[campo.id] = 'Opção inválida.'
+                    continue
+                validadas.append({'campo': campo, 'valor': v})
+            elif tipo == 'select_multiplo':
+                if not isinstance(valor, list):
+                    errors[campo.id] = 'Formato inválido.'
+                    continue
+                invalidos = [v for v in valor if v not in (campo.opcoes or [])]
+                if invalidos:
+                    errors[campo.id] = 'Uma ou mais opções são inválidas.'
+                    continue
+                validadas.append({'campo': campo, 'valor': list(valor)})
+            elif tipo == 'email':
+                s = str(valor).strip()
+                if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', s):
+                    errors[campo.id] = 'E-mail inválido.'
+                    continue
+                validadas.append({'campo': campo, 'valor': s})
+            elif tipo == 'telefone':
+                s = re.sub(r'\D', '', str(valor))
+                if not (10 <= len(s) <= 13):
+                    errors[campo.id] = 'Telefone inválido.'
+                    continue
+                validadas.append({'campo': campo, 'valor': s})
+            elif tipo == 'cpf':
+                s = re.sub(r'\D', '', str(valor))
+                if not _validar_cpf(s):
+                    errors[campo.id] = 'CPF inválido.'
+                    continue
+                validadas.append({'campo': campo, 'valor': s})
+            elif tipo == 'arquivo':
+                # Arquivos são validados/atribuídos no fluxo de upload.
+                # Aqui apenas registramos o campo; a criação da RespostaCampoInscricao
+                # para arquivo acontece externamente com o próprio FileField.
+                continue
+            else:
+                validadas.append({'campo': campo, 'valor': valor})
+        except Exception:
+            errors[campo.id] = 'Valor inválido.'
+
+    if errors:
+        raise serializers.ValidationError({'errors_por_campo': errors})
+
+    return validadas
+
+
 class InscricaoSerializer(serializers.ModelSerializer):
-    """Serializer para o modelo Inscrição."""
+    """Serializer PÚBLICO/ADMIN base para Inscrição.
+
+    IMPORTANTE: este serializer NÃO expõe respostas. Para ver respostas use
+    ``InscricaoAdminSerializer`` em rotas administrativas autenticadas.
+    """
     
     membro_nome = serializers.CharField(source='membro.nome', read_only=True)
     membro_email = serializers.CharField(source='membro.email', read_only=True)
@@ -319,12 +716,14 @@ class InscricaoSerializer(serializers.ModelSerializer):
     data_checkin_formatada = serializers.SerializerMethodField()
     data_pagamento_formatada = serializers.SerializerMethodField()
     valor_inscricao_formatado = serializers.SerializerMethodField()
+    evento_tem_formulario = serializers.SerializerMethodField()
     
     class Meta:
         model = Inscricao
         fields = [
             'id', 'membro', 'membro_nome', 'membro_email', 'membro_telefone',
             'evento', 'evento_titulo', 'evento_data', 'evento_pago',
+            'evento_tem_formulario',
             'categoria', 'categoria_nome',
             'codigo', 'qrcode',
             'data_inscricao', 'data_inscricao_formatada',
@@ -361,6 +760,12 @@ class InscricaoSerializer(serializers.ModelSerializer):
         if obj.valor_inscricao is None or obj.valor_inscricao == 0:
             return 'Gratuito'
         return f'R$ {obj.valor_inscricao:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+
+    def get_evento_tem_formulario(self, obj):
+        try:
+            return bool(obj.evento and obj.evento.formulario_inscricao_id)
+        except Exception:
+            return False
     
     def validate(self, data):
         """Validação customizada para inscrição."""
@@ -394,6 +799,20 @@ class InscricaoSerializer(serializers.ModelSerializer):
             )
         
         return data
+
+
+class InscricaoAdminSerializer(InscricaoSerializer):
+    """Serializer ADMIN que inclui as respostas aninhadas.
+
+    Deve ser usado somente em views autenticadas (admin). Rotas públicas
+    continuam usando ``InscricaoSerializer`` para não vazar respostas.
+    """
+
+    respostas = RespostaCampoInscricaoAdminSerializer(many=True, read_only=True)
+
+    class Meta(InscricaoSerializer.Meta):
+        fields = InscricaoSerializer.Meta.fields + ['respostas']
+        read_only_fields = InscricaoSerializer.Meta.read_only_fields + ['respostas']
 
 
 class ContatoSerializer(serializers.ModelSerializer):

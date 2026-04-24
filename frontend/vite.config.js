@@ -19,12 +19,29 @@ function versionFromEnv(raw) {
 }
 
 /**
- * Ordem: (1) VITE_APP_VERSION ou APP_VERSION no build — obrigatório em Docker sem .git;
- * (2) Git: última tag + commits desde a tag; (3) package.json; (4) 1.0
+ * Ordem:
+ * (1) VITE_APP_VERSION / APP_VERSION (Coolify build arg ou CI)
+ * (2) ficheiro frontend/VERSION (uma linha, versionado — funciona em Docker sem .git)
+ * (3) Git na raiz do repo (dev local)
+ * (4) package.json
+ * (5) 1.0
  */
+function readVersionFile() {
+  try {
+    const p = path.join(__dirname, 'VERSION')
+    const line = readFileSync(p, 'utf-8').trim().split(/\r?\n/)[0]?.trim() || ''
+    return versionFromEnv(line)
+  } catch {
+    return null
+  }
+}
+
 function getAppVersion() {
   const fromEnv = versionFromEnv(process.env.VITE_APP_VERSION || process.env.APP_VERSION)
   if (fromEnv) return fromEnv
+
+  const fromFile = readVersionFile()
+  if (fromFile) return fromFile
 
   const gitCwd = path.join(__dirname, '..')
   try {

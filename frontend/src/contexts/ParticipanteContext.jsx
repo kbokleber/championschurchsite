@@ -148,6 +148,17 @@ export function ParticipanteProvider({ children }) {
       else if (!silent) console.warn('Sessão inválida ou expirada. Faça login novamente neste navegador.')
       
       if (isUnauthorized) {
+        const cache = lerCache()
+        // Em refresh de background (troca de aba/F5 com cache), não deslogar
+        // imediatamente por 401 transitório. Mantemos a sessão visual e
+        // permitimos nova tentativa.
+        if (isRefresh && cache.participante) {
+          setParticipante((prev) => prev || cache.participante)
+          setIngressos((prev) => (Array.isArray(prev) && prev.length > 0 ? prev : cache.ingressos))
+          if (!silent) setLoadError(true)
+          return { success: false, unauthorized: true }
+        }
+
         // Verificar se é erro de token expirado ou inválido
         const errorMsg = error.response?.data?.error || ''
         const isTokenExpirado = errorMsg.includes('expirado') || errorMsg.includes('expired')
@@ -156,7 +167,6 @@ export function ParticipanteProvider({ children }) {
         // O usuário continuará logado visualmente, mas precisará fazer login novamente
         // apenas quando tentar fazer uma ação que requer token válido
         if (isTokenExpirado) {
-          const cache = lerCache()
           if (cache.participante) {
             // Manter dados do cache e não fazer logout imediato
             // O usuário permanecerá logado visualmente
@@ -249,7 +259,7 @@ export function ParticipanteProvider({ children }) {
     const token = localStorage.getItem('participante_token')
     if (!token) return { success: false }
     if (opcoes.forcar) limparCacheIngressos()
-    return await carregarPerfil(token, { isRefresh: true })
+    return await carregarPerfil(token, { isRefresh: true, silent: !!opcoes.silent })
   }
 
   const getToken = () => {

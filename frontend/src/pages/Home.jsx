@@ -33,23 +33,27 @@ function Home() {
   const features = [
     {
       icon: <BookOpen className="h-8 w-8" />,
-      title: 'Palavra de Deus',
-      description: 'Ensino bíblico relevante para sua vida diária.',
+      title: 'CONECTION:',
+      description:
+        'O momento de conexão com nossos pastores, para todos aqueles que desejam se conectar com nossa igreja como membro, caminhar conosco e conhecer a nossa história.',
     },
     {
       icon: <Users className="h-8 w-8" />,
-      title: 'Comunidade',
-      description: 'Uma família acolhedora para todas as idades.',
+      title: 'DIRECTION:',
+      description:
+        'O mesmo que direção, é o nosso momento de estudo da palavra. Onde recebemos ensinamentos e direcionamos de acordo com a palavra do senhor.',
     },
     {
       icon: <Heart className="h-8 w-8" />,
-      title: 'Amor em Ação',
-      description: 'Servindo nossa comunidade com compaixão.',
+      title: 'DEEPER:',
+      description:
+        'Deeper significa mais fundo, é onde entramos na história e mergulhamos mais fundo nas escrituras.',
     },
     {
       icon: <Calendar className="h-8 w-8" />,
-      title: 'Eventos',
-      description: 'Programação especial durante todo o ano.',
+      title: 'CÉLULA – Partir do pão:',
+      description:
+        'É onde a fé se torna prática, onde vidas se conectam e o pão é repartido, assim como o amor de Cristo.',
     },
   ]
 
@@ -85,9 +89,9 @@ function Home() {
       <section className="py-20 bg-church-cream">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
-            <h2 className="section-title">Por que nos escolher?</h2>
+            <h2 className="section-title">NOSSO ALVO: JESUS</h2>
             <p className="section-subtitle">
-              Somos uma igreja comprometida com a transformação de vidas através do amor de Deus.
+              NOSSO CHAMADO: Adorar, disciplinar e Compartilhar
             </p>
           </div>
 

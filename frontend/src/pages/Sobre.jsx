@@ -1,4 +1,4 @@
-import { Heart, Target, Eye, Users, BookOpen, Music, MapPin } from 'lucide-react'
+import { Heart, Target, Eye, Anchor, Users, BookOpen, Music, MapPin } from 'lucide-react'
 import { useConfiguracao } from '../contexts/ConfiguracaoContext'
 import { useMemo } from 'react'
 
@@ -53,28 +53,54 @@ function Sobre() {
 
   const ministerios = [
     {
-      nome: 'Ministério Infantil',
-      descricao: 'Cuidando das crianças com amor e ensinando os princípios da Palavra de Deus.',
+      nome: 'Intercessão',
+      descricao:
+        'É o altar invisível da igreja, onde joelhos dobrados movem céus, e corações rendidos sustentam aquilo que os olhos ainda não veem.',
     },
     {
-      nome: 'Ministério de Jovens',
-      descricao: 'Discipulando a nova geração para impactar o mundo.',
+      nome: 'Clean',
+      descricao:
+        'É servir em silêncio, preparando o ambiente para que vidas sejam transformadas, cada detalhe limpo se torna um ato de honra ao Senhor.',
     },
     {
-      nome: 'Ministério de Casais',
-      descricao: 'Fortalecendo famílias através de encontros e aconselhamento.',
+      nome: 'Estacionamento',
+      descricao:
+        'É o primeiro gesto de cuidado, antes mesmo de entrarem, já são acolhidos. Abre o caminho para que cada pessoa encontre o seu lugar.',
     },
     {
-      nome: 'Ministério de Louvor',
-      descricao: 'Conduzindo a igreja na adoração a Deus através da música.',
+      nome: 'Recepção',
+      descricao:
+        'São braços abertos que refletem o amor de Cristo, um sorriso que diz: "você pertence". Transforma a chegada em encontro.',
     },
     {
-      nome: 'Ministério de Intercessão',
-      descricao: 'Orando pela igreja, pela cidade e pelas nações.',
+      nome: 'Coffee',
+      descricao:
+        'É comunhão em forma de cuidado, preparando e servindo com carinho, entre um lanche e outro, vidas se conectam, e o amor se manifesta nos detalhes simples.',
     },
     {
-      nome: 'Ministério de Ação Social',
-      descricao: 'Servindo a comunidade com amor e compaixão.',
+      nome: 'Store',
+      descricao:
+        'É levar a mensagem além das palavras, cada item carrega propósito, e se torna lembrança viva do que Deus está fazendo.',
+    },
+    {
+      nome: 'Mídia',
+      descricao:
+        'É a voz que ecoa, a imagem que alcança, torna visível o invisível, para que a mensagem toque cada coração, presente ou à distância.',
+    },
+    {
+      nome: 'Champions Music',
+      descricao:
+        'É o som da rendição, onde notas e vozes se unem para conduzir a igreja à presença de Deus.',
+    },
+    {
+      nome: 'Kids',
+      descricao:
+        'São sementes plantadas em terra fértil, pequenos corações aprendendo a amar Jesus, construindo um futuro cheio de fé.',
+    },
+    {
+      nome: 'Teens',
+      descricao:
+        'É identidade sendo formada em Deus, jovens sendo levantados com propósito, para viverem uma fé verdadeira em meio ao mundo.',
     },
   ]
 
@@ -86,10 +112,10 @@ function Sobre() {
           <h1 className="text-4xl md:text-5xl font-serif font-bold text-white mb-6">
             Sobre a {configuracao?.nome_igreja || 'Champions Church'}
           </h1>
-          <p className="text-xl text-primary-100 max-w-3xl mx-auto">
-            Uma igreja comprometida com a transformação de vidas através do amor de Deus.
-            Conheça nossa história, missão e valores.
-          </p>
+          <div className="text-xl text-primary-100 max-w-3xl mx-auto space-y-2">
+            <p className="font-semibold">NOSSO ALVO: JESUS</p>
+            <p>NOSSO CHAMADO: Adorar, disciplinar e Compartilhar</p>
+          </div>
         </div>
       </section>
 
@@ -101,39 +127,48 @@ function Sobre() {
               <h2 className="section-title">Nossa História</h2>
               <div className="space-y-4 text-gray-700 leading-relaxed">
                 <p>
-                  A {configuracao?.nome_igreja || 'Champions Church'} nasceu do sonho de criar uma igreja onde pessoas de todas 
-                  as idades e origens pudessem encontrar um lar espiritual acolhedor e 
-                  transformador.
+                  A Champions Church é o cumprimento da promessa de Deus na vida dos pastores
+                  Eduardo Santana e Isabela Santana, que iniciaram sua jornada cristã em 2002.
                 </p>
                 <p>
-                  Fundada por um grupo de cristãos comprometidos com o evangelho, nossa igreja 
-                  tem crescido em número e em amor ao longo dos anos, sempre mantendo o foco 
-                  na Palavra de Deus e no serviço ao próximo.
+                  Em 2022 Deus entregou a visão do Ministério ao pastor e em 2023 tudo começou...
                 </p>
+                <p>E o que era um sonho, Deus tornou realidade.</p>
                 <p>
-                  Hoje, somos uma comunidade vibrante que busca impactar nossa cidade e o 
-                  mundo através do amor de Cristo, desenvolvendo discípulos que fazem a 
-                  diferença onde quer que estejam.
+                  Somos uma família em Cristo Jesus, entendemos que a salvação é individual,
+                  mas a caminhada não precisa ser solitária!
                 </p>
+                <p>Uma igreja de Campeões é formada por um time de vencedores.</p>
+                <p className="font-medium text-church-navy">Venha você também fazer parte!</p>
               </div>
             </div>
             <div className="relative">
               <div className="bg-gradient-to-br from-primary-100 to-primary-200 rounded-2xl p-8 shadow-lg">
                 <img
-                  src="https://images.unsplash.com/photo-1438232992991-995b7058bbb3?w=600"
-                  alt="Igreja"
-                  className="rounded-xl shadow-md w-full h-80 object-cover"
+                  src="/images/sobre-nossa-historia.png"
+                  alt="Liderança da Champions Church"
+                  className="rounded-xl shadow-md w-full max-w-md mx-auto h-80 sm:h-96 object-cover object-center"
                 />
               </div>
             </div>
           </div>
+
+          <div className="mt-14 sm:mt-16 flex justify-center px-0">
+            <figure className="w-full max-w-xl sm:max-w-2xl mx-auto text-center">
+              <img
+                src="/images/sobre-familia-destaque.png"
+                alt="Família Champions Church em frente à igreja"
+                className="w-full rounded-2xl shadow-2xl object-cover ring-1 ring-black/5"
+              />
+            </figure>
+          </div>
         </div>
       </section>
 
-      {/* Mission & Vision */}
+      {/* Missão, visão e valores */}
       <section className="py-20 bg-church-cream">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             <div className="bg-white rounded-xl shadow-lg p-8">
               <div className="flex items-center mb-6">
                 <div className="w-14 h-14 bg-primary-100 rounded-full flex items-center justify-center mr-4">
@@ -142,8 +177,7 @@ function Sobre() {
                 <h3 className="text-2xl font-bold text-church-navy">Missão</h3>
               </div>
               <p className="text-gray-700 leading-relaxed">
-                Levar pessoas a conhecer Jesus Cristo, desenvolvê-las como discípulos e 
-                capacitá-las para servir, a fim de glorificar a Deus e impactar o mundo.
+                Apresentar e fazer com que as pessoas tenham um encontro com o Senhor Jesus.
               </p>
             </div>
 
@@ -155,8 +189,19 @@ function Sobre() {
                 <h3 className="text-2xl font-bold text-church-navy">Visão</h3>
               </div>
               <p className="text-gray-700 leading-relaxed">
-                Ser uma igreja relevante que transforma vidas, famílias e comunidades 
-                através do poder do Evangelho, formando uma geração de campeões para Cristo.
+                Quebrar a religiosidade sem perder a espiritualidade.
+              </p>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-lg p-8 md:col-span-2 lg:col-span-1">
+              <div className="flex items-center mb-6">
+                <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mr-4">
+                  <Anchor className="h-7 w-7 text-emerald-700" />
+                </div>
+                <h3 className="text-2xl font-bold text-church-navy">Valores</h3>
+              </div>
+              <p className="text-gray-700 leading-relaxed">
+                Não abrir mão dos princípios e valores estabelecidos pela palavra de Deus.
               </p>
             </div>
           </div>
@@ -202,16 +247,18 @@ function Sobre() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {ministerios.map((ministerio, index) => (
               <div
                 key={index}
-                className="bg-white p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow"
+                className="bg-white p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow flex flex-col"
               >
-                <h3 className="text-lg font-bold text-church-navy mb-2">
+                <h3 className="text-lg font-bold text-church-navy mb-3">
                   {ministerio.nome}
                 </h3>
-                <p className="text-gray-600">{ministerio.descricao}</p>
+                <p className="text-gray-600 text-sm leading-relaxed grow">
+                  {ministerio.descricao}
+                </p>
               </div>
             ))}
           </div>
@@ -295,12 +342,12 @@ function Sobre() {
       )}
 
       {/* CTA */}
-      <section className="py-20 bg-gradient-to-r from-primary-600 to-primary-800">
+      <section className="py-20" style={{ backgroundColor: corHeaderPagina }}>
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-3xl md:text-4xl font-serif font-bold text-white mb-6">
             Venha fazer parte desta família!
           </h2>
-          <p className="text-xl text-primary-100 mb-8">
+          <p className="text-xl text-white/90 mb-8">
             Estamos esperando por você. Visite-nos neste domingo!
           </p>
           <a

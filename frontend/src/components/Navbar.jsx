@@ -20,9 +20,9 @@ function Navbar() {
 
   const navLinks = [
     { path: '/', label: 'Início' },
+    { path: '/sobre', label: 'Sobre' },
     { path: '/eventos', label: 'Eventos' },
     { path: '/meus-ingressos', label: 'Meus Ingressos', icon: true },
-    { path: '/sobre', label: 'Sobre' },
     { path: '/contato', label: 'Contato' },
   ]
 

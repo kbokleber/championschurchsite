@@ -21,8 +21,10 @@ COPY . .
 ARG VITE_APP_VERSION=
 ENV VITE_APP_VERSION=${VITE_APP_VERSION}
 
-# Build da aplicação
-RUN npm run build
+# Logs no Coolify: confirma o que entra no bundle (env vazia → usa package.json no vite.config.js)
+RUN node -e "console.log('[build] package.json version:', require('./package.json').version)" && \
+    echo "[build] VITE_APP_VERSION (se vazio, ignora-se)=$VITE_APP_VERSION" && \
+    npm run build
 
 # Stage 2: Runtime com Nginx
 FROM nginx:alpine

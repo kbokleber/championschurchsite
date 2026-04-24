@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Church, MapPin, Phone, Mail, Clock, Facebook, Instagram, Youtube } from 'lucide-react'
 import { useConfiguracao } from '../contexts/ConfiguracaoContext'
+import { linhasDeHorario } from '../utils/horarios'
 
 function Footer() {
   const { configuracao, getImageUrl } = useConfiguracao()
@@ -18,11 +19,7 @@ function Footer() {
     return partes.length > 0 ? partes.join(' - ') : null
   }
 
-  // Função para formatar horários
-  const formatarHorarios = () => {
-    if (!configuracao?.horarios) return []
-    return configuracao.horarios.split('\n').filter(h => h.trim())
-  }
+  const formatarHorarios = () => linhasDeHorario(configuracao?.horarios)
 
   const endereco = formatarEndereco()
   const horarios = formatarHorarios()

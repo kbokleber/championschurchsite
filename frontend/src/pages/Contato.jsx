@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { MapPin, Phone, Mail, Clock, Send, Check } from 'lucide-react'
 import api from '../services/api'
 import { useConfiguracao } from '../contexts/ConfiguracaoContext'
+import { linhasDeHorario } from '../utils/horarios'
 
 function Contato() {
   const { configuracao: config } = useConfiguracao()
@@ -49,6 +50,17 @@ function Contato() {
     }
   }
 
+  const mapaIframeProps = useMemo(() => {
+    if (!config?.google_maps_embed) return null
+    const embedCode = config.google_maps_embed
+    const srcMatch = embedCode.match(/src=["']([^"']+)["']/) || embedCode.match(/src=([^\s>]+)/)
+    if (!srcMatch || !srcMatch[1]) return null
+    const src = srcMatch[1]
+    const widthMatch = embedCode.match(/width=["']?(\d+)["']?/)
+    const heightMatch = embedCode.match(/height=["']?(\d+)["']?/)
+    return { src }
+  }, [config?.google_maps_embed])
+
   // Montar endereço completo
   const endereco = []
   if (config?.endereco) endereco.push(config.endereco)
@@ -67,13 +79,12 @@ function Contato() {
   const emails = []
   if (config?.email) emails.push(config.email)
 
-  // Horário de funcionamento
-  const horarios = []
-  if (config?.horarios) {
-    horarios.push(...config.horarios.split('\n').filter(Boolean))
-  } else {
-    horarios.push('Entre em contato para mais informações')
-  }
+  // Horário de funcionamento (API pode enviar \r\n ou string literal)
+  const horarios = (() => {
+    const lines = linhasDeHorario(config?.horarios)
+    if (lines.length > 0) return lines
+    return ['Entre em contato para mais informações']
+  })()
 
   const contatos = [
     {
@@ -116,9 +127,9 @@ function Contato() {
       {/* Contact Section */}
       <section className="py-20 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 lg:items-stretch">
             {/* Contact Info */}
-            <div className="lg:col-span-1">
+            <div className="lg:col-span-1 flex flex-col">
               <h2 className="text-2xl font-bold text-church-navy mb-6">
                 Informações de Contato
               </h2>
@@ -142,22 +153,50 @@ function Contato() {
                 ))}
               </div>
 
-              {/* Map Placeholder */}
+              {/* Mapa: altura h-64 como o placeholder original (16rem) */}
               <div className="mt-8">
-                <div className="bg-gray-200 rounded-xl h-64 flex items-center justify-center">
-                  <div className="text-center text-gray-500">
-                    <MapPin className="h-12 w-12 mx-auto mb-2" />
-                    <p>Mapa da localização</p>
+                {config?.google_maps_embed ? (
+                  <div
+                    className="h-64 w-full rounded-xl overflow-hidden border border-gray-200 bg-white shadow-sm [&_iframe]:!h-64 [&_iframe]:!w-full [&_iframe]:!max-w-none [&_iframe]:border-0 [&_iframe]:block"
+                  >
+                    {mapaIframeProps ? (
+                      <iframe
+                        src={mapaIframeProps.src}
+                        width="100%"
+                        height={256}
+                        className="h-64 w-full max-w-full border-0"
+                        style={{ display: 'block' }}
+                        allowFullScreen={true}
+                        loading="lazy"
+                        referrerPolicy="no-referrer-when-downgrade"
+                        title={`Mapa — ${config?.nome_igreja || 'Champions Church'}`}
+                      />
+                    ) : (
+                      <div
+                        className="h-64 w-full"
+                        dangerouslySetInnerHTML={{ __html: config.google_maps_embed }}
+                      />
+                    )}
                   </div>
-                </div>
+                ) : (
+                  <div className="bg-gray-200 rounded-xl h-64 flex items-center justify-center">
+                    <div className="text-center text-gray-500 text-sm px-4">
+                      <MapPin className="h-12 w-12 mx-auto mb-2" />
+                      <p className="font-medium">Mapa da localização</p>
+                      <p className="mt-1 text-gray-500">
+                        Configure o mapa em Admin → Configurações (código embed do Google Maps).
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Contact Form */}
-            <div className="lg:col-span-2">
-              <div className="bg-white rounded-xl shadow-lg p-8">
+            <div className="lg:col-span-2 flex flex-col min-h-0">
+              <div className="bg-white rounded-xl shadow-lg p-8 flex flex-col h-full min-h-0">
                 {sucesso ? (
-                  <div className="text-center py-12">
+                  <div className="text-center py-12 flex-1 flex flex-col items-center justify-center min-h-[18rem]">
                     <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
                       <Check className="h-10 w-10 text-green-600" />
                     </div>
@@ -169,14 +208,15 @@ function Contato() {
                       o mais breve possível.
                     </p>
                     <button
+                      type="button"
                       onClick={() => setSucesso(false)}
-                      className="btn-primary"
+                      className="btn-primary w-auto inline-flex"
                     >
                       Enviar Nova Mensagem
                     </button>
                   </div>
                 ) : (
-                  <>
+                  <div className="flex flex-col flex-1 min-h-0">
                     <h2 className="text-2xl font-bold text-church-navy mb-6">
                       Envie sua Mensagem
                     </h2>
@@ -187,7 +227,10 @@ function Contato() {
                       </div>
                     )}
 
-                    <form onSubmit={handleSubmit} className="space-y-6">
+                    <form
+                      onSubmit={handleSubmit}
+                      className="flex flex-1 min-h-0 flex-col gap-6"
+                    >
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                           <label htmlFor="nome" className="label">
@@ -261,7 +304,7 @@ function Contato() {
                         </div>
                       </div>
 
-                      <div>
+                      <div className="flex flex-1 flex-col min-h-0">
                         <label htmlFor="mensagem" className="label">
                           Mensagem *
                         </label>
@@ -272,7 +315,7 @@ function Contato() {
                           onChange={handleChange}
                           required
                           rows={6}
-                          className="input-field resize-none"
+                          className="input-field resize-y flex-1 min-h-[10rem] w-full"
                           placeholder="Digite sua mensagem..."
                         />
                       </div>
@@ -280,7 +323,7 @@ function Contato() {
                       <button
                         type="submit"
                         disabled={loading}
-                        className="btn-primary w-full md:w-auto flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="btn-primary w-auto self-start inline-flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                       >
                         {loading ? (
                           'Enviando...'
@@ -292,7 +335,7 @@ function Contato() {
                         )}
                       </button>
                     </form>
-                  </>
+                  </div>
                 )}
               </div>
             </div>

@@ -3922,10 +3922,12 @@ class PermissaoMenuViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     
     def list(self, request, *args, **kwargs):
-        """Lista permissões, garantindo sincronização automática dos menus."""
+        """Lista permissões (sem paginação), garantindo sincronização automática dos menus."""
         # Sincronizar menus automaticamente antes de listar
         PermissaoMenu.garantir_sincronizacao()
-        return super().list(request, *args, **kwargs)
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
     
     def get_queryset(self):
         """Retorna apenas permissões ativas por padrão, a menos que seja solicitado todas."""

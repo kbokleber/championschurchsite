@@ -35,8 +35,28 @@ function AdminGrupos() {
 
   const fetchPermissoes = async () => {
     try {
-      const response = await api.get('/permissoes-menu/?incluir_inativos=true')
-      setPermissoes(response.data.results || response.data)
+      // Busca todas as páginas para não perder permissões no fim da lista
+      // (ex.: "Loja / Cantina" quando a API está paginada).
+      let url = '/permissoes-menu/?incluir_inativos=true'
+      const todasPermissoes = []
+
+      while (url) {
+        const response = await api.get(url)
+        const data = response.data
+
+        if (Array.isArray(data)) {
+          todasPermissoes.push(...data)
+          url = null
+        } else {
+          todasPermissoes.push(...(data.results || []))
+          url = data.next
+          if (url?.includes(window.location.origin)) {
+            url = url.replace(window.location.origin, '')
+          }
+        }
+      }
+
+      setPermissoes(todasPermissoes)
     } catch (error) {
       console.error('Erro ao carregar permissões:', error)
     }

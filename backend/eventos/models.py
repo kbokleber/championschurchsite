@@ -1260,6 +1260,8 @@ class PermissaoMenu(models.Model):
         {'codigo': 'configuracoes', 'nome': 'Configurações', 'ordem': 10, 'descricao': 'Configurações gerais do sistema'},
         {'codigo': 'usuarios', 'nome': 'Usuários', 'ordem': 11, 'descricao': 'Gerenciar usuários administrativos'},
         {'codigo': 'grupos', 'nome': 'Grupos', 'ordem': 12, 'descricao': 'Gerenciar grupos e permissões'},
+        # Loja / cantina (apenas painel admin; rotas /admin/loja/*) — atribua ao grupo no ecrã Grupos
+        {'codigo': 'loja', 'nome': 'Loja / Cantina', 'ordem': 13, 'descricao': 'Produtos, PDV e vendas (interno)'},
     ]
     
     codigo = models.CharField(

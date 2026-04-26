@@ -15,6 +15,7 @@ whitenoise>=6.6.0
 
 # Processamento de imagens
 Pillow>=10.2.0
+pillow-heif>=0.16.0  # abrir/salvar HEIC (fotos padrão do iPhone) no ImageField
 
 # Planilhas (export admin)
 openpyxl>=3.1.0

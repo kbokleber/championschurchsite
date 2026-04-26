@@ -841,7 +841,10 @@ function AdminConfiguracoes() {
                 <p className="text-sm text-blue-700">
                   Uma única URL recebe, em tempo real, novas inscrições, reset de senha (Meus Ingressos) e
                   alterações de eventos no admin. O corpo do POST traz o campo <code className="bg-blue-100 px-1 rounded">tipo</code> para
-                  o automação (ex.: n8n) decidir o fluxo. Pagamentos do Mercado Pago usam outro fluxo.
+                  o automação (ex.: n8n) decidir o fluxo. Quando o WhatsApp estiver configurado na aba WhatsApp, o JSON também inclui{' '}
+                  <code className="bg-blue-100 px-1 rounded">integracao_evolution</code> com <code className="bg-blue-100 px-1 rounded">api_url</code> e{' '}
+                  <code className="bg-blue-100 px-1 rounded">instance</code> (use isso no fluxo; os headers X-Evolution-* continuam sendo enviados).
+                  Pagamentos do Mercado Pago usam outro fluxo.
                 </p>
               </div>
 

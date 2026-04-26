@@ -17,6 +17,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
+from django.db import transaction
 from django.db.models import Q, Prefetch
 from django.http import HttpResponse
 from django.contrib.auth.models import User
@@ -47,6 +48,24 @@ from .serializers import (
 logger = logging.getLogger(__name__)
 
 
+def _evolution_integracao_json(config):
+    """
+    URL e instância cadastradas no admin, para o corpo JSON do webhook.
+    A API key não vai no JSON (fica nos headers). Automatizadores costumam
+    mapear só o body e ignorar headers customizados — isso evita instância "antiga".
+    """
+    url = (getattr(config, 'evolution_api_url', None) or '').strip()
+    inst = (getattr(config, 'evolution_api_instance', None) or '').strip()
+    if not url and not inst:
+        return None
+    out = {}
+    if url:
+        out['api_url'] = url
+    if inst:
+        out['instance'] = inst
+    return out or None
+
+
 def enviar_webhook_inscricao(dados_webhook):
     """
     Envia webhook de inscrição de forma assíncrona.
@@ -55,7 +74,8 @@ def enviar_webhook_inscricao(dados_webhook):
     print('>>> WEBHOOK: Iniciando envio de webhook...')
     try:
         config = ConfiguracaoSite.get_config()
-        
+        config.refresh_from_db()
+
         if not config.webhook_ativo or not config.webhook_inscricao:
             print(f'>>> WEBHOOK: Inativo ou não configurado. Ativo: {config.webhook_ativo}, URL: {config.webhook_inscricao}')
             logger.info('Webhook não configurado ou inativo')
@@ -131,6 +151,9 @@ def enviar_webhook_inscricao(dados_webhook):
                 'email': config.email,
             }
         }
+        evo_json = _evolution_integracao_json(config)
+        if evo_json:
+            payload['integracao_evolution'] = evo_json
         
         # Preparar headers com informações da Evolution API
         headers = {
@@ -222,6 +245,7 @@ def enviar_webhook_reset_senha(dados_webhook):
     resultado = {'entregue': False, 'motivo': 'requisicao_erro', 'http_status': None, 'url_usada': None, 'erro': None}
     try:
         config = ConfiguracaoSite.get_config()
+        config.refresh_from_db()
         if not config.webhook_ativo:
             logger.info('Webhook inativo - reset senha: não enviado (webhook_ativo=False)')
             resultado['motivo'] = 'webhook_inativo'
@@ -242,6 +266,9 @@ def enviar_webhook_reset_senha(dados_webhook):
             'email': dados_webhook.get('email'),
             'senha': dados_webhook.get('senha'),
         }
+        evo_json = _evolution_integracao_json(config)
+        if evo_json:
+            payload['integracao_evolution'] = evo_json
 
         headers = {
             'Content-Type': 'application/json',
@@ -254,7 +281,11 @@ def enviar_webhook_reset_senha(dados_webhook):
         if config.evolution_api_instance:
             headers['X-Evolution-Instance'] = config.evolution_api_instance
 
-        logger.info('Enviando webhook reset_senha para %s', url)
+        logger.info(
+            'Enviando webhook reset_senha para %s (evolution_instance=%r)',
+            url,
+            (config.evolution_api_instance or '')[:80],
+        )
         response = requests.post(
             url,
             json=payload,
@@ -330,12 +361,22 @@ def enviar_webhook_evento(evento, acao):
     """
     try:
         config = ConfiguracaoSite.get_config()
+        config.refresh_from_db()
         url = (getattr(config, 'webhook_inscricao', None) or '').strip()
         if not config.webhook_ativo or not url:
             logger.info('Webhook de eventos: inativo ou URL de inscrição não configurada')
             return
         payload = _payload_evento_webhook(evento, acao)
+        evo_json = _evolution_integracao_json(config)
+        if evo_json:
+            payload['integracao_evolution'] = evo_json
         headers = {'Content-Type': 'application/json', 'User-Agent': 'ChampionsChurch-Webhook/1.0'}
+        if config.evolution_api_url:
+            headers['X-Evolution-API-URL'] = config.evolution_api_url
+        if config.evolution_api_key:
+            headers['X-Evolution-API-Key'] = config.evolution_api_key
+        if config.evolution_api_instance:
+            headers['X-Evolution-Instance'] = config.evolution_api_instance
         response = requests.post(url, json=payload, headers=headers, timeout=30)
         logger.info(f'Webhook evento ({acao}) enviado: {response.status_code} - {url}')
     except Exception as e:
@@ -3040,21 +3081,7 @@ class CobrancaViewSet(viewsets.ModelViewSet):
 # ============================================
 
 import mercadopago
-
-def get_mercadopago_sdk(ambiente=None):
-    """
-    Retorna uma instância do SDK do Mercado Pago.
-    ambiente: None = usa config.mp_ambiente; 'production' ou 'sandbox' = força o ambiente.
-    Quando mp_cartao_em_sandbox está ativo, PIX usa production e cartão usa sandbox.
-    """
-    config = ConfiguracaoSite.get_config()
-    if not config.mp_ativo:
-        return None
-    env = ambiente if ambiente in ('sandbox', 'production') else config.mp_ambiente
-    access_token = config.get_mp_access_token_for(env)
-    if not access_token:
-        return None
-    return mercadopago.SDK(access_token)
+from .mercadopago_sdk import get_mercadopago_sdk
 
 
 @api_view(['POST'])
@@ -3361,27 +3388,62 @@ def _processar_webhook_mp_pagamento(resource_id):
         try:
             cobranca = Cobranca.objects.get(codigo=external_reference)
         except Cobranca.DoesNotExist:
-            logger.warning(f"Cobrança não encontrada: {external_reference}")
+            cobranca = None
+        if cobranca is not None:
+            if payment_status == 'approved':
+                if cobranca.status != 'pago':
+                    cobranca.status = 'pago'
+                    cobranca.data_pagamento = timezone.now()
+                    cobranca.referencia_externa = str(resource_id)
+                    cobranca.save()
+                    for item in cobranca.itens.all():
+                        inscricao = item.inscricao
+                        inscricao.status_pagamento = 'pago'
+                        inscricao.status = 'confirmada'
+                        inscricao.data_pagamento = timezone.now()
+                        inscricao.save()
+                    _disparar_webhook_cobranca_confirmada(cobranca)
+                    logger.info(f"Cobrança {cobranca.codigo} confirmada via MP!")
+            elif payment_status in ['cancelled', 'rejected']:
+                if cobranca.status == 'pendente':
+                    cobranca.status = 'cancelado'
+                    cobranca.save()
+                    logger.info(f"Cobrança {cobranca.codigo} cancelada/rejeitada")
+            return
+
+        # Cobrança de loja / cantina (tabela loja_cobrancaloja)
+        from loja.models import CobrancaLoja, Venda
+        from loja.estoque import baixar_estoque_venda
+
+        try:
+            c_loja = CobrancaLoja.objects.get(codigo=external_reference)
+        except CobrancaLoja.DoesNotExist:
+            logger.warning(f"Cobrança (evento ou loja) não encontrada: {external_reference}")
             return
         if payment_status == 'approved':
-            if cobranca.status != 'pago':
-                cobranca.status = 'pago'
-                cobranca.data_pagamento = timezone.now()
-                cobranca.referencia_externa = str(resource_id)
-                cobranca.save()
-                for item in cobranca.itens.all():
-                    inscricao = item.inscricao
-                    inscricao.status_pagamento = 'pago'
-                    inscricao.status = 'confirmada'
-                    inscricao.data_pagamento = timezone.now()
-                    inscricao.save()
-                _disparar_webhook_cobranca_confirmada(cobranca)
-                logger.info(f"Cobrança {cobranca.codigo} confirmada via MP!")
+            if c_loja.status != 'pago':
+                with transaction.atomic():
+                    c2 = CobrancaLoja.objects.select_for_update().select_related('venda').get(pk=c_loja.pk)
+                    if c2.status == 'pago':
+                        logger.info(
+                            f"CobrancaLoja {c2.codigo} já paga (idempotente no webhook), ignorando."
+                        )
+                    else:
+                        c2.status = 'pago'
+                        c2.data_pagamento = timezone.now()
+                        c2.referencia_externa = str(resource_id)
+                        c2.metodo_pagamento = c2.metodo_pagamento or 'Mercado Pago'
+                        c2.save()
+                        v2 = Venda.objects.select_for_update().get(pk=c2.venda_id)
+                        v2.status = 'pago'
+                        v2.save()
+                        baixar_estoque_venda(v2)
+                logger.info(f"CobrancaLoja {c_loja.codigo} confirmada via MP!")
         elif payment_status in ['cancelled', 'rejected']:
-            if cobranca.status == 'pendente':
-                cobranca.status = 'cancelado'
-                cobranca.save()
-                logger.info(f"Cobrança {cobranca.codigo} cancelada/rejeitada")
+            if c_loja.status == 'pendente':
+                c_loja.status = 'cancelado'
+                c_loja.save()
+                logger.info(f"CobrancaLoja {c_loja.codigo} cancelada/rejeitada")
     except Exception as e:
         logger.error(f"Erro no webhook MP (background): {str(e)}", exc_info=True)
 
@@ -3429,6 +3491,7 @@ def _disparar_webhook_cobranca_confirmada(cobranca, tipo='pagamento_confirmado',
     Mesmo payload com QR codes; tipo define: 'pagamento_confirmado' | 'confirmado_pagamento_manual' | 'isento'.
     """
     config = ConfiguracaoSite.get_config()
+    config.refresh_from_db()
     if not config.webhook_ativo or not config.webhook_inscricao:
         print('[WEBHOOK] Webhook inativo ou não configurado')
         return
@@ -3549,6 +3612,9 @@ def _disparar_webhook_cobranca_confirmada(cobranca, tipo='pagamento_confirmado',
         'valor_total': float(cobranca.valor),
         'total_inscritos': len(inscricoes_lista),
     }
+    evo_json = _evolution_integracao_json(config)
+    if evo_json:
+        payload['integracao_evolution'] = evo_json
     
     def enviar():
         try:

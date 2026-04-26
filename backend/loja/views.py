@@ -1,0 +1,809 @@
+import logging
+import uuid
+from collections import defaultdict
+from datetime import date
+
+import mercadopago
+import requests
+from django.db import transaction
+from rest_framework import viewsets, status, serializers
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.exceptions import ValidationError
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.response import Response
+
+from django.utils import timezone
+
+from eventos.mercadopago_sdk import get_mercadopago_sdk
+from eventos.models import ConfiguracaoSite
+from .estoque import (
+    baixar_estoque_venda,
+    reverter_estoque_venda,
+    validar_estoque_ao_adicionar_itens,
+    validar_estoque_disponivel,
+)
+from .models import Produto, Venda, ItemVenda, CobrancaLoja, ReservaLoja
+from .mp_preference import criar_preferencia_pagamento_loja
+from .reservas import liberar_reservas_ao_cancelar_venda, marcar_reservas_venda_paga
+from .serializers import (
+    ProdutoSerializer,
+    VendaListSerializer,
+    VendaDetailSerializer,
+    VendaCreateSerializer,
+    ItemVendaInputSerializer,
+    CobrancaLojaSerializer,
+    ReservaLojaListSerializer,
+    ReservaLojaCreateSerializer,
+    ReservaLojaLoteSerializer,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class LojaPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class ProdutoViewSet(viewsets.ModelViewSet):
+    serializer_class = ProdutoSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = LojaPagination
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+
+    def get_queryset(self):
+        qs = Produto.objects.all()
+        ativo = self.request.query_params.get('ativo')
+        if ativo is not None:
+            qs = qs.filter(ativo=ativo.lower() == 'true')
+        categoria = self.request.query_params.get('categoria')
+        if categoria in ('cantina', 'loja'):
+            qs = qs.filter(categoria=categoria)
+        seg = self.request.query_params.get('segmento_cantina')
+        if seg in ('comida', 'bebida'):
+            qs = qs.filter(segmento_cantina=seg)
+        return qs.order_by('nome')
+
+
+class VendaViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    pagination_class = LojaPagination
+    http_method_names = ['get', 'post', 'put', 'head', 'options', 'delete']
+
+    def get_permissions(self):
+        if self.action == 'destroy':
+            return [IsAuthenticated(), IsAdminUser()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        qs = (
+            Venda.objects.all()
+            .select_related('criado_por')
+            .prefetch_related('itens__produto', 'cobranca_mp')
+        )
+        st = self.request.query_params.get('status')
+        if st:
+            qs = qs.filter(status=st)
+        categoria = self.request.query_params.get('categoria')
+        if categoria in ('cantina', 'loja'):
+            qs = qs.filter(itens__produto__categoria=categoria).distinct()
+        d0 = self.request.query_params.get('data_inicio')
+        d1 = self.request.query_params.get('data_fim')
+        if d0:
+            qs = qs.filter(data_criacao__date__gte=d0)
+        if d1:
+            qs = qs.filter(data_criacao__date__lte=d1)
+        meio = self.request.query_params.get('meio_pagamento')
+        if meio in ('dinheiro', 'pix_mp', 'cartao_mp'):
+            qs = qs.filter(meio_pagamento=meio)
+        return qs.order_by('-data_criacao')
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return VendaCreateSerializer
+        if self.action == 'list':
+            return VendaListSerializer
+        return VendaDetailSerializer
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx['request'] = self.request
+        return ctx
+
+    def create(self, request, *args, **kwargs):
+        ser = VendaCreateSerializer(data=request.data, context=self.get_serializer_context())
+        ser.is_valid(raise_exception=True)
+        venda = ser.save()
+        return Response(
+            VendaDetailSerializer(venda, context=self.get_serializer_context()).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    def perform_destroy(self, instance):
+        with transaction.atomic():
+            reverter_estoque_venda(instance)
+            instance.delete()
+
+    @action(detail=True, methods=['post'], url_path='adicionar-itens')
+    def adicionar_itens(self, request, pk=None):
+        v = self.get_object()
+        if v.status != 'rascunho':
+            return Response(
+                {'error': 'Só é possível alterar itens em venda rascunho.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        lines = request.data.get('itens', [])
+        if not lines:
+            return Response({'error': 'Envie a lista "itens".'}, status=status.HTTP_400_BAD_REQUEST)
+        child = ItemVendaInputSerializer(many=True, data=lines)
+        child.is_valid(raise_exception=True)
+        try:
+            validar_estoque_ao_adicionar_itens(v, child.validated_data)
+        except serializers.ValidationError as exc:
+            return Response(
+                exc.detail if hasattr(exc, 'detail') else str(exc),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        for line in child.validated_data:
+            try:
+                prod = Produto.objects.get(pk=line['produto'], ativo=True)
+            except Produto.DoesNotExist:
+                return Response(
+                    {'error': f"Produto {line['produto']} inexistente ou inativo."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            ItemVenda.objects.create(
+                venda=v,
+                produto=prod,
+                quantidade=line['quantidade'],
+                preco_unitario=prod.preco,
+            )
+        v.recalcular_total()
+        v.save(update_fields=['total'])
+        return Response(VendaDetailSerializer(v, context=self.get_serializer_context()).data)
+
+    @action(detail=True, methods=['put'], url_path='definir-itens')
+    def definir_itens(self, request, pk=None):
+        """
+        Substitui todos os itens de uma venda rascunho (ex.: ajuste de quantidades após importar da reserva).
+        """
+        v = self.get_object()
+        if v.status != 'rascunho':
+            return Response(
+                {'error': 'Só é possível alterar itens em venda rascunho.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        lines = request.data.get('itens', [])
+        if not lines:
+            return Response(
+                {'error': 'Envie ao menos um item em "itens".'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        child = ItemVendaInputSerializer(many=True, data=lines)
+        child.is_valid(raise_exception=True)
+        validated = child.validated_data
+        try:
+            from .estoque_reserva import validar_estoque_extra_para_venda_rascunho
+
+            itens = [
+                {'produto': int(x['produto']), 'quantidade': int(x['quantidade'])} for x in validated
+            ]
+            validar_estoque_extra_para_venda_rascunho(v, itens)
+        except serializers.ValidationError as exc:
+            return Response(
+                exc.detail if hasattr(exc, 'detail') else str(exc),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        with transaction.atomic():
+            v.itens.all().delete()
+            for line in validated:
+                try:
+                    prod = Produto.objects.get(pk=line['produto'], ativo=True)
+                except Produto.DoesNotExist:
+                    return Response(
+                        {'error': f"Produto {line['produto']} inexistente ou inativo."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                ItemVenda.objects.create(
+                    venda=v,
+                    produto=prod,
+                    quantidade=line['quantidade'],
+                    preco_unitario=prod.preco,
+                )
+            v.recalcular_total()
+            v.save(update_fields=['total'])
+        v = Venda.objects.prefetch_related('itens__produto', 'cobranca_mp').get(pk=v.pk)
+        return Response(VendaDetailSerializer(v, context=self.get_serializer_context()).data)
+
+    @action(detail=True, methods=['post'], url_path='registrar-pagamento-dinheiro')
+    def registrar_pagamento_dinheiro(self, request, pk=None):
+        v_chk = self.get_object()
+        if v_chk.status not in ('rascunho', 'pendente_pagamento'):
+            return Response(
+                {'error': 'Não é possível registrar dinheiro nesta venda.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        t = v_chk.recalcular_total()
+        if t is None or t <= 0:
+            return Response(
+                {'error': 'Venda sem total válido; adicione itens.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            with transaction.atomic():
+                v = (
+                    Venda.objects.select_for_update()
+                    .select_related('cobranca_mp')
+                    .get(pk=pk)
+                )
+                v.meio_pagamento = 'dinheiro'
+                v.status = 'pago'
+                v.save()
+                c = CobrancaLoja.objects.select_for_update().filter(
+                    venda_id=v.pk, status='pendente'
+                ).first()
+                if c:
+                    c.status = 'cancelado'
+                    c.save(update_fields=['status'])
+                baixar_estoque_venda(v)
+                marcar_reservas_venda_paga(v)
+        except serializers.ValidationError as exc:
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+        v = (
+            Venda.objects.select_related('criado_por', 'cobranca_mp')
+            .prefetch_related('itens__produto')
+            .get(pk=pk)
+        )
+        return Response(VendaDetailSerializer(v, context=self.get_serializer_context()).data)
+
+    @action(detail=True, methods=['post'], url_path='gerar-cobranca-mp')
+    def gerar_cobranca_mp(self, request, pk=None):
+        v = self.get_object()
+        if v.status not in ('rascunho', 'pendente_pagamento'):
+            return Response(
+                {'error': 'Venda não pode receber cobrança MP (status incompatível).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        t = v.recalcular_total()
+        if t is None or t <= 0 or not v.itens.exists():
+            return Response(
+                {'error': 'Venda sem itens ou total zero.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        meio = request.data.get('meio_pagamento') or 'pix_mp'
+        if meio not in ('pix_mp', 'cartao_mp'):
+            meio = 'pix_mp'
+        v.meio_pagamento = meio
+        v.status = 'pendente_pagamento'
+        v.save()
+        c, _created = CobrancaLoja.objects.get_or_create(
+            venda=v,
+            defaults={
+                'valor': v.total,
+                'status': 'pendente',
+            },
+        )
+        c.valor = v.total
+        c.status = 'pendente'
+        c.save()
+        return criar_preferencia_pagamento_loja(request, c)
+
+    @action(detail=True, methods=['post'], url_path='cancelar')
+    def cancelar(self, request, pk=None):
+        v = self.get_object()
+        if v.status == 'pago':
+            return Response(
+                {'error': 'Não é possível cancelar venda já paga.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        v.status = 'cancelado'
+        v.save()
+        liberar_reservas_ao_cancelar_venda(v)
+        if hasattr(v, 'cobranca_mp') and v.cobranca_mp:
+            cl = v.cobranca_mp
+            if cl.status == 'pendente':
+                cl.status = 'cancelado'
+                cl.save()
+        return Response(VendaDetailSerializer(v, context=self.get_serializer_context()).data)
+
+
+class ReservaLojaViewSet(viewsets.ModelViewSet):
+    """
+    Reservas por dia/produto (culto). Criar reserva; depois `iniciar-cobranca` gera o rascunho de venda
+    e o PDV abre com ?venda=.
+    """
+    permission_classes = [IsAuthenticated]
+    pagination_class = LojaPagination
+    http_method_names = ['get', 'post', 'head', 'options', 'delete']
+
+    def get_queryset(self):
+        qs = ReservaLoja.objects.all().select_related('produto', 'venda', 'criado_por')
+        d = self.request.query_params.get('data')
+        if d:
+            qs = qs.filter(data=d)
+        pid = self.request.query_params.get('produto')
+        if pid and str(pid).isdigit():
+            qs = qs.filter(produto_id=int(pid))
+        st = self.request.query_params.get('status')
+        if st and st in {x[0] for x in ReservaLoja.STATUS_CHOICES}:
+            qs = qs.filter(status=st)
+        cat = self.request.query_params.get('categoria')
+        if cat in ('cantina', 'loja'):
+            qs = qs.filter(produto__categoria=cat)
+        # Listagem operacional: canceladas não aparecem (continuam no banco p/ histórico / admin).
+        qs = qs.exclude(status='cancelada')
+        return qs.order_by('data', 'nome', 'id')
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return ReservaLojaCreateSerializer
+        if self.action == 'criar_lote':
+            return ReservaLojaLoteSerializer
+        return ReservaLojaListSerializer
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx['request'] = self.request
+        return ctx
+
+    def create(self, request, *args, **kwargs):
+        ser = ReservaLojaCreateSerializer(data=request.data, context=self.get_serializer_context())
+        ser.is_valid(raise_exception=True)
+        r = ser.save()
+        return Response(
+            ReservaLojaListSerializer(r, context=self.get_serializer_context()).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=False, methods=['post'], url_path='criar-lote')
+    def criar_lote(self, request, *args, **kwargs):
+        lote = ReservaLojaLoteSerializer(data=request.data, context=self.get_serializer_context())
+        lote.is_valid(raise_exception=True)
+        vdata = lote.validated_data
+        d = vdata['data']
+        nome = vdata['nome']
+        obs = (vdata.get('observacao') or '').strip()
+        created = []
+        with transaction.atomic():
+            for line in vdata['itens']:
+                ser = ReservaLojaCreateSerializer(
+                    data={
+                        'produto': line['produto'],
+                        'data': d,
+                        'nome': nome,
+                        'quantidade': line['quantidade'],
+                        'observacao': obs,
+                    },
+                    context=self.get_serializer_context(),
+                )
+                ser.is_valid(raise_exception=True)
+                created.append(ser.save())
+        return Response(
+            ReservaLojaListSerializer(created, many=True, context=self.get_serializer_context()).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=False, methods=['post'], url_path='iniciar-cobranca-grupo')
+    def iniciar_cobranca_grupo(self, request, *args, **kwargs):
+        """
+        Uma venda com todos os itens pendentes do cliente nesta data (por nome, cantina).
+        Não use quando houver itens pendentes e itens já em venda; conclua ou cancele a parcial.
+        """
+        d_raw = request.data.get('data')
+        nome_in = (request.data.get('nome') or '').strip()
+        if not d_raw or not nome_in or len(nome_in) < 2:
+            return Response(
+                {
+                    'error': 'Informe a data (AAAA-MM-DD) e o nome (mín. 2 caracteres) igual ao do cadastro.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            if isinstance(d_raw, date):
+                d = d_raw
+            else:
+                d = date.fromisoformat(str(d_raw)[:10])
+        except ValueError:
+            return Response({'error': 'Data inválida. Use AAAA-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+        nlow = nome_in.lower()
+        base = (
+            ReservaLoja.objects.filter(data=d, produto__categoria='cantina')
+            .exclude(status__in=('pago', 'cancelada'))
+            .select_related('produto', 'venda')
+        )
+        reservas = [r for r in base if (r.nome or '').strip().lower() == nlow]
+        reservas.sort(key=lambda x: x.id)
+        if not reservas:
+            return Response(
+                {'error': 'Nenhuma reserva (pendente ou em cobrança) encontrada para este nome e data.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        pend = [r for r in reservas if r.status == 'pendente']
+        ec = [r for r in reservas if r.status == 'em_cobranca']
+        if pend and ec:
+            return Response(
+                {
+                    'error': (
+                        'Há itens ainda pendentes e itens já na venda. '
+                        'Conclua ou cancele a venda em aberto no PDV, ou use Cobrar só nos itens pendentes.'
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if ec and not pend:
+            vids = {r.venda_id for r in ec if r.venda_id}
+            if len(vids) != 1:
+                return Response(
+                    {'error': 'Reservas com vendas vinculadas conflitantes. Ajuste no admin ou unifique em uma única venda.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            v0 = list(vids)[0]
+            v = ec[0].venda
+            if not v or v.id != v0 or v.status not in ('rascunho', 'pendente_pagamento'):
+                return Response(
+                    {'error': 'A venda vinculada não está aberta. Verifique o histórico.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            categoria = 'cantina'
+            return Response(
+                {
+                    'venda_id': v.id,
+                    'categoria': categoria,
+                    'reutilizou': True,
+                    'path_pdv': f'/admin/loja/{categoria}/nova-venda?venda={v.id}',
+                }
+            )
+        if not pend:
+            return Response(
+                {'error': 'Nada a cobrar nesta lista.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        need = defaultdict(int)
+        for r in pend:
+            need[r.produto_id] += int(r.quantidade)
+        u = request.user
+        with transaction.atomic():
+            v = Venda.objects.create(
+                criado_por=u,
+                meio_pagamento='dinheiro',
+                status='rascunho',
+                comprador_nome=nome_in,
+                observacao='',
+            )
+            for pid, qtd in need.items():
+                prod = Produto.objects.get(pk=pid, ativo=True)
+                ItemVenda.objects.create(
+                    venda=v,
+                    produto=prod,
+                    quantidade=qtd,
+                    preco_unitario=prod.preco,
+                )
+            v.recalcular_total()
+            v.save(update_fields=['total'])
+            for r in pend:
+                r.venda = v
+                r.status = 'em_cobranca'
+                r.save(update_fields=['venda', 'status'])
+        categoria = 'cantina'
+        return Response(
+            {
+                'venda_id': v.id,
+                'categoria': categoria,
+                'reutilizou': False,
+                'path_pdv': f'/admin/loja/{categoria}/nova-venda?venda={v.id}',
+            }
+        )
+
+    def perform_destroy(self, instance):
+        if instance.status == 'pago':
+            raise ValidationError('Não é possível excluir reserva já paga.')
+        if instance.status == 'cancelada':
+            return
+        from .estoque_reserva import (
+            devolver_empenho_reserva_se_aplicavel,
+            excluir_reserva_cobranca_sincroniza_venda,
+        )
+
+        if instance.status == 'em_cobranca' and instance.venda_id:
+            with transaction.atomic():
+                excluir_reserva_cobranca_sincroniza_venda(instance)
+            return
+        with transaction.atomic():
+            devolver_empenho_reserva_se_aplicavel(instance)
+            o = type(instance).objects.get(pk=instance.pk)
+            if o.status != 'pago' and o.status != 'cancelada':
+                o.status = 'cancelada'
+                o.save(update_fields=['status'])
+
+    @action(detail=True, methods=['post'], url_path='iniciar-cobranca')
+    def iniciar_cobranca(self, request, pk=None):
+        r = self.get_object()
+        if r.status in ('pago', 'cancelada'):
+            return Response(
+                {'error': 'Reserva indisponível (já paga ou cancelada).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if r.venda_id and r.status == 'em_cobranca':
+            v = r.venda
+            if v and v.status in ('rascunho', 'pendente_pagamento'):
+                categoria = r.produto.categoria
+                if categoria not in ('cantina', 'loja'):
+                    categoria = 'cantina'
+                return Response(
+                    {
+                        'venda_id': v.id,
+                        'categoria': categoria,
+                        'reutilizou': True,
+                        'path_pdv': f'/admin/loja/{categoria}/nova-venda?venda={v.id}',
+                    }
+                )
+        u = request.user
+        v = None
+        with transaction.atomic():
+            v = Venda.objects.create(
+                criado_por=u,
+                meio_pagamento='dinheiro',
+                status='rascunho',
+                comprador_nome=(r.nome or '').strip(),
+                observacao='',
+            )
+            ItemVenda.objects.create(
+                venda=v,
+                produto=r.produto,
+                quantidade=r.quantidade,
+                preco_unitario=r.produto.preco,
+            )
+            v.recalcular_total()
+            v.save(update_fields=['total'])
+            r.venda = v
+            r.status = 'em_cobranca'
+            r.save(update_fields=['venda', 'status'])
+        categoria = r.produto.categoria
+        if categoria not in ('cantina', 'loja'):
+            categoria = 'cantina'
+        return Response(
+            {
+                'venda_id': v.id,
+                'categoria': categoria,
+                'reutilizou': False,
+                'path_pdv': f'/admin/loja/{categoria}/nova-venda?venda={v.id}',
+            }
+        )
+
+
+class CobrancaLojaViewSet(viewsets.ReadOnlyModelViewSet):
+    """Detalhe da cobrança MP (interno) para tela de pagamento admin."""
+
+    serializer_class = CobrancaLojaSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
+    lookup_field = 'id'
+
+    def get_queryset(self):
+        return CobrancaLoja.objects.all().select_related('venda')
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def verificar_pagamento_loja(request, cobranca_loja_id: int):
+    try:
+        cobranca = CobrancaLoja.objects.select_related('venda').get(id=cobranca_loja_id)
+    except CobrancaLoja.DoesNotExist:
+        return Response({'error': 'Cobrança não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+
+    if cobranca.status == 'pago' or (cobranca.venda and cobranca.venda.status == 'pago'):
+        return Response(
+            {
+                'status': 'pago',
+                'cobranca_status': cobranca.status,
+                'venda_status': cobranca.venda.status,
+                'data_pagamento': (
+                    cobranca.data_pagamento.strftime('%d/%m/%Y %H:%M:%S') if cobranca.data_pagamento else None
+                ),
+            }
+        )
+
+    if not cobranca.referencia_externa:
+        return Response(
+            {
+                'status': 'aguardando_pix',
+                'cobranca_status': cobranca.status,
+            }
+        )
+
+    config = ConfiguracaoSite.get_config()
+    sdk = get_mercadopago_sdk('production') if getattr(config, 'mp_cartao_em_sandbox', False) else get_mercadopago_sdk()
+    if not sdk:
+        return Response(
+            {
+                'status': cobranca.status,
+                'cobranca_status': cobranca.status,
+                'mp_error': 'MP não configurado',
+            }
+        )
+    try:
+        env = 'production' if getattr(config, 'mp_cartao_em_sandbox', False) else config.mp_ambiente
+        access_token = config.get_mp_access_token_for(env)
+        search_url = f'https://api.mercadopago.com/v1/payments/search?external_reference={cobranca.codigo}'
+        r = requests.get(
+            search_url, headers={'Authorization': f'Bearer {access_token}'}, timeout=30
+        )
+        data = r.json()
+        results = data.get('results', [])
+        mp_status = 'pending'
+        for pay in results:
+            if pay.get('status') == 'approved':
+                mp_status = 'approved'
+                break
+            if pay.get('status') in ('pending', 'in_process'):
+                mp_status = pay.get('status', 'pending')
+
+        if mp_status == 'approved' and cobranca.status != 'pago':
+            try:
+                with transaction.atomic():
+                    c = CobrancaLoja.objects.select_for_update().select_related('venda').get(
+                        id=cobranca.id
+                    )
+                    if c.status == 'pago':
+                        pass
+                    else:
+                        c.status = 'pago'
+                        c.data_pagamento = timezone.now()
+                        c.save()
+                        v = c.venda
+                        v = Venda.objects.select_for_update().get(pk=v.pk)
+                        v.status = 'pago'
+                        v.save()
+                        baixar_estoque_venda(v)
+                        marcar_reservas_venda_paga(v)
+            except serializers.ValidationError as exc:
+                return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+            cobranca.refresh_from_db()
+            cobranca.venda.refresh_from_db()
+        return Response(
+            {
+                'status': 'pago' if mp_status == 'approved' else mp_status,
+                'cobranca_status': cobranca.status,
+                'mp_status': mp_status,
+                'venda_status': cobranca.venda.status,
+                'data_pagamento': (
+                    cobranca.data_pagamento.strftime('%d/%m/%Y %H:%M:%S') if cobranca.data_pagamento else None
+                ),
+            }
+        )
+    except Exception as e:
+        logger.error('verificar_pagamento_loja: %s', e, exc_info=True)
+        return Response(
+            {
+                'status': cobranca.status,
+                'cobranca_status': cobranca.status,
+                'mp_error': str(e),
+            }
+        )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def pagar_cartao_loja(request):
+    """
+    Pagamento com cartão (token) para CobrancaLoja — mesmo fluxo que inscrições, sem inscrição.
+    Body: cobranca_loja_id, token, payment_method_id, installments, payer, issuer_id (opc).
+    """
+    cobranca_id = request.data.get('cobranca_loja_id') or request.data.get('cobranca_id')
+    token = request.data.get('token')
+    payment_method_id = request.data.get('payment_method_id')
+    installments = request.data.get('installments', 1)
+    issuer_id = request.data.get('issuer_id')
+    payer = request.data.get('payer') or {}
+
+    if not cobranca_id or not token or not payment_method_id:
+        return Response(
+            {'error': 'cobranca_loja_id, token e payment_method_id são obrigatórios'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        cobranca = CobrancaLoja.objects.select_related('venda', 'venda__criado_por').get(id=cobranca_id)
+    except CobrancaLoja.DoesNotExist:
+        return Response({'error': 'Cobrança não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+
+    if cobranca.status != 'pendente':
+        return Response(
+            {
+                'error': f'Cobrança não está pendente (status: {cobranca.get_status_display()})',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    config = ConfiguracaoSite.get_config()
+    if not config.mp_ativo:
+        return Response({'error': 'Mercado Pago não está ativo'}, status=status.HTTP_400_BAD_REQUEST)
+    sdk = get_mercadopago_sdk('sandbox') if getattr(config, 'mp_cartao_em_sandbox', False) else get_mercadopago_sdk()
+    if not sdk:
+        return Response({'error': 'Mercado Pago não configurado'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    v = cobranca.venda
+    u = v.criado_por
+    email = payer.get('email') or (getattr(u, 'email', None) or '')
+    if not email and u:
+        email = f"lojau{u.id}@loja.interna"
+    if not email:
+        email = 'pagador@loja.interna'
+    identification = payer.get('identification') or {}
+    id_type = identification.get('type') or 'CPF'
+    id_number = identification.get('number') or ''
+
+    transaction_amount = float(cobranca.valor)
+    VALOR_MINIMO_CARTAO = 0.50
+    if round(transaction_amount, 2) < VALOR_MINIMO_CARTAO:
+        return Response(
+            {
+                'error': f'Valor mínimo para pagamento com cartão é R$ {VALOR_MINIMO_CARTAO:.2f}. Para valores menores, use PIX (Checkout Pro).',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    descricao = f'Loja / cantina (venda #{v.id})'
+    payment_data = {
+        'transaction_amount': round(transaction_amount, 2),
+        'token': token,
+        'installments': int(installments) if installments else 1,
+        'payment_method_id': payment_method_id,
+        'payer': {
+            'email': email,
+            'identification': {
+                'type': id_type,
+                'number': str(id_number).replace('.', '').replace('-', '').replace('/', ''),
+            },
+        },
+        'external_reference': cobranca.codigo,
+        'description': descricao[:200],
+    }
+    if issuer_id:
+        payment_data['issuer_id'] = str(issuer_id)
+
+    idem = str(uuid.uuid4())
+    try:
+        ro = getattr(mercadopago, 'config', None) and getattr(mercadopago.config, 'RequestOptions', None)
+        if ro:
+            opts = ro()
+            opts.custom_headers = {'x-idempotency-key': idem}
+            payment_response = sdk.payment().create(payment_data, opts)
+        else:
+            payment_response = sdk.payment().create(payment_data)
+    except Exception as e:
+        logger.exception('pagar_cartao_loja')
+        return Response(
+            {'error': 'Erro ao processar cartão', 'details': str(e)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    payment = payment_response.get('response', {}) if isinstance(payment_response, dict) else {}
+    status_mp = payment.get('status')
+    payment_id = payment.get('id')
+
+    if status_mp == 'approved':
+        try:
+            with transaction.atomic():
+                c = CobrancaLoja.objects.select_for_update().select_related('venda').get(id=cobranca.id)
+                c.status = 'pago'
+                c.data_pagamento = timezone.now()
+                c.referencia_externa = str(payment_id or '')
+                c.metodo_pagamento = 'Mercado Pago (cartão)'
+                c.save()
+                v = Venda.objects.select_for_update().get(pk=c.venda_id)
+                v.status = 'pago'
+                v.save()
+                baixar_estoque_venda(v)
+                marcar_reservas_venda_paga(v)
+        except serializers.ValidationError as exc:
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+    return Response(
+        {
+            'success': status_mp in ('approved', 'pending', 'in_process'),
+            'status': status_mp,
+            'payment_id': payment_id,
+            'message': 'Pagamento aprovado!' if status_mp == 'approved' else 'Pagamento em processamento.',
+        }
+    )

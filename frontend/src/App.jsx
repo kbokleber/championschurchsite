@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import ScrollToTop from './components/ScrollToTop'
 import { AuthProvider } from './contexts/AuthContext'
 import { ParticipanteProvider } from './contexts/ParticipanteContext'
@@ -34,6 +34,12 @@ import AdminUsuarios from './pages/admin/AdminUsuarios'
 import AdminGrupos from './pages/admin/AdminGrupos'
 import AdminFormularios from './pages/admin/AdminFormularios'
 import FormularioForm from './pages/admin/FormularioForm'
+import AdminLojaHub from './pages/admin/AdminLojaHub'
+import AdminLojaProdutos from './pages/admin/AdminLojaProdutos'
+import AdminLojaPDV from './pages/admin/AdminLojaPDV'
+import AdminLojaVendas from './pages/admin/AdminLojaVendas'
+import AdminLojaPagamento from './pages/admin/AdminLojaPagamento'
+import AdminLojaReservas from './pages/admin/AdminLojaReservas'
 
 function App() {
   return (
@@ -179,6 +185,56 @@ function App() {
         <Route path="/admin/formularios/:id" element={
           <ProtectedRoute>
             <AdminLayout><FormularioForm /></AdminLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/loja" element={
+          <ProtectedRoute>
+            <AdminLayout><AdminLojaHub /></AdminLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/loja/produtos" element={
+          <ProtectedRoute>
+            <Navigate to="/admin/loja/cantina/produtos" replace />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/loja/nova-venda" element={
+          <ProtectedRoute>
+            <Navigate to="/admin/loja/cantina/nova-venda" replace />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/loja/cantina" element={
+          <ProtectedRoute>
+            <Navigate to="/admin/loja/cantina/produtos" replace />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/loja/loja" element={
+          <ProtectedRoute>
+            <Navigate to="/admin/loja/loja/produtos" replace />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/loja/:area/produtos" element={
+          <ProtectedRoute>
+            <AdminLayout><AdminLojaProdutos /></AdminLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/loja/:area/nova-venda" element={
+          <ProtectedRoute>
+            <AdminLayout><AdminLojaPDV /></AdminLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/loja/cantina/reservas" element={
+          <ProtectedRoute>
+            <AdminLayout><AdminLojaReservas /></AdminLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/loja/vendas" element={
+          <ProtectedRoute>
+            <AdminLayout><AdminLojaVendas /></AdminLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/loja/pagamento/:cobrancaLojaId" element={
+          <ProtectedRoute>
+            <AdminLayout><AdminLojaPagamento /></AdminLayout>
           </ProtectedRoute>
         } />
       </Routes>

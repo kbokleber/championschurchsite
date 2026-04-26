@@ -20,6 +20,14 @@ from .views import (
     # Mercado Pago
     criar_pagamento_pix, pagar_cartao, mercadopago_webhook, verificar_pagamento, mercadopago_config_publica
 )
+from loja.views import (
+    ProdutoViewSet as LojaProdutoViewSet,
+    VendaViewSet as LojaVendaViewSet,
+    CobrancaLojaViewSet,
+    ReservaLojaViewSet,
+    verificar_pagamento_loja,
+    pagar_cartao_loja,
+)
 
 # Router que inclui Mercado Pago e outras rotas no Api Root
 class ChampionsRouter(DefaultRouter):
@@ -48,6 +56,10 @@ router.register(r'permissoes-menu', PermissaoMenuViewSet, basename='permissaomen
 router.register(r'grupos', GrupoViewSet, basename='grupo')
 router.register(r'usuarios', UsuarioAdminViewSet, basename='usuario')
 router.register(r'formularios', FormularioInscricaoViewSet, basename='formulario')
+router.register(r'loja/produtos', LojaProdutoViewSet, basename='loja-produto')
+router.register(r'loja/vendas', LojaVendaViewSet, basename='loja-venda')
+router.register(r'loja/cobrancas', CobrancaLojaViewSet, basename='loja-cobranca')
+router.register(r'loja/reservas', ReservaLojaViewSet, basename='loja-reserva')
 
 urlpatterns = [
     # Autenticação JWT
@@ -99,6 +111,8 @@ urlpatterns = [
     path('mercadopago/pagar-cartao/', pagar_cartao, name='mp_pagar_cartao'),
     path('mercadopago/webhook/', mercadopago_webhook, name='mp_webhook'),
     path('mercadopago/verificar/<int:cobranca_id>/', verificar_pagamento, name='mp_verificar'),
+    path('loja/mercadopago/verificar/<int:cobranca_loja_id>/', verificar_pagamento_loja, name='mp_verificar_loja'),
+    path('loja/mercadopago/pagar-cartao/', pagar_cartao_loja, name='mp_pagar_cartao_loja'),
     path('mercadopago/config/', mercadopago_config_publica, name='mp_config'),
     
     # Router URLs

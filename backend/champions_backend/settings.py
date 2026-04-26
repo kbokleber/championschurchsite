@@ -107,6 +107,7 @@ INSTALLED_APPS = [
     'corsheaders',
     # Local apps
     'eventos',
+    'loja',
 ]
 
 MIDDLEWARE = [

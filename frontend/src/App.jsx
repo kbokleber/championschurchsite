@@ -41,6 +41,7 @@ import AdminLojaPDV from './pages/admin/AdminLojaPDV'
 import AdminLojaVendas from './pages/admin/AdminLojaVendas'
 import AdminLojaPagamento from './pages/admin/AdminLojaPagamento'
 import AdminLojaReservas from './pages/admin/AdminLojaReservas'
+import AdminLojaAuditoria from './pages/admin/AdminLojaAuditoria'
 
 const MENU_HOME_PATH = {
   dashboard: '/admin',
@@ -272,6 +273,11 @@ function App() {
         <Route path="/admin/loja/vendas" element={
           <ProtectedRoute>
             <AdminLayout><AdminLojaVendas /></AdminLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/loja/auditoria" element={
+          <ProtectedRoute>
+            <AdminLayout><AdminLojaAuditoria /></AdminLayout>
           </ProtectedRoute>
         } />
         <Route path="/admin/loja/pagamento/:cobrancaLojaId" element={

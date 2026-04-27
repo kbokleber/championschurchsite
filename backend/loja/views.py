@@ -12,7 +12,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAuthenticated, IsAdminUser, BasePermission
 from rest_framework.response import Response
 
 from django.utils import timezone
@@ -25,7 +25,7 @@ from .estoque import (
     validar_estoque_ao_adicionar_itens,
     validar_estoque_disponivel,
 )
-from .models import Produto, Venda, ItemVenda, CobrancaLoja, ReservaLoja
+from .models import Produto, Venda, ItemVenda, CobrancaLoja, ReservaLoja, LojaAuditoria
 from .mp_preference import criar_preferencia_pagamento_loja
 from .reservas import liberar_reservas_ao_cancelar_venda, marcar_reservas_venda_paga
 from .serializers import (
@@ -35,12 +35,27 @@ from .serializers import (
     VendaCreateSerializer,
     ItemVendaInputSerializer,
     CobrancaLojaSerializer,
+    LojaAuditoriaSerializer,
     ReservaLojaListSerializer,
     ReservaLojaCreateSerializer,
     ReservaLojaLoteSerializer,
 )
-
 logger = logging.getLogger(__name__)
+
+
+class IsSuperUser(BasePermission):
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
+
+
+def registrar_log_loja(*, tipo_evento, usuario=None, venda=None, produto=None, detalhes=None):
+    LojaAuditoria.objects.create(
+        tipo_evento=tipo_evento,
+        usuario=usuario,
+        venda=venda,
+        produto=produto,
+        detalhes=detalhes or {},
+    )
 
 
 class LojaPagination(PageNumberPagination):
@@ -80,6 +95,51 @@ class ProdutoViewSet(viewsets.ModelViewSet):
             raise ValidationError(
                 'Este produto possui histórico vinculado (vendas/cobranças). '
                 'Para evitar inconsistências, mantenha o cadastro e desative o produto.'
+            )
+
+    def perform_create(self, serializer):
+        produto = serializer.save()
+        registrar_log_loja(
+            tipo_evento='produto_criado',
+            usuario=self.request.user,
+            produto=produto,
+            detalhes={
+                'nome': produto.nome,
+                'categoria': produto.categoria,
+                'preco': str(produto.preco),
+                'ativo': bool(produto.ativo),
+                'controla_estoque': bool(produto.controla_estoque),
+                'estoque': int(produto.estoque),
+            },
+        )
+
+    def perform_update(self, serializer):
+        original = Produto.objects.get(pk=serializer.instance.pk)
+        produto = serializer.save()
+        detalhes_base = {}
+        campos_rastreaveis = ['nome', 'descricao', 'categoria', 'segmento_cantina', 'ativo', 'controla_estoque', 'estoque']
+        for campo in campos_rastreaveis:
+            antes = getattr(original, campo, None)
+            depois = getattr(produto, campo, None)
+            if antes != depois:
+                detalhes_base[campo] = {'de': antes, 'para': depois}
+        if detalhes_base:
+            registrar_log_loja(
+                tipo_evento='produto_atualizado',
+                usuario=self.request.user,
+                produto=produto,
+                detalhes=detalhes_base,
+            )
+        if original.preco != produto.preco:
+            registrar_log_loja(
+                tipo_evento='produto_preco_alterado',
+                usuario=self.request.user,
+                produto=produto,
+                detalhes={
+                    'nome': produto.nome,
+                    'de': str(original.preco),
+                    'para': str(produto.preco),
+                },
             )
 
 
@@ -132,6 +192,25 @@ class VendaViewSet(viewsets.ModelViewSet):
         ser = VendaCreateSerializer(data=request.data, context=self.get_serializer_context())
         ser.is_valid(raise_exception=True)
         venda = ser.save()
+        registrar_log_loja(
+            tipo_evento='venda_criada',
+            usuario=request.user,
+            venda=venda,
+            detalhes={
+                'meio_pagamento': venda.meio_pagamento,
+                'comprador_nome': venda.comprador_nome,
+                'total': str(venda.total),
+                'itens': [
+                    {
+                        'produto_id': it.produto_id,
+                        'produto_nome': it.produto.nome,
+                        'quantidade': int(it.quantidade),
+                        'preco_unitario': str(it.preco_unitario),
+                    }
+                    for it in venda.itens.select_related('produto').all()
+                ],
+            },
+        )
         return Response(
             VendaDetailSerializer(venda, context=self.get_serializer_context()).data,
             status=status.HTTP_201_CREATED,
@@ -178,6 +257,19 @@ class VendaViewSet(viewsets.ModelViewSet):
             )
         v.recalcular_total()
         v.save(update_fields=['total'])
+        registrar_log_loja(
+            tipo_evento='venda_itens_alterados',
+            usuario=request.user,
+            venda=v,
+            detalhes={
+                'acao': 'adicionar_itens',
+                'total': str(v.total),
+                'itens_adicionados': [
+                    {'produto_id': int(line['produto']), 'quantidade': int(line['quantidade'])}
+                    for line in child.validated_data
+                ],
+            },
+        )
         return Response(VendaDetailSerializer(v, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=['put'], url_path='definir-itens')
@@ -230,6 +322,19 @@ class VendaViewSet(viewsets.ModelViewSet):
                 )
             v.recalcular_total()
             v.save(update_fields=['total'])
+        registrar_log_loja(
+            tipo_evento='venda_itens_alterados',
+            usuario=request.user,
+            venda=v,
+            detalhes={
+                'acao': 'definir_itens',
+                'total': str(v.total),
+                'itens': [
+                    {'produto_id': int(line['produto']), 'quantidade': int(line['quantidade'])}
+                    for line in validated
+                ],
+            },
+        )
         v = Venda.objects.prefetch_related('itens__produto', 'cobranca_mp').get(pk=v.pk)
         return Response(VendaDetailSerializer(v, context=self.get_serializer_context()).data)
 
@@ -264,6 +369,16 @@ class VendaViewSet(viewsets.ModelViewSet):
                     c.save(update_fields=['status'])
                 baixar_estoque_venda(v)
                 marcar_reservas_venda_paga(v)
+                registrar_log_loja(
+                    tipo_evento='venda_pagamento_dinheiro',
+                    usuario=request.user,
+                    venda=v,
+                    detalhes={
+                        'meio_pagamento': 'dinheiro',
+                        'total': str(v.total),
+                        'comprador_nome': v.comprador_nome,
+                    },
+                )
         except serializers.ValidationError as exc:
             return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
         except Exception as exc:
@@ -337,6 +452,15 @@ class VendaViewSet(viewsets.ModelViewSet):
             if cl.status == 'pendente':
                 cl.status = 'cancelado'
                 cl.save()
+        registrar_log_loja(
+            tipo_evento='venda_cancelada',
+            usuario=request.user,
+            venda=v,
+            detalhes={
+                'status_anterior': 'rascunho_ou_pendente',
+                'total': str(v.total),
+            },
+        )
         return Response(VendaDetailSerializer(v, context=self.get_serializer_context()).data)
 
 
@@ -616,6 +740,37 @@ class CobrancaLojaViewSet(viewsets.ReadOnlyModelViewSet):
         return CobrancaLoja.objects.all().select_related('venda')
 
 
+class LojaAuditoriaViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = LojaAuditoriaSerializer
+    permission_classes = [IsSuperUser]
+    pagination_class = LojaPagination
+
+    def get_queryset(self):
+        qs = LojaAuditoria.objects.all().select_related('usuario', 'venda', 'produto')
+        categoria = self.request.query_params.get('categoria')
+        if categoria in ('cantina', 'loja'):
+            qs = qs.filter(produto__categoria=categoria)
+        tipo_evento = self.request.query_params.get('tipo_evento')
+        if tipo_evento:
+            qs = qs.filter(tipo_evento=tipo_evento)
+        venda_id = self.request.query_params.get('venda_id')
+        if venda_id and str(venda_id).isdigit():
+            qs = qs.filter(venda_id=int(venda_id))
+        produto_id = self.request.query_params.get('produto_id')
+        if produto_id and str(produto_id).isdigit():
+            qs = qs.filter(produto_id=int(produto_id))
+        usuario_id = self.request.query_params.get('usuario_id')
+        if usuario_id and str(usuario_id).isdigit():
+            qs = qs.filter(usuario_id=int(usuario_id))
+        d0 = self.request.query_params.get('data_inicio')
+        if d0:
+            qs = qs.filter(data_evento__date__gte=d0)
+        d1 = self.request.query_params.get('data_fim')
+        if d1:
+            qs = qs.filter(data_evento__date__lte=d1)
+        return qs.order_by('-data_evento', '-id')
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def verificar_pagamento_loja(request, cobranca_loja_id: int):
@@ -689,6 +844,17 @@ def verificar_pagamento_loja(request, cobranca_loja_id: int):
                         v.save()
                         baixar_estoque_venda(v)
                         marcar_reservas_venda_paga(v)
+                        registrar_log_loja(
+                            tipo_evento='venda_pagamento_mp',
+                            usuario=request.user,
+                            venda=v,
+                            detalhes={
+                                'origem': 'verificacao_pagamento_loja',
+                                'metodo': c.metodo_pagamento or 'Mercado Pago',
+                                'referencia_externa': c.referencia_externa,
+                                'total': str(v.total),
+                            },
+                        )
             except serializers.ValidationError as exc:
                 return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
             cobranca.refresh_from_db()
@@ -827,6 +993,17 @@ def pagar_cartao_loja(request):
                 v.save()
                 baixar_estoque_venda(v)
                 marcar_reservas_venda_paga(v)
+                registrar_log_loja(
+                    tipo_evento='venda_pagamento_mp',
+                    usuario=request.user,
+                    venda=v,
+                    detalhes={
+                        'origem': 'pagar_cartao_loja',
+                        'metodo': 'Mercado Pago (cartão)',
+                        'referencia_externa': str(payment_id or ''),
+                        'total': str(v.total),
+                    },
+                )
         except serializers.ValidationError as exc:
             return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
     return Response(

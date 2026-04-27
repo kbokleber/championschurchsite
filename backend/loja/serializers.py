@@ -4,7 +4,7 @@ from django.db import transaction
 
 from .estoque import validar_estoque_disponivel
 from .estoque_reserva import empenhar_ao_salvar_reserva
-from .models import Produto, Venda, ItemVenda, CobrancaLoja, ReservaLoja
+from .models import Produto, Venda, ItemVenda, CobrancaLoja, ReservaLoja, LojaAuditoria
 
 
 class ProdutoSerializer(serializers.ModelSerializer):
@@ -314,3 +314,33 @@ class CobrancaLojaSerializer(serializers.ModelSerializer):
             'metodo_pagamento',
             'referencia_externa',
         )
+
+
+class LojaAuditoriaSerializer(serializers.ModelSerializer):
+    usuario_nome = serializers.SerializerMethodField()
+    venda_total = serializers.DecimalField(source='venda.total', max_digits=10, decimal_places=2, read_only=True)
+    produto_nome = serializers.CharField(source='produto.nome', read_only=True)
+
+    class Meta:
+        model = LojaAuditoria
+        fields = (
+            'id',
+            'data_evento',
+            'tipo_evento',
+            'usuario',
+            'usuario_nome',
+            'venda',
+            'venda_total',
+            'produto',
+            'produto_nome',
+            'detalhes',
+        )
+
+    def get_usuario_nome(self, obj):
+        u = obj.usuario
+        if not u:
+            return 'Sistema'
+        try:
+            return u.get_full_name() or u.get_username()
+        except Exception:
+            return getattr(u, 'username', None) or f'Usuário #{u.id}'

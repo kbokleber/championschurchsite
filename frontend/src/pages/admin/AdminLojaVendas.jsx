@@ -21,7 +21,7 @@ const MEIO = {
 
 function AdminLojaVendas() {
   const { user } = useAuth()
-  const podeExcluirVenda = Boolean(user?.is_staff)
+  const podeExcluirVenda = Boolean(user?.is_superuser)
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [fStatus, setFStatus] = useState('')

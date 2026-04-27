@@ -95,9 +95,19 @@ function AdminLayout({ children }) {
       }))
   }, [menusPermitidos])
 
+  const showLojaAuditoriaMenu = useMemo(() => {
+    return Boolean(user?.is_superuser) && menusPermitidos.includes('loja')
+  }, [user, menusPermitidos])
+
   const isActive = (path) => {
     if (path === '/admin') {
       return location.pathname === '/admin'
+    }
+    if (path === '/admin/loja') {
+      return (
+        location.pathname.startsWith('/admin/loja') &&
+        !location.pathname.startsWith('/admin/loja/auditoria')
+      )
     }
     return location.pathname.startsWith(path)
   }
@@ -163,6 +173,21 @@ function AdminLayout({ children }) {
               <span>{item.label}</span>
             </Link>
           ))}
+          {showLojaAuditoriaMenu && (
+            <Link
+              to="/admin/loja/auditoria"
+              onClick={() => setSidebarOpen(false)}
+              className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
+                isActive('/admin/loja/auditoria')
+                  ? corMenuDestaque ? 'text-white' : 'bg-primary-500 text-white'
+                  : 'text-gray-300 hover:bg-gray-600'
+              }`}
+              style={isActive('/admin/loja/auditoria') && corMenuDestaque ? { backgroundColor: corMenuDestaque } : undefined}
+            >
+              <Shield className="h-5 w-5" />
+              <span>Auditoria Loja</span>
+            </Link>
+          )}
         </nav>
 
         {/* Footer - Fixed at bottom */}

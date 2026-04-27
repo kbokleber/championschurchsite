@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import { Coffee, ShoppingBag, Home, PlusCircle, ListOrdered } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
 
 const AREAS = [
   { id: 'cantina', label: 'Cantina', pathBase: '/admin/loja/cantina', icon: Coffee, accent: 'amber' },
@@ -11,10 +12,12 @@ const AREAS = [
  * @param {'cantina'|'loja'|undefined} area — se omitido (ex.: página de vendas geral), os dois segmentos não ficam “a verde/ativo”.
  */
 function AdminLojaSecaoNav({ area }) {
+  const { user } = useAuth()
   const loc = useLocation()
   const hasArea = area === 'loja' || area === 'cantina'
   const current = hasArea ? area : null
   const base = hasArea ? `/admin/loja/${current}` : null
+  const podeVerAuditoria = Boolean(user?.is_superuser)
 
   return (
     <div className="mb-4 sm:mb-6">
@@ -110,6 +113,18 @@ function AdminLojaSecaoNav({ area }) {
             >
               Histórico
             </Link>
+            {podeVerAuditoria && (
+              <Link
+                to="/admin/loja/auditoria"
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2.5 min-h-[44px] text-sm font-medium ${
+                  loc.pathname === '/admin/loja/auditoria'
+                    ? 'bg-gray-900 text-white'
+                    : 'text-gray-600 border border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                Auditoria
+              </Link>
+            )}
           </div>
         </div>
       </div>

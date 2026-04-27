@@ -24,6 +24,7 @@ from loja.views import (
     ProdutoViewSet as LojaProdutoViewSet,
     VendaViewSet as LojaVendaViewSet,
     CobrancaLojaViewSet,
+    LojaAuditoriaViewSet,
     ReservaLojaViewSet,
     verificar_pagamento_loja,
     pagar_cartao_loja,
@@ -60,6 +61,7 @@ router.register(r'loja/produtos', LojaProdutoViewSet, basename='loja-produto')
 router.register(r'loja/vendas', LojaVendaViewSet, basename='loja-venda')
 router.register(r'loja/cobrancas', CobrancaLojaViewSet, basename='loja-cobranca')
 router.register(r'loja/reservas', ReservaLojaViewSet, basename='loja-reserva')
+router.register(r'loja/auditoria', LojaAuditoriaViewSet, basename='loja-auditoria')
 
 urlpatterns = [
     # Autenticação JWT

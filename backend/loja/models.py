@@ -320,3 +320,62 @@ class ReservaLoja(models.Model):
 
     def __str__(self):
         return f'Reserva {self.nome} — {self.data} — {self.get_status_display()}'
+
+
+class LojaAuditoria(models.Model):
+    TIPO_EVENTO_CHOICES = [
+        ('produto_criado', 'Produto criado'),
+        ('produto_atualizado', 'Produto atualizado'),
+        ('produto_preco_alterado', 'Preço de produto alterado'),
+        ('venda_criada', 'Venda criada'),
+        ('venda_itens_alterados', 'Itens da venda alterados'),
+        ('venda_pagamento_dinheiro', 'Venda paga em dinheiro'),
+        ('venda_pagamento_mp', 'Venda paga no Mercado Pago'),
+        ('venda_cancelada', 'Venda cancelada'),
+    ]
+
+    data_evento = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Data do evento')
+    tipo_evento = models.CharField(
+        max_length=40,
+        choices=TIPO_EVENTO_CHOICES,
+        db_index=True,
+        verbose_name='Tipo do evento',
+    )
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='logs_loja_auditoria',
+        verbose_name='Usuário',
+    )
+    venda = models.ForeignKey(
+        Venda,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='logs_auditoria',
+        verbose_name='Venda',
+    )
+    produto = models.ForeignKey(
+        Produto,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='logs_auditoria',
+        verbose_name='Produto',
+    )
+    detalhes = models.JSONField(default=dict, blank=True, verbose_name='Detalhes')
+
+    class Meta:
+        ordering = ['-data_evento', '-id']
+        verbose_name = 'Log de auditoria da loja'
+        verbose_name_plural = 'Logs de auditoria da loja'
+        indexes = [
+            models.Index(fields=['-data_evento', 'tipo_evento']),
+            models.Index(fields=['venda', '-data_evento']),
+            models.Index(fields=['produto', '-data_evento']),
+        ]
+
+    def __str__(self):
+        return f'[{self.data_evento}] {self.get_tipo_evento_display()}'

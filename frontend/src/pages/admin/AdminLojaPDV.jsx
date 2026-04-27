@@ -171,6 +171,7 @@ function AdminLojaPDV() {
     const total = baseTotal()
     return computeDinheiroResumo(lines, valorRecebido, total)
   }, [lines, valorRecebido, baseTotal])
+  const totalAtual = useMemo(() => baseTotal(), [baseTotal])
 
   const salvarRascunhoItens = useCallback(
     async (vId) => {
@@ -397,7 +398,7 @@ function AdminLojaPDV() {
   }
 
   return (
-    <div className="p-3 sm:p-4 md:p-6 max-w-5xl mx-auto">
+    <div className="p-3 sm:p-4 md:p-6 max-w-5xl mx-auto pb-36 lg:pb-6">
       <AdminLojaSecaoNav area={area} />
 
       <div className="mb-4 sm:mb-5">
@@ -596,7 +597,7 @@ function AdminLojaPDV() {
 
           <div className="mt-5 flex justify-between items-baseline text-xl font-bold text-gray-900">
             <span>Total</span>
-            <span>R$ {baseTotal().toFixed(2).replace('.', ',')}</span>
+            <span>R$ {totalAtual.toFixed(2).replace('.', ',')}</span>
           </div>
 
           <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50/50 p-3 text-sm">
@@ -633,7 +634,7 @@ function AdminLojaPDV() {
             )}
           </div>
 
-          <div className="mt-4 flex flex-col sm:flex-row gap-2.5 sm:gap-2">
+          <div className="mt-4 hidden lg:flex flex-col sm:flex-row gap-2.5 sm:gap-2">
             <button
               type="button"
               disabled={!lines.length || processing || !dinheiroResumo.valid}
@@ -649,6 +650,34 @@ function AdminLojaPDV() {
               className={`flex-1 min-h-[52px] text-base font-semibold text-white rounded-xl flex items-center justify-center gap-2 ${accent.btn} disabled:opacity-50 touch-manipulation`}
             >
               <CreditCard className="w-5 h-5" /> PIX / cartão
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Barra fixa operacional para celular/tablet */}
+      <div className="lg:hidden fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/90 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-6px_20px_rgba(0,0,0,0.08)]">
+        <div className="max-w-5xl mx-auto">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-sm text-gray-600">Itens: {lines.length}</div>
+            <div className="text-lg font-bold text-gray-900">Total: R$ {formatBRL(totalAtual)}</div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              disabled={!lines.length || processing || !dinheiroResumo.valid}
+              onClick={solicitarConfirmacaoDinheiro}
+              className="btn btn-secondary min-h-[52px] text-base font-semibold flex items-center justify-center gap-2 touch-manipulation disabled:opacity-50"
+            >
+              <Banknote className="w-5 h-5" /> Dinheiro
+            </button>
+            <button
+              type="button"
+              disabled={!lines.length || processing}
+              onClick={submeterVendaMP}
+              className={`min-h-[52px] text-base font-semibold text-white rounded-xl flex items-center justify-center gap-2 ${accent.btn} disabled:opacity-50 touch-manipulation`}
+            >
+              <CreditCard className="w-5 h-5" /> PIX/cartão
             </button>
           </div>
         </div>

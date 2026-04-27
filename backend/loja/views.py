@@ -6,6 +6,7 @@ from datetime import date
 import mercadopago
 import requests
 from django.db import transaction
+from django.db.models.deletion import ProtectedError
 from rest_framework import viewsets, status, serializers
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.exceptions import ValidationError
@@ -54,6 +55,11 @@ class ProdutoViewSet(viewsets.ModelViewSet):
     pagination_class = LojaPagination
     parser_classes = (MultiPartParser, FormParser, JSONParser)
 
+    def get_permissions(self):
+        if self.action == 'destroy':
+            return [IsAuthenticated(), IsAdminUser()]
+        return [IsAuthenticated()]
+
     def get_queryset(self):
         qs = Produto.objects.all()
         ativo = self.request.query_params.get('ativo')
@@ -66,6 +72,15 @@ class ProdutoViewSet(viewsets.ModelViewSet):
         if seg in ('comida', 'bebida'):
             qs = qs.filter(segmento_cantina=seg)
         return qs.order_by('nome')
+
+    def perform_destroy(self, instance):
+        try:
+            instance.delete()
+        except ProtectedError:
+            raise ValidationError(
+                'Este produto possui histórico vinculado (vendas/cobranças). '
+                'Para evitar inconsistências, mantenha o cadastro e desative o produto.'
+            )
 
 
 class VendaViewSet(viewsets.ModelViewSet):

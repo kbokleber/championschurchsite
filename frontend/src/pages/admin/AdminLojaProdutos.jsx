@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams, Navigate, Link } from 'react-router-dom'
-import { Plus, Edit, Pencil, X, Tag, ImageIcon } from 'lucide-react'
+import { Plus, Edit, Pencil, X, Tag, ImageIcon, Trash2 } from 'lucide-react'
 import api from '../../services/api'
 import { formatApiError } from '../../services/api'
 import { getMediaUrl } from '../../services/utils'
+import { useAuth } from '../../contexts/AuthContext'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import AdminLojaSecaoNav from '../../components/AdminLojaSecaoNav'
 
@@ -37,6 +38,8 @@ function labelSegmentoCantina(s) {
 
 function AdminLojaProdutos() {
   const { area } = useParams()
+  const { user } = useAuth()
+  const podeExcluirProduto = Boolean(user?.is_staff)
   if (!CATEGORIAS.includes(area)) {
     return <Navigate to="/admin/loja" replace />
   }
@@ -54,6 +57,7 @@ function AdminLojaProdutos() {
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(() => getEmptyForm(area))
   const [saving, setSaving] = useState(false)
+  const [excluindoId, setExcluindoId] = useState(null)
   const [imagemFile, setImagemFile] = useState(null)
   const [imagemPreview, setImagemPreview] = useState(null)
   const [imagemRemovida, setImagemRemovida] = useState(false)
@@ -225,6 +229,25 @@ function AdminLojaProdutos() {
     }
   }
 
+  const excluirProduto = async (produto) => {
+    if (!podeExcluirProduto) return
+    const ok = window.confirm(
+      `Excluir o produto "${produto.nome}" de forma definitiva?\n\n` +
+      'Isso pode impactar histórico de vendas, reservas e relatórios. ' +
+      'Na maioria dos casos, é mais seguro desativar o produto (Ativo = não).'
+    )
+    if (!ok) return
+    try {
+      setExcluindoId(produto.id)
+      await api.delete(`/loja/produtos/${produto.id}/`)
+      await load()
+    } catch (e) {
+      alert(formatApiError(e, 'Não foi possível excluir o produto. Prefira desativar o item.'))
+    } finally {
+      setExcluindoId(null)
+    }
+  }
+
   if (loading) {
     return <LoadingSpinner size="lg" text="Carregando produtos..." />
   }
@@ -353,16 +376,30 @@ function AdminLojaProdutos() {
                   · {p.ativo ? 'Ativo' : 'Inativo'}
                 </span>
               </span>
-              <button
-                type="button"
-                onClick={() => openEdit(p)}
-                className={`inline-flex items-center gap-1.5 font-medium min-h-[44px] min-w-[44px] justify-center -mr-1 ${
-                  isCantina ? 'text-amber-700' : 'text-sky-700'
-                }`}
-              >
-                <Pencil className="w-4 h-4" />
-                Editar
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => openEdit(p)}
+                  className={`inline-flex items-center gap-1.5 font-medium min-h-[44px] min-w-[44px] justify-center ${
+                    isCantina ? 'text-amber-700' : 'text-sky-700'
+                  }`}
+                >
+                  <Pencil className="w-4 h-4" />
+                  Editar
+                </button>
+                {podeExcluirProduto && (
+                  <button
+                    type="button"
+                    onClick={() => excluirProduto(p)}
+                    disabled={excluindoId === p.id}
+                    className="inline-flex items-center gap-1.5 font-medium min-h-[44px] min-w-[44px] justify-center text-red-700 disabled:opacity-60"
+                    title="Excluir produto (somente administradores)"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {excluindoId === p.id ? 'Excluindo...' : 'Excluir'}
+                  </button>
+                )}
+              </div>
             </div>
           </li>
           )
@@ -428,16 +465,30 @@ function AdminLojaProdutos() {
                 </td>
                 <td className="p-3 text-gray-700">{p.ativo ? 'Sim' : 'Não'}</td>
                 <td className="p-3">
-                  <button
-                    type="button"
-                    onClick={() => openEdit(p)}
-                    className={`text-sm font-medium flex items-center gap-1 ${
-                      isCantina ? 'text-amber-800 hover:underline' : 'text-sky-800 hover:underline'
-                    }`}
-                  >
-                    <Edit className="w-4 h-4" />
-                    Editar
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(p)}
+                      className={`text-sm font-medium flex items-center gap-1 ${
+                        isCantina ? 'text-amber-800 hover:underline' : 'text-sky-800 hover:underline'
+                      }`}
+                    >
+                      <Edit className="w-4 h-4" />
+                      Editar
+                    </button>
+                    {podeExcluirProduto && (
+                      <button
+                        type="button"
+                        onClick={() => excluirProduto(p)}
+                        disabled={excluindoId === p.id}
+                        className="text-sm font-medium flex items-center gap-1 text-red-700 hover:underline disabled:opacity-60"
+                        title="Excluir produto (somente administradores)"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        {excluindoId === p.id ? 'Excluindo...' : 'Excluir'}
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}

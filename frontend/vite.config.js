@@ -70,10 +70,49 @@ function getAppVersion() {
   }
 }
 
+function pad2(n) {
+  return String(n).padStart(2, '0')
+}
+
+function getBuildStampUTC() {
+  const d = new Date()
+  return [
+    pad2(d.getUTCDate()),
+    pad2(d.getUTCMonth() + 1),
+    d.getUTCFullYear(),
+    '-',
+    pad2(d.getUTCHours()),
+    pad2(d.getUTCMinutes()),
+  ].join('')
+}
+
+function getCommitShort() {
+  const fromEnv = String(
+    process.env.VITE_GIT_SHA ||
+    process.env.GIT_SHA ||
+    process.env.GITHUB_SHA ||
+    process.env.COMMIT_SHA ||
+    ''
+  ).trim()
+  if (fromEnv) return fromEnv.slice(0, 7)
+  const gitCwd = path.join(__dirname, '..')
+  try {
+    return execSync('git rev-parse --short HEAD', { encoding: 'utf-8', cwd: gitCwd }).trim()
+  } catch {
+    return 'nogit'
+  }
+}
+
+function getBuildId() {
+  // Muda a cada rebuild (timestamp UTC), e identifica commit quando disponível.
+  return `${getBuildStampUTC()}-${getCommitShort()}`
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(getAppVersion()),
+    __APP_BUILD_ID__: JSON.stringify(getBuildId()),
   },
   plugins: [react()],
   server: {

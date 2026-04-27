@@ -251,7 +251,6 @@ class VendaViewSet(viewsets.ModelViewSet):
             with transaction.atomic():
                 v = (
                     Venda.objects.select_for_update()
-                    .select_related('cobranca_mp')
                     .get(pk=pk)
                 )
                 v.meio_pagamento = 'dinheiro'
@@ -267,6 +266,22 @@ class VendaViewSet(viewsets.ModelViewSet):
                 marcar_reservas_venda_paga(v)
         except serializers.ValidationError as exc:
             return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            logger.error(
+                'registrar_pagamento_dinheiro: erro ao confirmar venda %s: %s',
+                pk,
+                exc,
+                exc_info=True,
+            )
+            return Response(
+                {
+                    'error': (
+                        'Não foi possível concluir o pagamento em dinheiro agora. '
+                        'Tente novamente em instantes.'
+                    )
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
         v = (
             Venda.objects.select_related('criado_por', 'cobranca_mp')
             .prefetch_related('itens__produto')

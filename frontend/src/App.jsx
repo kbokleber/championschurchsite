@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import ScrollToTop from './components/ScrollToTop'
 import { AuthProvider } from './contexts/AuthContext'
+import { useAuth } from './contexts/AuthContext'
 import { ParticipanteProvider } from './contexts/ParticipanteContext'
 import { ConfiguracaoProvider } from './contexts/ConfiguracaoContext'
 import Navbar from './components/Navbar'
@@ -40,6 +41,47 @@ import AdminLojaPDV from './pages/admin/AdminLojaPDV'
 import AdminLojaVendas from './pages/admin/AdminLojaVendas'
 import AdminLojaPagamento from './pages/admin/AdminLojaPagamento'
 import AdminLojaReservas from './pages/admin/AdminLojaReservas'
+
+const MENU_HOME_PATH = {
+  dashboard: '/admin',
+  eventos: '/admin/eventos',
+  membros: '/admin/membros',
+  inscricoes: '/admin/inscricoes',
+  cobrancas: '/admin/cobrancas',
+  checkin: '/admin/checkin',
+  contatos: '/admin/contatos',
+  categorias: '/admin/categorias',
+  configuracoes: '/admin/configuracoes',
+  usuarios: '/admin/usuarios',
+  grupos: '/admin/grupos',
+  formularios_inscricao: '/admin/formularios',
+  loja: '/admin/loja',
+}
+
+function AdminHome() {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/admin/login" replace />
+  if (user.is_superuser) return <Dashboard />
+
+  const menus = Array.isArray(user.menus_permitidos) ? user.menus_permitidos : []
+  if (menus.includes('dashboard')) return <Dashboard />
+
+  for (const codigo of menus) {
+    const path = MENU_HOME_PATH[codigo]
+    if (path && path !== '/admin') {
+      return <Navigate to={path} replace />
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-md p-8 max-w-md text-center mx-auto mt-10">
+      <h2 className="text-xl font-bold text-gray-900 mb-2">Acesso restrito</h2>
+      <p className="text-gray-600">
+        Seu usuário está autenticado, mas não possui menus liberados no grupo.
+      </p>
+    </div>
+  )
+}
 
 function App() {
   return (
@@ -99,7 +141,7 @@ function App() {
         {/* Rotas Protegidas (Admin) */}
         <Route path="/admin" element={
           <ProtectedRoute>
-            <AdminLayout><Dashboard /></AdminLayout>
+            <AdminLayout><AdminHome /></AdminLayout>
           </ProtectedRoute>
         } />
         <Route path="/admin/eventos" element={

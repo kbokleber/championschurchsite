@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Coffee, ShoppingBag, Receipt, ChevronRight } from 'lucide-react'
+import { Coffee, ShoppingBag, Receipt, ChevronRight, BarChart3 } from 'lucide-react'
 
 /**
  * Ponto de entrada: escolhe Cantina (consumo) ou Loja (mercadoria).
@@ -65,6 +65,13 @@ function AdminLojaHub() {
         >
           <Receipt className="h-4 w-4" />
           Ver histórico de vendas (todas)
+        </Link>
+        <Link
+          to="/admin/loja/financeiro"
+          className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-sky-200 bg-sky-50/50 px-4 py-3.5 text-sm font-medium text-sky-900 shadow-sm hover:bg-sky-50 min-h-[48px] touch-manipulation"
+        >
+          <BarChart3 className="h-4 w-4" />
+          Dashboard financeiro
         </Link>
       </div>
     </div>

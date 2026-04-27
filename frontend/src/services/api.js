@@ -53,7 +53,15 @@ export function formatApiError(error, fallback = 'Ocorreu um erro. Tente novamen
   const fieldKeys = Object.keys(data).filter((k) => k !== 'detail')
   for (const k of fieldKeys) {
     const v = data[k]
-    if (Array.isArray(v) && v.length && typeof v[0] === 'string') return `${k}: ${v[0]}`
+    if (typeof v === 'string' && v.trim()) return `${k}: ${v}`
+    if (Array.isArray(v) && v.length) {
+      const first = v[0]
+      if (typeof first === 'string') return `${k}: ${first}`
+      if (first != null && typeof first === 'object') {
+        const s = first.string != null ? String(first.string) : String(first)
+        if (s && s !== '[object Object]') return `${k}: ${s}`
+      }
+    }
   }
 
   if (status >= 500) {

@@ -83,6 +83,8 @@ function AdminLojaPDV() {
   const [confirmDinheiro, setConfirmDinheiro] = useState(null)
   /** Rascunho vindo da reserva (query ?venda=) — id da venda; itens podem ser ajustados; antes de pagar, sincroniza com a API */
   const [rascunhoVendaId, setRascunhoVendaId] = useState(null)
+  /** produtoId → quantidade mínima no carrinho (reservas em cobrança nesta venda) */
+  const [reservadoMinPorProduto, setReservadoMinPorProduto] = useState({})
 
   const baseTotal = useCallback(() => {
     return lines.reduce((s, l) => s + Number(l.subtotal), 0)
@@ -110,6 +112,7 @@ function AdminLojaPDV() {
     setValorRecebido('')
     setSegmentoFiltro('todos')
     setRascunhoVendaId(null)
+    setReservadoMinPorProduto({})
     load()
   }, [area])
 
@@ -153,6 +156,12 @@ function AdminLojaPDV() {
             }
           }),
         )
+        const rawRes = v.quantidade_reservada_por_produto || {}
+        const normRes = {}
+        for (const [k, val] of Object.entries(rawRes)) {
+          normRes[Number(k)] = Number(val)
+        }
+        setReservadoMinPorProduto(normRes)
         setComprador(v.comprador_nome || '')
         setObs(v.observacao || '')
         setRascunhoVendaId(vid)
@@ -249,17 +258,44 @@ function AdminLojaPDV() {
   const dec = (i) => {
     setLines((prev) => {
       const n = [...prev]
-      if (n[i].quantidade <= 1) return n.filter((_, j) => j !== i)
+      const l = n[i]
+      const minQ = Number(reservadoMinPorProduto[l.produtoId] ?? 0)
+      if (n[i].quantidade <= 1) {
+        if (minQ >= 1) {
+          alert(
+            `«${l.nome}» tem ${minQ} un. reservadas nesta venda; não dá para retirar a última unidade pelo carrinho. Cancele uma reserva na fila se precisar.`,
+          )
+          return prev
+        }
+        return n.filter((_, j) => j !== i)
+      }
+      const nextQ = n[i].quantidade - 1
+      if (nextQ < minQ) {
+        alert(
+          `Quantidade mínima no carrinho para «${l.nome}»: ${minQ} un. (reserva vinculada).`,
+        )
+        return prev
+      }
       n[i] = {
         ...n[i],
-        quantidade: n[i].quantidade - 1,
-        subtotal: n[i].preco * (n[i].quantidade - 1),
+        quantidade: nextQ,
+        subtotal: n[i].preco * nextQ,
       }
       return n
     })
   }
   const remove = (i) => {
-    setLines((prev) => prev.filter((_, j) => j !== i))
+    setLines((prev) => {
+      const l = prev[i]
+      const minQ = Number(reservadoMinPorProduto[l.produtoId] ?? 0)
+      if (minQ > 0) {
+        alert(
+          `«${l.nome}» está vinculado a reserva (${minQ} un.). Use − até o mínimo ou cancele a reserva na fila para retirar o item do carrinho.`,
+        )
+        return prev
+      }
+      return prev.filter((_, j) => j !== i)
+    })
   }
 
   const solicitarConfirmacaoDinheiro = () => {
@@ -301,6 +337,7 @@ function AdminLojaPDV() {
       setObs('')
       setValorRecebido('')
       setRascunhoVendaId(null)
+      setReservadoMinPorProduto({})
       await load({ silent: true })
     } catch (e) {
       alert(formatApiError(e, 'Erro ao concluir venda.'))
@@ -370,6 +407,7 @@ function AdminLojaPDV() {
       if (cobId) {
         if (rascunhoVendaId) {
           setRascunhoVendaId(null)
+          setReservadoMinPorProduto({})
         }
         navigate('/admin/loja/pagamento/' + String(cobId), {
           state: {
@@ -411,8 +449,9 @@ function AdminLojaPDV() {
         </p>
         {rascunhoVendaId && (
           <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-            Venda a partir de <strong>reserva</strong>: você pode <strong>alterar quantidades</strong>, incluir ou
-            retirar itens. O total usado no pagamento será o do carrinho ao concluir (dinheiro ou Mercado Pago).
+            Venda a partir de <strong>reserva</strong>: você pode <strong>aumentar quantidades</strong> ou incluir
+            itens. Para cada produto reservado, a quantidade no carrinho não pode ficar abaixo do que já está na fila
+            de cobrança. O total no pagamento é o do carrinho ao concluir (dinheiro ou Mercado Pago).
           </div>
         )}
       </div>

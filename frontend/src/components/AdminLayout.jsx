@@ -99,17 +99,23 @@ function AdminLayout({ children }) {
     return Boolean(user?.is_superuser) && menusPermitidos.includes('loja')
   }, [user, menusPermitidos])
 
+  const pathname = location.pathname
+  const auditoriaLojaAtiva =
+    pathname === '/admin/loja/auditoria' || pathname.startsWith('/admin/loja/auditoria/')
+  const lojaPrincipalAtiva =
+    pathname.startsWith('/admin/loja') && !auditoriaLojaAtiva
+
   const isActive = (path) => {
     if (path === '/admin') {
-      return location.pathname === '/admin'
+      return pathname === '/admin'
     }
     if (path === '/admin/loja') {
-      return (
-        location.pathname.startsWith('/admin/loja') &&
-        !location.pathname.startsWith('/admin/loja/auditoria')
-      )
+      return lojaPrincipalAtiva
     }
-    return location.pathname.startsWith(path)
+    if (path === '/admin/loja/auditoria') {
+      return auditoriaLojaAtiva
+    }
+    return pathname.startsWith(path)
   }
 
   const handleLogout = () => {
@@ -178,11 +184,11 @@ function AdminLayout({ children }) {
               to="/admin/loja/auditoria"
               onClick={() => setSidebarOpen(false)}
               className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
-                isActive('/admin/loja/auditoria')
+                auditoriaLojaAtiva
                   ? corMenuDestaque ? 'text-white' : 'bg-primary-500 text-white'
                   : 'text-gray-300 hover:bg-gray-600'
               }`}
-              style={isActive('/admin/loja/auditoria') && corMenuDestaque ? { backgroundColor: corMenuDestaque } : undefined}
+              style={auditoriaLojaAtiva && corMenuDestaque ? { backgroundColor: corMenuDestaque } : undefined}
             >
               <Shield className="h-5 w-5" />
               <span>Auditoria Loja</span>

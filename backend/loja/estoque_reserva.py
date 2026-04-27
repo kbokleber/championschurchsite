@@ -120,9 +120,9 @@ def validar_estoque_extra_para_venda_rascunho(v: Venda, itens: List[dict]) -> No
             raise serializers.ValidationError(
                 {
                     'itens': (
-                        f'Quantidade de «{p.nome}» no rascunho (menor que o já reservado) não permitida. '
-                        f'Reservado nesta venda: {q_emp}; ajuste pedida: {n}. Cancele uma reserva de linha, '
-                        f'ou ajuste no PDV para não ficar abaixo do reservado.'
+                        f'«{p.nome}»: no carrinho há {n} un., mas esta venda já reservou {q_emp} un. '
+                        f'(a quantidade não pode ficar abaixo do reservado). '
+                        f'Cancele uma reserva na fila ou aumente a quantidade no PDV.'
                     )
                 }
             )

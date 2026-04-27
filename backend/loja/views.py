@@ -1,12 +1,15 @@
 import logging
 import uuid
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 import mercadopago
 import requests
 from django.db import transaction
+from django.db.models import Count, Sum
 from django.db.models.deletion import ProtectedError
+from django.db.models.functions import TruncDate, TruncMonth
 from rest_framework import viewsets, status, serializers
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.exceptions import ValidationError
@@ -1012,5 +1015,209 @@ def pagar_cartao_loja(request):
             'status': status_mp,
             'payment_id': payment_id,
             'message': 'Pagamento aprovado!' if status_mp == 'approved' else 'Pagamento em processamento.',
+        }
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dashboard_financeiro_loja(request):
+    """
+    Dashboard financeiro da loja/cantina com filtros por período.
+    Query params:
+      - periodo: dia | mes | personalizado
+      - data_inicio: AAAA-MM-DD (opcional; obrigatório em personalizado)
+      - data_fim: AAAA-MM-DD (opcional; obrigatório em personalizado)
+      - categoria: cantina | loja | (vazio=todas)
+    """
+    periodo = (request.query_params.get('periodo') or 'mes').strip().lower()
+    categoria = (request.query_params.get('categoria') or '').strip().lower()
+    hoje = timezone.localdate()
+
+    if periodo == 'dia':
+        data_inicio = hoje
+        data_fim = hoje
+    elif periodo == 'mes':
+        data_inicio = hoje.replace(day=1)
+        data_fim = hoje
+    elif periodo == 'personalizado':
+        raw_inicio = request.query_params.get('data_inicio')
+        raw_fim = request.query_params.get('data_fim')
+        if not raw_inicio or not raw_fim:
+            return Response(
+                {'error': 'Para período personalizado, informe data_inicio e data_fim.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            data_inicio = datetime.strptime(raw_inicio, '%Y-%m-%d').date()
+            data_fim = datetime.strptime(raw_fim, '%Y-%m-%d').date()
+        except ValueError:
+            return Response(
+                {'error': 'Datas inválidas. Use o formato AAAA-MM-DD.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+    else:
+        return Response(
+            {'error': 'Parâmetro periodo inválido. Use: dia, mes ou personalizado.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if data_fim < data_inicio:
+        return Response(
+            {'error': 'data_fim não pode ser menor que data_inicio.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    vendas_qs = Venda.objects.filter(
+        status='pago',
+        data_criacao__date__gte=data_inicio,
+        data_criacao__date__lte=data_fim,
+    )
+    if categoria in ('cantina', 'loja'):
+        vendas_qs = vendas_qs.filter(itens__produto__categoria=categoria).distinct()
+
+    itens_qs = ItemVenda.objects.filter(
+        venda__status='pago',
+        venda__data_criacao__date__gte=data_inicio,
+        venda__data_criacao__date__lte=data_fim,
+    )
+    if categoria in ('cantina', 'loja'):
+        itens_qs = itens_qs.filter(produto__categoria=categoria)
+
+    vendas_canceladas = Venda.objects.filter(
+        status='cancelado',
+        data_criacao__date__gte=data_inicio,
+        data_criacao__date__lte=data_fim,
+    )
+    if categoria in ('cantina', 'loja'):
+        vendas_canceladas = vendas_canceladas.filter(itens__produto__categoria=categoria).distinct()
+
+    total_bruto = vendas_qs.aggregate(total=Sum('total'))['total'] or Decimal('0.00')
+    total_vendas = vendas_qs.count()
+    ticket_medio = (total_bruto / total_vendas) if total_vendas else Decimal('0.00')
+    total_itens = itens_qs.aggregate(total=Sum('quantidade'))['total'] or 0
+
+    top_produtos = list(
+        itens_qs.values('produto_id', 'produto__nome')
+        .annotate(
+            unidades=Sum('quantidade'),
+            faturamento=Sum('subtotal'),
+            vendas=Count('venda', distinct=True),
+        )
+        .order_by('-faturamento', '-unidades')[:10]
+    )
+
+    meios_pagamento = list(
+        vendas_qs.values('meio_pagamento')
+        .annotate(
+            quantidade=Count('id'),
+            valor=Sum('total'),
+        )
+        .order_by('-valor')
+    )
+
+    categorias_venda = list(
+        itens_qs.values('produto__categoria')
+        .annotate(
+            unidades=Sum('quantidade'),
+            faturamento=Sum('subtotal'),
+        )
+        .order_by('-faturamento')
+    )
+
+    if (data_fim - data_inicio).days > 62:
+        serie_base = (
+            vendas_qs.annotate(periodo=TruncMonth('data_criacao'))
+            .values('periodo')
+            .annotate(valor=Sum('total'), vendas=Count('id'))
+            .order_by('periodo')
+        )
+        serie = [
+            {
+                'periodo': x['periodo'].strftime('%Y-%m'),
+                'valor': str(x['valor'] or Decimal('0.00')),
+                'vendas': int(x['vendas'] or 0),
+            }
+            for x in serie_base
+        ]
+    else:
+        serie_base = (
+            vendas_qs.annotate(periodo=TruncDate('data_criacao'))
+            .values('periodo')
+            .annotate(valor=Sum('total'), vendas=Count('id'))
+            .order_by('periodo')
+        )
+        serie = [
+            {
+                'periodo': x['periodo'].isoformat(),
+                'valor': str(x['valor'] or Decimal('0.00')),
+                'vendas': int(x['vendas'] or 0),
+            }
+            for x in serie_base
+        ]
+
+    top_horarios = list(
+        vendas_qs.values('data_criacao__hour')
+        .annotate(
+            vendas=Count('id'),
+            valor=Sum('total'),
+        )
+        .order_by('-valor', '-vendas')[:6]
+    )
+    top_horarios = [
+        {
+            'hora': int(x['data_criacao__hour'] or 0),
+            'vendas': int(x['vendas'] or 0),
+            'valor': str(x['valor'] or Decimal('0.00')),
+        }
+        for x in top_horarios
+    ]
+
+    return Response(
+        {
+            'filtro': {
+                'periodo': periodo,
+                'categoria': categoria or 'todas',
+                'data_inicio': data_inicio.isoformat(),
+                'data_fim': data_fim.isoformat(),
+            },
+            'resumo': {
+                'faturamento_total': str(total_bruto),
+                'total_vendas_pagas': int(total_vendas),
+                'ticket_medio': str(ticket_medio.quantize(Decimal('0.01'))),
+                'total_itens_vendidos': int(total_itens),
+                'total_vendas_canceladas': int(vendas_canceladas.count()),
+                'media_vendas_dia': round(
+                    total_vendas / max((data_fim - data_inicio).days + 1, 1), 2
+                ),
+            },
+            'top_produtos': [
+                {
+                    'produto_id': x['produto_id'],
+                    'produto_nome': x['produto__nome'],
+                    'unidades': int(x['unidades'] or 0),
+                    'faturamento': str(x['faturamento'] or Decimal('0.00')),
+                    'vendas': int(x['vendas'] or 0),
+                }
+                for x in top_produtos
+            ],
+            'meios_pagamento': [
+                {
+                    'meio_pagamento': x['meio_pagamento'],
+                    'quantidade': int(x['quantidade'] or 0),
+                    'valor': str(x['valor'] or Decimal('0.00')),
+                }
+                for x in meios_pagamento
+            ],
+            'categorias': [
+                {
+                    'categoria': x['produto__categoria'],
+                    'unidades': int(x['unidades'] or 0),
+                    'faturamento': str(x['faturamento'] or Decimal('0.00')),
+                }
+                for x in categorias_venda
+            ],
+            'serie_faturamento': serie,
+            'top_horarios': top_horarios,
         }
     )

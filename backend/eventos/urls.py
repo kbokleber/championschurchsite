@@ -28,6 +28,7 @@ from loja.views import (
     ReservaLojaViewSet,
     verificar_pagamento_loja,
     pagar_cartao_loja,
+    dashboard_financeiro_loja,
 )
 
 # Router que inclui Mercado Pago e outras rotas no Api Root
@@ -115,6 +116,7 @@ urlpatterns = [
     path('mercadopago/verificar/<int:cobranca_id>/', verificar_pagamento, name='mp_verificar'),
     path('loja/mercadopago/verificar/<int:cobranca_loja_id>/', verificar_pagamento_loja, name='mp_verificar_loja'),
     path('loja/mercadopago/pagar-cartao/', pagar_cartao_loja, name='mp_pagar_cartao_loja'),
+    path('loja/dashboard-financeiro/', dashboard_financeiro_loja, name='loja_dashboard_financeiro'),
     path('mercadopago/config/', mercadopago_config_publica, name='mp_config'),
     
     # Router URLs

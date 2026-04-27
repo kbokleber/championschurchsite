@@ -125,8 +125,19 @@ class VendaListSerializer(serializers.ModelSerializer):
 
 
 class VendaDetailSerializer(VendaListSerializer):
+    """Inclui mapa produto_id → unidades já reservadas (em cobrança) para o PDV respeitar o mínimo."""
+
+    quantidade_reservada_por_produto = serializers.SerializerMethodField()
+
     class Meta(VendaListSerializer.Meta):
-        pass
+        fields = (*VendaListSerializer.Meta.fields, 'quantidade_reservada_por_produto')
+
+    def get_quantidade_reservada_por_produto(self, obj):
+        if obj.status not in ('rascunho', 'pendente_pagamento'):
+            return {}
+        from .estoque_reserva import soma_empenho_por_venda_cobranca
+
+        return {str(pid): int(qty) for pid, qty in soma_empenho_por_venda_cobranca(obj).items()}
 
 
 class VendaCreateSerializer(serializers.Serializer):

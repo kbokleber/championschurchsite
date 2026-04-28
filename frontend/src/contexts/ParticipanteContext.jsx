@@ -52,44 +52,20 @@ export function ParticipanteProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
 
-  // Ao montar: verificar se tem token válido. Se não tiver token, limpar cache e pedir login.
-  // Se tiver token + cache, mostrar cache e só então atualizar em background.
-  // Se tiver token mas sem cache, carregar da API.
+  // Ao montar: se tiver token + cache, mantém experiência logada e atualiza em background.
+  // Não desloga automaticamente por expiração local do JWT; somente logout explícito
+  // ou retorno de token inválido no backend deve derrubar sessão.
   useEffect(() => {
     const token = localStorage.getItem('participante_token')
     if (!token) {
-      // Sem token = não está logado. Limpar cache e mostrar formulário de login
-      limparCache()
-      setParticipante(null)
-      setIngressos([])
-      setLoading(false)
-      return
-    }
-    // Verificar se o token é válido (não expirado)
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]))
-      const exp = payload.exp * 1000
-      const agora = Date.now()
-      if (exp < agora) {
-        // Token expirado - limpar tudo e pedir login
-        localStorage.removeItem('participante_token')
-        limparCache()
-        setParticipante(null)
-        setIngressos([])
-        setLoading(false)
-        return
-      }
-    } catch (e) {
-      // Token inválido - limpar tudo
-      localStorage.removeItem('participante_token')
-      limparCache()
+      // Sem token = não está logado neste navegador
       setParticipante(null)
       setIngressos([])
       setLoading(false)
       return
     }
     
-    // Token válido - carregar dados
+    // Token presente - carregar dados (cache primeiro, API depois)
     const cache = lerCache()
     if (cache.participante) {
       setParticipante(cache.participante)
@@ -149,6 +125,25 @@ export function ParticipanteProvider({ children }) {
       
       if (isUnauthorized) {
         const cache = lerCache()
+        const errorMsg = (error.response?.data?.error || '').toLowerCase()
+        const isTokenExpirado = errorMsg.includes('expirado') || errorMsg.includes('expired')
+        const isTokenInvalido =
+          errorMsg.includes('inválido') ||
+          errorMsg.includes('invalido') ||
+          errorMsg.includes('não fornecido') ||
+          errorMsg.includes('nao fornecido')
+
+        // Token inválido (ex.: participante removido após restore de banco):
+        // limpar sessão local para forçar novo login imediatamente.
+        if (isTokenInvalido) {
+          localStorage.removeItem('participante_token')
+          setParticipante(null)
+          setIngressos([])
+          limparCache()
+          if (!silent) setLoadError(false)
+          return { success: false, unauthorized: true, tokenInvalido: true }
+        }
+
         // Em refresh de background (troca de aba/F5 com cache), não deslogar
         // imediatamente por 401 transitório. Mantemos a sessão visual e
         // permitimos nova tentativa.
@@ -159,10 +154,6 @@ export function ParticipanteProvider({ children }) {
           return { success: false, unauthorized: true }
         }
 
-        // Verificar se é erro de token expirado ou inválido
-        const errorMsg = error.response?.data?.error || ''
-        const isTokenExpirado = errorMsg.includes('expirado') || errorMsg.includes('expired')
-        
         // Se o token expirou e temos cache, manter logado usando o cache
         // O usuário continuará logado visualmente, mas precisará fazer login novamente
         // apenas quando tentar fazer uma ação que requer token válido
@@ -272,18 +263,9 @@ export function ParticipanteProvider({ children }) {
     return { success: false }
   }
 
-  // Verificar se está realmente logado: precisa ter token válido E participante
-  const token = localStorage.getItem('participante_token')
-  const temTokenValido = token && (() => {
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]))
-      const exp = payload.exp * 1000
-      return exp > Date.now()
-    } catch {
-      return false
-    }
-  })()
-  const isLoggedIn = !!(temTokenValido && participante)
+  // Sessão logada baseada em participante em memória/cache.
+  // Token pode expirar em background e ser atualizado no próximo login manual.
+  const isLoggedIn = !!participante
 
   return (
     <ParticipanteContext.Provider value={{

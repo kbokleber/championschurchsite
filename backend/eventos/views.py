@@ -3,6 +3,7 @@ Views da API REST para Champions Church.
 """
 
 import json
+import hmac
 import requests
 import threading
 import logging
@@ -14,6 +15,7 @@ import tempfile
 from collections import Counter
 from io import BytesIO
 from pathlib import Path
+import hashlib
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
@@ -70,6 +72,16 @@ def _evolution_integracao_json(config):
     if inst:
         out['instance'] = inst
     return out or None
+
+
+def _participante_pwd_token_sig(membro):
+    """
+    Assinatura estável da senha atual do participante para invalidar tokens antigos
+    quando a senha for alterada.
+    """
+    base = f"{membro.id}:{membro.senha or ''}".encode('utf-8')
+    key = str(settings.SECRET_KEY).encode('utf-8')
+    return hmac.new(key, base, hashlib.sha256).hexdigest()[:24]
 
 
 def enviar_webhook_inscricao(dados_webhook):
@@ -656,20 +668,16 @@ def participante_login(request):
         )
     
     # Gerar token JWT customizado para participante
-    # Usamos um token simples baseado no ID do membro
-    # Token válido por 1 ano para evitar logout automático
+    # Sessão sem expiração por tempo; invalidada ao trocar senha (pwd_sig).
     import jwt
     from django.conf import settings
-    from datetime import datetime, timedelta
     
-    now = datetime.utcnow()
     payload = {
         'participante_id': membro.id,
         'telefone': membro.telefone,
         'nome': membro.nome,
-        'exp': int((now + timedelta(days=365)).timestamp()),  # Token válido por 1 ano
-        'iat': int(now.timestamp()),
-        'type': 'participante'
+        'type': 'participante',
+        'pwd_sig': _participante_pwd_token_sig(membro),
     }
     
     token = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
@@ -776,7 +784,6 @@ def participante_registro(request):
     Retorna a senha gerada (para envio via WhatsApp).
     """
     import jwt
-    from datetime import datetime, timedelta
     
     nome = (request.data.get('nome') or '').strip()
     telefone = (request.data.get('telefone') or '').strip()
@@ -1155,15 +1162,12 @@ def participante_registro(request):
         
         # Sempre retornar token para manter a sessão do participante (evitar novo login)
         import jwt
-        from datetime import datetime, timedelta
-        now = datetime.utcnow()
         payload = {
             'participante_id': membro.id,
             'telefone': membro.telefone,
             'nome': membro.nome,
-            'exp': int((now + timedelta(days=365)).timestamp()),  # Token válido por 1 ano
-            'iat': int(now.timestamp()),
-            'type': 'participante'
+            'type': 'participante',
+            'pwd_sig': _participante_pwd_token_sig(membro),
         }
         response['token'] = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
         
@@ -1412,16 +1416,13 @@ def participante_registro(request):
                     descricao=f"{acomp_data['nome']} - {acomp_data['categoria'] or 'Adulto'}"
                 )
         import jwt
-        from datetime import datetime, timedelta
-        now = datetime.utcnow()
         token = jwt.encode(
             {
                 'participante_id': membro.id,
                 'telefone': membro.telefone,
                 'nome': membro.nome,
-                'exp': int((now + timedelta(days=365)).timestamp()),  # Token válido por 1 ano
-                'iat': int(now.timestamp()),
-                'type': 'participante'
+                'type': 'participante',
+                'pwd_sig': _participante_pwd_token_sig(membro),
             },
             settings.SECRET_KEY,
             algorithm='HS256'
@@ -1553,16 +1554,14 @@ def participante_registro(request):
                 descricao=f"{acomp_data['nome']} - {acomp_data['categoria'] or 'Adulto'}"
             )
     
-    # Gerar token de login (exp/iat em timestamp numérico para sessão de 1 ano)
-    # Token válido por 1 ano para evitar logout automático
-    now = datetime.utcnow()
+    # Gerar token de login sem expiração por tempo (sem iat/exp).
+    # A invalidação acontece quando a senha mudar (pwd_sig).
     payload = {
         'participante_id': membro.id,
         'telefone': membro.telefone,
         'nome': membro.nome,
-        'exp': int((now + timedelta(days=365)).timestamp()),  # Token válido por 1 ano
-        'iat': int(now.timestamp()),
-        'type': 'participante'
+        'type': 'participante',
+        'pwd_sig': _participante_pwd_token_sig(membro),
     }
     token = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
     
@@ -1700,18 +1699,21 @@ def participante_perfil(request):
         )
     
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=['HS256'],
+            options={'verify_exp': False, 'verify_iat': False},
+        )
         
         if payload.get('type') != 'participante':
             raise jwt.InvalidTokenError('Token inválido')
         
         membro = Membro.objects.get(id=payload['participante_id'])
+        token_pwd_sig = payload.get('pwd_sig')
+        if token_pwd_sig != _participante_pwd_token_sig(membro):
+            raise jwt.InvalidTokenError('Token inválido')
         
-    except jwt.ExpiredSignatureError:
-        return Response(
-            {'error': 'Token expirado. Faça login novamente.'},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
     except (jwt.InvalidTokenError, Membro.DoesNotExist):
         return Response(
             {'error': 'Token inválido'},

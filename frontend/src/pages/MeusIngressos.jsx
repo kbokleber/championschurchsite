@@ -100,6 +100,97 @@ function MeusIngressos() {
 
   const MESES = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
 
+  const sanitizeFileName = (value) => {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9-_]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .toLowerCase()
+  }
+
+  const downloadQrCode = async (qrPath, fileName, pessoaNome, eventoTitulo, dataInicioEvento) => {
+    try {
+      const url = getMediaUrl(qrPath)
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error('Falha ao baixar QR Code')
+      }
+      const blob = await response.blob()
+      const qrBitmap = await createImageBitmap(blob)
+
+      const nomeLinha = pessoaNome || 'Participante'
+      const eventoLinha = eventoTitulo || 'Evento'
+      const dataLinha = dataInicioEvento ? `Início: ${dataInicioEvento}` : ''
+      const padding = 24
+      const lineGap = 8
+      const fontPrimary = 'bold 22px Arial, sans-serif'
+      const fontSecondary = '18px Arial, sans-serif'
+      const fontDate = '16px Arial, sans-serif'
+
+      const tempCanvas = document.createElement('canvas')
+      const tempCtx = tempCanvas.getContext('2d')
+      tempCtx.font = fontPrimary
+      const nomeWidth = tempCtx.measureText(nomeLinha).width
+      tempCtx.font = fontSecondary
+      const eventoWidth = tempCtx.measureText(eventoLinha).width
+      tempCtx.font = fontDate
+      const dataWidth = dataLinha ? tempCtx.measureText(dataLinha).width : 0
+      const textMaxWidth = Math.max(nomeWidth, eventoWidth, dataWidth)
+
+      const canvasWidth = Math.ceil(Math.max(qrBitmap.width, textMaxWidth + padding * 2))
+      const textAreaHeight = dataLinha ? 112 : 84
+      const canvasHeight = qrBitmap.height + textAreaHeight
+
+      const canvas = document.createElement('canvas')
+      canvas.width = canvasWidth
+      canvas.height = canvasHeight
+      const ctx = canvas.getContext('2d')
+
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight)
+
+      const qrX = Math.floor((canvasWidth - qrBitmap.width) / 2)
+      ctx.drawImage(qrBitmap, qrX, 0)
+
+      const centerX = canvasWidth / 2
+      const textStartY = qrBitmap.height + 34
+      ctx.textAlign = 'center'
+      ctx.fillStyle = '#0f172a'
+      ctx.font = fontPrimary
+      ctx.fillText(nomeLinha, centerX, textStartY)
+      ctx.font = fontSecondary
+      ctx.fillStyle = '#334155'
+      ctx.fillText(eventoLinha, centerX, textStartY + 24 + lineGap)
+      if (dataLinha) {
+        ctx.font = fontDate
+        ctx.fillStyle = '#475569'
+        ctx.fillText(dataLinha, centerX, textStartY + 24 + lineGap + 24 + 6)
+      }
+
+      const finalBlob = await new Promise((resolve) => {
+        canvas.toBlob((b) => resolve(b), 'image/png')
+      })
+
+      if (!finalBlob) {
+        throw new Error('Falha ao gerar imagem final do QR Code')
+      }
+
+      const blobUrl = window.URL.createObjectURL(finalBlob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = fileName
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(blobUrl)
+    } catch (error) {
+      console.error('Erro ao baixar QR Code:', error)
+      setErro('Não foi possível baixar o QR Code. Tente novamente.')
+    }
+  }
+
   const formatarTelefone = (valor) => {
     // Remove tudo que não é número
     const numeros = valor.replace(/\D/g, '')
@@ -157,14 +248,24 @@ function MeusIngressos() {
     return () => clearTimeout(timer)
   }, [telefone])
 
-  // Ao entrar na página logado: resetar filtros. Só buscar da API se ainda não tiver ingressos (evita 401 logo após login).
+  // Função para atualizar manualmente/automaticamente (força busca no servidor e atualiza a lista)
+  const handleAtualizar = useCallback(async ({ silent = false } = {}) => {
+    setAtualizando(true)
+    try {
+      await atualizarIngressos({ forcar: true, silent })
+    } finally {
+      setAtualizando(false)
+    }
+  }, [atualizarIngressos])
+
+  // Ao abrir Meus Ingressos logado: sempre consultar novamente no banco.
   useEffect(() => {
     if (isLoggedIn) {
       setFiltroAno('')
       setFiltroMes('')
-      if (ingressos.length === 0) atualizarIngressos()
+      handleAtualizar({ silent: true })
     }
-  }, [isLoggedIn])
+  }, [isLoggedIn, handleAtualizar])
 
   // Quando a lista de ingressos é atualizada (ex.: após inscrição ou atualizar), resetar filtros para o novo ingresso aparecer
   useEffect(() => {
@@ -185,16 +286,6 @@ function MeusIngressos() {
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [isLoggedIn, atualizarIngressos])
-
-  // Função para atualizar manualmente (força busca no servidor e atualiza a lista)
-  const handleAtualizar = async () => {
-    setAtualizando(true)
-    try {
-      await atualizarIngressos({ forcar: true })
-    } finally {
-      setAtualizando(false)
-    }
-  }
 
   const handleTelefoneChange = (e) => {
     setTelefone(formatarTelefone(e.target.value))
@@ -623,14 +714,23 @@ function MeusIngressos() {
                                   {participante.nome}
                                 </p>
                               )}
-                              <a
-                                href={getMediaUrl(ingresso.qrcode)}
-                                download={`ingresso-${ingresso.evento.titulo.replace(/\s+/g, '-')}.png`}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  downloadQrCode(
+                                    ingresso.qrcode,
+                                    `qrcode-${sanitizeFileName(participante?.nome || 'participante')}-${sanitizeFileName(ingresso.evento.titulo || 'evento')}.png`
+                                    ,
+                                    participante?.nome || 'Participante',
+                                    ingresso.evento.titulo || 'Evento',
+                                    ingresso.evento.data_inicio || ''
+                                  )
+                                }
                                 className="inline-flex items-center text-primary-600 hover:text-primary-700 text-sm min-h-[44px] py-2"
                               >
                                 <Download className="h-4 w-4 mr-1" />
                                 Salvar QR Code
-                              </a>
+                              </button>
                             </>
                           ) : ingresso.pagamento_pendente ? (
                             /* Pagamento Pendente - aguardando para gerar QR Code */
@@ -755,14 +855,22 @@ function MeusIngressos() {
                                           Check-in OK
                                         </span>
                                       ) : (
-                                        <a
-                                          href={getMediaUrl(acomp.qrcode)}
-                                          download={`ingresso-${acomp.nome.replace(/\s+/g, '-')}.png`}
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            downloadQrCode(
+                                              acomp.qrcode,
+                                              `qrcode-${sanitizeFileName(acomp.nome || 'acompanhante')}-${sanitizeFileName(ingresso.evento.titulo || 'evento')}.png`,
+                                              acomp.nome || 'Acompanhante',
+                                              ingresso.evento.titulo || 'Evento',
+                                              ingresso.evento.data_inicio || ''
+                                            )
+                                          }
                                           className="text-xs text-primary-600 hover:underline flex items-center justify-center mt-1 min-h-[36px]"
                                         >
                                           <Download className="h-3 w-3 mr-1" />
                                           Salvar
-                                        </a>
+                                        </button>
                                       )
                                     )}
                                   </div>

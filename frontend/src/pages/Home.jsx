@@ -137,10 +137,10 @@ function Home() {
                         <img
                           src={imagemSlide}
                           alt={slide?.titulo || `Slide ${index + 1}`}
-                          className="w-[92vw] max-w-[420px] md:max-w-[460px] h-[500px] md:h-[620px] rounded-2xl object-contain bg-white mb-6 border border-primary-100 shadow-sm"
+                          className="w-full max-w-[340px] h-[500px] rounded-2xl object-cover mb-6 border border-primary-100 shadow-sm"
                         />
                       ) : (
-                        <div className="w-[92vw] max-w-[420px] md:max-w-[460px] h-[500px] md:h-[620px] rounded-2xl bg-primary-100 text-primary-600 mb-6 text-xs font-semibold flex items-center justify-center border border-primary-100">
+                        <div className="w-full max-w-[340px] h-[500px] rounded-2xl bg-primary-100 text-primary-600 mb-6 text-xs font-semibold flex items-center justify-center border border-primary-100">
                           Sem imagem
                         </div>
                       )}

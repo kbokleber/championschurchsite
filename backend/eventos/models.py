@@ -1039,6 +1039,36 @@ class ConfiguracaoSite(models.Model):
         return self.mp_public_key_sandbox
 
 
+class DestaqueHomeItem(models.Model):
+    """Item configurável do carrossel da Home."""
+
+    configuracao = models.ForeignKey(
+        ConfiguracaoSite,
+        on_delete=models.CASCADE,
+        related_name='destaques_home',
+        verbose_name='Configuração do Site',
+    )
+    titulo = models.CharField(max_length=120, verbose_name='Título')
+    descricao = models.TextField(verbose_name='Descrição')
+    imagem = models.ImageField(
+        upload_to='configuracoes/destaques_home/',
+        verbose_name='Imagem',
+        null=True,
+        blank=True,
+    )
+    ordem = models.PositiveIntegerField(default=0, verbose_name='Ordem')
+    ativo = models.BooleanField(default=True, verbose_name='Ativo')
+    criado_em = models.DateTimeField(auto_now_add=True, verbose_name='Criado em')
+    atualizado_em = models.DateTimeField(auto_now=True, verbose_name='Atualizado em')
+
+    class Meta:
+        verbose_name = 'Item de Destaque da Home'
+        verbose_name_plural = 'Itens de Destaque da Home'
+        ordering = ['ordem', 'id']
+
+    def __str__(self):
+        return f"{self.titulo} (ordem {self.ordem})"
+
 class FormularioInscricao(models.Model):
     """Template de formulário reaproveitável associado opcionalmente a eventos.
 

@@ -32,6 +32,7 @@ from django.contrib.auth.models import User
 from django.conf import settings
 from .models import (
     Membro, Evento, Inscricao, Contato, ConfiguracaoSite, 
+    DestaqueHomeItem,
     CategoriaParticipante, Cobranca, CobrancaItem,
     PermissaoMenu, Grupo, WebhookEventLog,
     FormularioInscricao, CampoFormulario, RespostaCampoInscricao,
@@ -2876,6 +2877,46 @@ def configuracao_admin(request):
             if clear_banner and config.imagem_banner:
                 config.imagem_banner = None
                 config.save(update_fields=['imagem_banner'])
+
+            # Atualização dos itens do carrossel da Home
+            destaques_home_json = request.data.get('destaques_home_json')
+            if destaques_home_json:
+                try:
+                    itens = json.loads(destaques_home_json)
+                    if not isinstance(itens, list):
+                        raise ValueError('Formato inválido para destaques_home_json')
+                except Exception:
+                    return Response(
+                        {'detail': 'Formato inválido para os itens do carrossel da Home.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # Remove os itens antigos (incluindo imagens antigas)
+                for antigo in config.destaques_home.all():
+                    if antigo.imagem:
+                        antigo.imagem.delete(save=False)
+                    antigo.delete()
+
+                for idx, item in enumerate(itens):
+                    if not isinstance(item, dict):
+                        continue
+                    titulo = (item.get('titulo') or '').strip()
+                    descricao = (item.get('descricao') or '').strip()
+                    if not titulo and not descricao:
+                        continue
+                    ativo = item.get('ativo', True)
+                    ordem = item.get('ordem', idx)
+                    imagem_file = request.FILES.get(f'destaque_home_imagem_{idx}')
+                    destaque = DestaqueHomeItem.objects.create(
+                        configuracao=config,
+                        titulo=titulo[:120] if titulo else 'Sem título',
+                        descricao=descricao,
+                        ordem=int(ordem) if str(ordem).isdigit() else idx,
+                        ativo=bool(ativo),
+                    )
+                    if imagem_file:
+                        destaque.imagem = imagem_file
+                        destaque.save(update_fields=['imagem'])
             config.refresh_from_db()
             return Response(ConfiguracaoSiteSerializer(config).data)
         

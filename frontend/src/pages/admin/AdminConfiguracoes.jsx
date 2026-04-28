@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Save, Upload, X, Church, Mail, Phone, MapPin, Facebook, Instagram, Youtube, Twitter, Globe, Webhook, ToggleLeft, ToggleRight, CreditCard, AlertTriangle, CheckCircle, Eye, EyeOff, MessageSquare, Download } from 'lucide-react'
+import { Save, Upload, X, Church, Mail, Phone, MapPin, Facebook, Instagram, Youtube, Twitter, Globe, Webhook, ToggleLeft, ToggleRight, CreditCard, AlertTriangle, CheckCircle, Eye, EyeOff, MessageSquare, Download, Plus, Trash2, ChevronUp, ChevronDown } from 'lucide-react'
 import api from '../../services/api'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import { useConfiguracao } from '../../contexts/ConfiguracaoContext'
@@ -7,6 +7,40 @@ import { useAuth } from '../../contexts/AuthContext'
 
 // Abas visíveis apenas para superusuário (admin)
 const TABS_SOMENTE_ADMIN = ['integracoes', 'whatsapp', 'mercadopago']
+
+const novoDestaqueHome = () => ({
+  id: null,
+  titulo: '',
+  descricao: '',
+  ativo: true,
+  ordem: 0,
+  imagem: null,
+  imagemPreview: null,
+  imagemAlterada: false
+})
+
+const DESTAQUES_HOME_PADRAO = [
+  {
+    titulo: 'CONECTION:',
+    descricao:
+      'O momento de conexão com nossos pastores, para todos aqueles que desejam se conectar com nossa igreja como membro, caminhar conosco e conhecer a nossa história.',
+  },
+  {
+    titulo: 'DIRECTION:',
+    descricao:
+      'O mesmo que direção, é o nosso momento de estudo da palavra. Onde recebemos ensinamentos e direcionamos de acordo com a palavra do senhor.',
+  },
+  {
+    titulo: 'DEEPER:',
+    descricao:
+      'Deeper significa mais fundo, é onde entramos na história e mergulhamos mais fundo nas escrituras.',
+  },
+  {
+    titulo: 'CÉLULA – Partir do pão:',
+    descricao:
+      'É onde a fé se torna prática, onde vidas se conectam e o pão é repartido, assim como o amor de Cristo.',
+  },
+]
 
 function AdminConfiguracoes() {
   const { user } = useAuth()
@@ -66,6 +100,7 @@ function AdminConfiguracoes() {
   const [showAccessTokenSandbox, setShowAccessTokenSandbox] = useState(false)
   const [showAccessTokenProduction, setShowAccessTokenProduction] = useState(false)
   const [showEvolutionApiKey, setShowEvolutionApiKey] = useState(false)
+  const [destaquesHome, setDestaquesHome] = useState([novoDestaqueHome()])
 
   useEffect(() => {
     fetchConfiguracao()
@@ -138,6 +173,35 @@ function AdminConfiguracoes() {
         setClearBannerRequested(false)
       } else {
         setBannerPreview(null)
+      }
+
+      const itensHome = Array.isArray(data.destaques_home) ? data.destaques_home : []
+      if (itensHome.length > 0) {
+        setDestaquesHome(
+          itensHome.map((item, index) => ({
+            id: item.id ?? null,
+            titulo: item.titulo || '',
+            descricao: item.descricao || '',
+            ativo: item.ativo !== false,
+            ordem: Number.isFinite(item.ordem) ? item.ordem : index,
+            imagem: null,
+            imagemPreview: item.imagem ? getImageUrl(item.imagem) : null,
+            imagemAlterada: false
+          }))
+        )
+      } else {
+        setDestaquesHome(
+          DESTAQUES_HOME_PADRAO.map((item, index) => ({
+            id: null,
+            titulo: item.titulo,
+            descricao: item.descricao,
+            ativo: true,
+            ordem: index,
+            imagem: null,
+            imagemPreview: null,
+            imagemAlterada: false
+          }))
+        )
       }
     } catch (error) {
       console.error('Erro ao carregar configurações:', error)
@@ -231,6 +295,64 @@ function AdminConfiguracoes() {
     }
   }
 
+  const getCarouselDownloadName = (item, index) => {
+    const titulo = (item?.titulo || `item-${index + 1}`)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+    return `carrossel-${titulo || `item-${index + 1}`}.png`
+  }
+
+  const adicionarDestaqueHome = () => {
+    setDestaquesHome(prev => [
+      ...prev,
+      { ...novoDestaqueHome(), ordem: prev.length }
+    ])
+  }
+
+  const atualizarDestaqueHome = (index, campo, valor) => {
+    setDestaquesHome(prev =>
+      prev.map((item, i) => (i === index ? { ...item, [campo]: valor } : item))
+    )
+  }
+
+  const handleImagemDestaqueHome = (index, file) => {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setDestaquesHome(prev =>
+        prev.map((item, i) => (
+          i === index
+            ? { ...item, imagem: file, imagemPreview: reader.result, imagemAlterada: true }
+            : item
+        ))
+      )
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const removerDestaqueHome = (index) => {
+    setDestaquesHome(prev => {
+      const next = prev.filter((_, i) => i !== index)
+      if (next.length === 0) return [novoDestaqueHome()]
+      return next.map((item, i) => ({ ...item, ordem: i }))
+    })
+  }
+
+  const moverDestaqueHome = (index, direcao) => {
+    setDestaquesHome(prev => {
+      const targetIndex = direcao === 'up' ? index - 1 : index + 1
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev
+      const next = [...prev]
+      const temp = next[index]
+      next[index] = next[targetIndex]
+      next[targetIndex] = temp
+      return next.map((item, i) => ({ ...item, ordem: i }))
+    })
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setSaving(true)
@@ -278,6 +400,19 @@ function AdminConfiguracoes() {
       if (clearBannerRequested) {
         data.append('clear_imagem_banner', 'true')
       }
+
+      const payloadDestaquesHome = destaquesHome.map((item, index) => ({
+        titulo: item.titulo || '',
+        descricao: item.descricao || '',
+        ativo: !!item.ativo,
+        ordem: index
+      }))
+      data.append('destaques_home_json', JSON.stringify(payloadDestaquesHome))
+      destaquesHome.forEach((item, index) => {
+        if (item.imagem) {
+          data.append(`destaque_home_imagem_${index}`, item.imagem)
+        }
+      })
 
       // Não defina Content-Type: o axios/boundary é obrigatório em multipart
       await api.patch('/admin/configuracao/', data)
@@ -328,6 +463,7 @@ function AdminConfiguracoes() {
     { id: 'endereco', label: 'Endereço', icon: MapPin },
     { id: 'redes', label: 'Redes Sociais', icon: Globe },
     { id: 'visual', label: 'Logo e Visual', icon: Upload },
+    { id: 'home_carrossel', label: 'Home Carrossel', icon: Upload },
     { id: 'integracoes', label: 'Integrações', icon: Webhook },
     { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare },
     { id: 'mercadopago', label: 'Mercado Pago', icon: CreditCard }
@@ -891,6 +1027,154 @@ function AdminConfiguracoes() {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Tab: Home Carrossel */}
+          {activeTab === 'home_carrossel' && (
+            <div className="space-y-6">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h3 className="font-medium text-blue-800 mb-1">Carrossel da seção destacada da Home</h3>
+                <p className="text-sm text-blue-700">
+                  Configure os cards que aparecem no carrossel: título, descrição e imagem.
+                </p>
+              </div>
+
+              {destaquesHome.map((item, index) => (
+                <div key={`destaque-home-${index}`} className="border border-gray-200 rounded-xl p-4 space-y-4 bg-white">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-semibold text-church-navy">Item {index + 1}</h4>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => moverDestaqueHome(index, 'up')}
+                        className="p-2 border rounded-lg hover:bg-gray-50 disabled:opacity-40"
+                        disabled={index === 0}
+                        title="Mover para cima"
+                      >
+                        <ChevronUp className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moverDestaqueHome(index, 'down')}
+                        className="p-2 border rounded-lg hover:bg-gray-50 disabled:opacity-40"
+                        disabled={index === destaquesHome.length - 1}
+                        title="Mover para baixo"
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removerDestaqueHome(index)}
+                        className="p-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50"
+                        title="Remover item"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Título</label>
+                    <input
+                      type="text"
+                      value={item.titulo}
+                      onChange={(e) => atualizarDestaqueHome(index, 'titulo', e.target.value)}
+                      className="input-field"
+                      placeholder="Ex: CONECTION:"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
+                    <textarea
+                      value={item.descricao}
+                      onChange={(e) => atualizarDestaqueHome(index, 'descricao', e.target.value)}
+                      rows={4}
+                      className="input-field"
+                      placeholder="Descrição do card no carrossel"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Imagem</label>
+                    <div className="flex items-start gap-4">
+                      {item.imagemPreview ? (
+                        <img
+                          src={item.imagemPreview}
+                          alt={`Prévia ${item.titulo || `Item ${index + 1}`}`}
+                          className="h-24 w-24 rounded-lg border object-cover"
+                        />
+                      ) : (
+                        <div className="h-24 w-24 rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 flex items-center justify-center text-xs text-gray-500 text-center px-1">
+                          Sem imagem
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <label className="btn-outline cursor-pointer inline-flex items-center">
+                          <Upload className="h-4 w-4 mr-2" />
+                          Enviar imagem
+                          <input
+                            type="file"
+                            accept=".png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff,.avif,image/*"
+                            onChange={(e) => handleImagemDestaqueHome(index, e.target.files?.[0])}
+                            className="hidden"
+                          />
+                        </label>
+                        <p className="text-xs text-gray-500">
+                          Formatos aceitos: PNG, JPG, WEBP, GIF, BMP, TIFF e AVIF.
+                        </p>
+                        {item.imagemPreview && (
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadImage(item.imagemPreview, getCarouselDownloadName(item, index))}
+                            className="btn-outline inline-flex items-center"
+                          >
+                            <Download className="h-4 w-4 mr-2" />
+                            Baixar imagem
+                          </button>
+                        )}
+                        {item.imagemPreview && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDestaquesHome(prev =>
+                                prev.map((d, i) => (
+                                  i === index
+                                    ? { ...d, imagem: null, imagemPreview: null, imagemAlterada: true }
+                                    : d
+                                ))
+                              )
+                            }}
+                            className="btn-outline text-red-600 border-red-200 hover:bg-red-50"
+                          >
+                            Remover imagem
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={!!item.ativo}
+                      onChange={(e) => atualizarDestaqueHome(index, 'ativo', e.target.checked)}
+                    />
+                    Item ativo no carrossel
+                  </label>
+                </div>
+              ))}
+
+              <button
+                type="button"
+                onClick={adicionarDestaqueHome}
+                className="btn-outline inline-flex items-center"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Adicionar item
+              </button>
             </div>
           )}
 

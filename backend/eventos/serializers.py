@@ -8,6 +8,7 @@ from django.db import transaction
 from django.utils import timezone
 from .models import (
     Membro, Evento, Inscricao, Contato, ConfiguracaoSite, 
+    DestaqueHomeItem,
     CategoriaParticipante, Cobranca, CobrancaItem,
     PermissaoMenu, Grupo,
     FormularioInscricao, CampoFormulario, RespostaCampoInscricao
@@ -851,6 +852,7 @@ class CategoriaParticipanteSerializer(serializers.ModelSerializer):
 
 class ConfiguracaoSitePublicSerializer(serializers.ModelSerializer):
     """Serializer PÚBLICO para configurações do site (sem dados sensíveis)."""
+    destaques_home = serializers.SerializerMethodField()
     
     class Meta:
         model = ConfiguracaoSite
@@ -861,13 +863,19 @@ class ConfiguracaoSitePublicSerializer(serializers.ModelSerializer):
             'endereco', 'cidade', 'estado', 'cep',
             'facebook', 'instagram', 'youtube', 'tiktok', 'twitter',
             'horarios', 'google_maps_embed',
+            'destaques_home',
             'atualizado_em'
         ]
         read_only_fields = fields  # Todos são somente leitura no público
 
+    def get_destaques_home(self, obj):
+        itens = obj.destaques_home.filter(ativo=True).order_by('ordem', 'id')
+        return DestaqueHomeItemSerializer(itens, many=True).data
+
 
 class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
     """Serializer ADMIN para configurações do site (com dados sensíveis)."""
+    destaques_home = serializers.SerializerMethodField()
     
     # Campos computados do Mercado Pago (só leitura)
     mp_public_key = serializers.ReadOnlyField()
@@ -896,6 +904,7 @@ class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
             'mp_public_key', 'mp_is_sandbox',  # Campos computados
             # WhatsApp Evolution API
             'evolution_api_url', 'evolution_api_key', 'evolution_api_instance',
+            'destaques_home',
             'atualizado_em'
         ]
         read_only_fields = ['id', 'atualizado_em', 'mp_public_key', 'mp_is_sandbox',
@@ -913,6 +922,22 @@ class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
         if obj.mp_access_token_production:
             return f"{obj.mp_access_token_production[:15]}...{obj.mp_access_token_production[-4:]}"
         return None
+
+    def get_destaques_home(self, obj):
+        itens = obj.destaques_home.all().order_by('ordem', 'id')
+        return DestaqueHomeItemSerializer(itens, many=True).data
+
+
+class DestaqueHomeItemSerializer(serializers.ModelSerializer):
+    """Serializer para os itens configuráveis do carrossel da Home."""
+
+    class Meta:
+        model = DestaqueHomeItem
+        fields = [
+            'id', 'titulo', 'descricao', 'imagem',
+            'ordem', 'ativo', 'criado_em', 'atualizado_em'
+        ]
+        read_only_fields = ['id', 'criado_em', 'atualizado_em']
 
 
 class CobrancaItemSerializer(serializers.ModelSerializer):

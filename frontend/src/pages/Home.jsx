@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Calendar, Users, Heart, BookOpen, ArrowRight } from 'lucide-react'
+import { ArrowRight, ChevronLeft, ChevronRight, Calendar, Users, Heart, BookOpen } from 'lucide-react'
 import EventCard from '../components/EventCard'
 import LoadingSpinner from '../components/LoadingSpinner'
 import api from '../services/api'
@@ -12,6 +12,7 @@ function Home() {
   const bannerUrl = temBanner ? getImageUrl(configuracao.imagem_banner) : null
   const [eventosDestaque, setEventosDestaque] = useState([])
   const [loading, setLoading] = useState(true)
+  const [slideAtual, setSlideAtual] = useState(0)
 
   useEffect(() => {
     const fetchEventos = async () => {
@@ -56,6 +57,33 @@ function Home() {
         'É onde a fé se torna prática, onde vidas se conectam e o pão é repartido, assim como o amor de Cristo.',
     },
   ]
+  const slides = Array.isArray(configuracao?.destaques_home) && configuracao.destaques_home.length > 0
+    ? configuracao.destaques_home
+    : features
+
+  useEffect(() => {
+    if (slides.length <= 1) return undefined
+    const timer = setInterval(() => {
+      setSlideAtual(prev => (prev + 1) % slides.length)
+    }, 5000)
+    return () => clearInterval(timer)
+  }, [slides.length])
+
+  useEffect(() => {
+    if (slideAtual >= slides.length) {
+      setSlideAtual(0)
+    }
+  }, [slides.length, slideAtual])
+
+  const avancarSlide = () => {
+    if (slides.length <= 1) return
+    setSlideAtual(prev => (prev + 1) % slides.length)
+  }
+
+  const voltarSlide = () => {
+    if (slides.length <= 1) return
+    setSlideAtual(prev => (prev - 1 + slides.length) % slides.length)
+  }
 
   return (
     <div>
@@ -95,20 +123,70 @@ function Home() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-            {features.map((feature, index) => (
-              <div
-                key={index}
-                className="bg-white p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow text-center"
-              >
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary-100 text-primary-600 mb-4">
-                  {feature.icon}
-                </div>
-                <h3 className="text-lg font-bold text-church-navy mb-2">
-                  {feature.title}
-                </h3>
-                <p className="text-gray-600">{feature.description}</p>
-              </div>
+          <div className="relative">
+            <div className="max-w-4xl mx-auto">
+              {slides.map((slide, index) => {
+                const imagemSlide = slide?.imagem ? getImageUrl(slide.imagem) : null
+                return (
+                  <div
+                    key={`${slide?.id ?? index}-${index}`}
+                    className={`${index === slideAtual ? 'block' : 'hidden'}`}
+                  >
+                    <div className="bg-white p-8 rounded-xl shadow-md text-center min-h-[360px] flex flex-col items-center justify-start">
+                      {imagemSlide ? (
+                        <img
+                          src={imagemSlide}
+                          alt={slide?.titulo || `Slide ${index + 1}`}
+                          className="w-full max-w-[340px] h-[500px] rounded-2xl object-cover mb-6 border border-primary-100 shadow-sm"
+                        />
+                      ) : (
+                        <div className="w-full max-w-[340px] h-[500px] rounded-2xl bg-primary-100 text-primary-600 mb-6 text-xs font-semibold flex items-center justify-center border border-primary-100">
+                          Sem imagem
+                        </div>
+                      )}
+                      <h3 className="text-2xl font-bold text-church-navy mb-3">
+                        {slide?.title || slide?.titulo}
+                      </h3>
+                      <p className="text-gray-600 text-lg whitespace-pre-line">
+                        {slide?.description || slide?.descricao}
+                      </p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {slides.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={voltarSlide}
+                  className="absolute left-0 md:-left-6 top-1/2 -translate-y-1/2 bg-white border border-gray-200 rounded-full p-2 shadow hover:bg-gray-50"
+                  aria-label="Slide anterior"
+                >
+                  <ChevronLeft className="h-5 w-5 text-church-navy" />
+                </button>
+                <button
+                  type="button"
+                  onClick={avancarSlide}
+                  className="absolute right-0 md:-right-6 top-1/2 -translate-y-1/2 bg-white border border-gray-200 rounded-full p-2 shadow hover:bg-gray-50"
+                  aria-label="Próximo slide"
+                >
+                  <ChevronRight className="h-5 w-5 text-church-navy" />
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="flex justify-center mt-6 gap-2">
+            {slides.map((_, index) => (
+              <button
+                key={`dot-${index}`}
+                type="button"
+                onClick={() => setSlideAtual(index)}
+                className={`h-2.5 w-2.5 rounded-full transition-colors ${index === slideAtual ? 'bg-primary-600' : 'bg-gray-300 hover:bg-gray-400'}`}
+                aria-label={`Ir para slide ${index + 1}`}
+              />
             ))}
           </div>
         </div>

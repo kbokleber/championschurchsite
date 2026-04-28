@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Save, Upload, X, Church, Mail, Phone, MapPin, Facebook, Instagram, Youtube, Twitter, Globe, Webhook, ToggleLeft, ToggleRight, CreditCard, AlertTriangle, CheckCircle, Eye, EyeOff, MessageSquare } from 'lucide-react'
+import { Save, Upload, X, Church, Mail, Phone, MapPin, Facebook, Instagram, Youtube, Twitter, Globe, Webhook, ToggleLeft, ToggleRight, CreditCard, AlertTriangle, CheckCircle, Eye, EyeOff, MessageSquare, Download } from 'lucide-react'
 import api from '../../services/api'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import { useConfiguracao } from '../../contexts/ConfiguracaoContext'
@@ -197,6 +197,37 @@ function AdminConfiguracoes() {
         setClearBannerRequested(false)
       }
       reader.readAsDataURL(file)
+    }
+  }
+
+  const getDownloadName = (url, fallback) => {
+    if (!url) return fallback
+    if (url.startsWith('data:')) return fallback
+    const clean = url.split('?')[0]
+    const parts = clean.split('/')
+    const last = parts[parts.length - 1]
+    return last || fallback
+  }
+
+  const handleDownloadImage = async (url, fallbackName) => {
+    if (!url) return
+    try {
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error('Falha ao baixar imagem')
+      }
+      const blob = await response.blob()
+      const blobUrl = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = getDownloadName(url, fallbackName)
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(blobUrl)
+    } catch (error) {
+      console.error('Erro ao baixar imagem:', error)
+      setMessage({ type: 'error', text: 'Não foi possível baixar a imagem.' })
     }
   }
 
@@ -739,6 +770,16 @@ function AdminConfiguracoes() {
                     <p className="text-xs text-gray-500 mt-2">
                       PNG com fundo transparente (exporte sem o quadriculado do editor)
                     </p>
+                    {logoPreview && (
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadImage(logoPreview, 'logo-principal.png')}
+                        className="mt-3 btn-outline inline-flex items-center"
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Baixar imagem
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -783,6 +824,16 @@ function AdminConfiguracoes() {
                     <p className="text-xs text-gray-500 mt-2">
                       Versão clara do logo para o header e áreas escuras. Use PNG com fundo transparente (sem quadriculado).
                     </p>
+                    {logoBrancoPreview && (
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadImage(logoBrancoPreview, 'logo-branco.png')}
+                        className="mt-3 btn-outline inline-flex items-center"
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Baixar imagem
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -827,6 +878,16 @@ function AdminConfiguracoes() {
                         className="hidden"
                       />
                     </label>
+                    {bannerPreview && (
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadImage(bannerPreview, 'banner-home.png')}
+                        className="mt-3 btn-outline inline-flex items-center"
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Baixar imagem
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

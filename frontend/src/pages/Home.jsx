@@ -116,14 +116,14 @@ function Home() {
       {/* Features Section */}
       <section className="py-20 bg-church-cream">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
+          <div className="text-center mb-16">
             <h2 className="section-title">NOSSO ALVO: JESUS</h2>
             <p className="section-subtitle">
               NOSSO CHAMADO: Adorar, disciplinar e Compartilhar
             </p>
           </div>
 
-          <div className="relative">
+          <div className="relative mt-2">
             <div className="max-w-4xl mx-auto">
               {slides.map((slide, index) => {
                 const imagemSlide = slide?.imagem ? getImageUrl(slide.imagem) : null
@@ -132,7 +132,7 @@ function Home() {
                     key={`${slide?.id ?? index}-${index}`}
                     className={`${index === slideAtual ? 'block' : 'hidden'}`}
                   >
-                    <div className="bg-white p-8 rounded-xl shadow-md text-center min-h-[360px] flex flex-col items-center justify-start">
+                    <div className="bg-gradient-to-b from-white to-primary-50/40 p-10 rounded-2xl border-2 border-primary-100 shadow-[0_20px_45px_-20px_rgba(15,23,42,0.35)] text-center min-h-[360px] flex flex-col items-center justify-start">
                       {imagemSlide ? (
                         <img
                           src={imagemSlide}

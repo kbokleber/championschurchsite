@@ -25,11 +25,12 @@ from rest_framework.exceptions import ValidationError
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
-from django.db import transaction
+from django.db import transaction, connections
 from django.db.models import Q, Prefetch
 from django.http import HttpResponse
 from django.contrib.auth.models import User
 from django.conf import settings
+from django.core.management import call_command
 from .models import (
     Membro, Evento, Inscricao, Contato, ConfiguracaoSite, 
     DestaqueHomeItem,
@@ -4281,16 +4282,37 @@ def _postgres_config():
     }
 
 
-def _validar_requisitos_backup():
-    cfg = _postgres_config()
-    faltando = [k for k, v in cfg.items() if not v]
-    if faltando:
-        return f"Configuração PostgreSQL incompleta: {', '.join(sorted(faltando))}"
+def _database_engine_kind():
+    engine = (settings.DATABASES.get('default', {}).get('ENGINE') or '').lower()
+    if 'postgresql' in engine:
+        return 'postgresql'
+    if 'sqlite' in engine:
+        return 'sqlite'
+    return engine or 'desconhecido'
 
-    if shutil.which('pg_dump') is None:
-        return 'Comando pg_dump não encontrado no servidor.'
-    if shutil.which('pg_restore') is None:
-        return 'Comando pg_restore não encontrado no servidor.'
+
+def _validar_requisitos_backup(mode='export'):
+    engine_kind = _database_engine_kind()
+
+    if mode == 'export':
+        if engine_kind != 'postgresql':
+            return 'Exportação de backup suportada apenas quando o banco atual é PostgreSQL.'
+        cfg = _postgres_config()
+        faltando = [k for k, v in cfg.items() if not v]
+        if faltando:
+            return f"Configuração PostgreSQL incompleta: {', '.join(sorted(faltando))}"
+        if shutil.which('pg_dump') is None:
+            return 'Comando pg_dump não encontrado no servidor.'
+    elif mode == 'import':
+        if engine_kind == 'postgresql':
+            cfg = _postgres_config()
+            faltando = [k for k, v in cfg.items() if not v]
+            if faltando:
+                return f"Configuração PostgreSQL incompleta: {', '.join(sorted(faltando))}"
+            if shutil.which('pg_restore') is None:
+                return 'Comando pg_restore não encontrado no servidor.'
+        elif engine_kind != 'sqlite':
+            return f'Tipo de banco atual não suportado para importação: {engine_kind}'
 
     media_root = Path(settings.MEDIA_ROOT)
     if not media_root.exists():
@@ -4342,7 +4364,7 @@ def admin_backup_exportar(request):
     if denied:
         return denied
 
-    erro_validacao = _validar_requisitos_backup()
+    erro_validacao = _validar_requisitos_backup(mode='export')
     if erro_validacao:
         return Response({'detail': erro_validacao}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -4355,6 +4377,7 @@ def admin_backup_exportar(request):
     with tempfile.TemporaryDirectory(prefix='champions_backup_') as tmpdir:
         tmp_path = Path(tmpdir)
         db_dump_path = tmp_path / 'database.dump'
+        db_fixture_path = tmp_path / 'database.json'
         media_copy_path = tmp_path / 'media'
         manifest_path = tmp_path / 'manifest.json'
         package_path = tmp_path / backup_filename
@@ -4377,6 +4400,14 @@ def admin_backup_exportar(request):
                 ],
                 env=env,
             )
+            with open(db_fixture_path, 'w', encoding='utf-8') as fixture_file:
+                call_command(
+                    'dumpdata',
+                    '--natural-foreign',
+                    '--natural-primary',
+                    '--verbosity=0',
+                    stdout=fixture_file,
+                )
 
             shutil.copytree(media_root, media_copy_path)
             manifest = {
@@ -4384,12 +4415,14 @@ def admin_backup_exportar(request):
                 'created_at': timezone.now().isoformat(),
                 'database_file': 'database.dump',
                 'database_format': 'pg_custom',
+                'database_fixture_file': 'database.json',
                 'media_dir': 'media',
             }
             manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
 
             with tarfile.open(package_path, 'w:gz') as tar:
                 tar.add(db_dump_path, arcname='database.dump')
+                tar.add(db_fixture_path, arcname='database.json')
                 tar.add(media_copy_path, arcname='media')
                 tar.add(manifest_path, arcname='manifest.json')
         except Exception as exc:
@@ -4411,7 +4444,7 @@ def admin_backup_importar(request):
     if denied:
         return denied
 
-    erro_validacao = _validar_requisitos_backup()
+    erro_validacao = _validar_requisitos_backup(mode='import')
     if erro_validacao:
         return Response({'detail': erro_validacao}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -4424,6 +4457,7 @@ def admin_backup_importar(request):
         return Response({'detail': 'Formato inválido. Envie um arquivo .tar.gz.'}, status=status.HTTP_400_BAD_REQUEST)
 
     cfg = _postgres_config()
+    engine_kind = _database_engine_kind()
     media_root = Path(settings.MEDIA_ROOT)
 
     with tempfile.TemporaryDirectory(prefix='champions_restore_') as tmpdir:
@@ -4446,9 +4480,9 @@ def admin_backup_importar(request):
         db_dump_path = extract_dir / 'database.dump'
         media_src_path = extract_dir / 'media'
 
-        if not manifest_path.exists() or not db_dump_path.exists() or not media_src_path.exists():
+        if not manifest_path.exists() or not media_src_path.exists():
             return Response(
-                {'detail': 'Estrutura de backup inválida. Esperado: manifest.json, database.dump e pasta media.'},
+                {'detail': 'Estrutura de backup inválida. Esperado: manifest.json e pasta media.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -4457,29 +4491,56 @@ def admin_backup_importar(request):
         except Exception:
             return Response({'detail': 'Manifesto do backup inválido.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if manifest.get('database_file') != 'database.dump' or manifest.get('media_dir') != 'media':
+        if manifest.get('media_dir') != 'media':
             return Response({'detail': 'Manifesto incompatível com este importador.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        env = os.environ.copy()
-        env['PGPASSWORD'] = cfg['password']
         media_backup_path = tmp_path / 'media_before_restore'
+        sqlite_backup_path = tmp_path / 'sqlite_before_restore.sqlite3'
 
         try:
-            _run_command(
-                [
-                    'pg_restore',
-                    '--host', cfg['host'],
-                    '--port', cfg['port'],
-                    '--username', cfg['user'],
-                    '--dbname', cfg['db'],
-                    '--clean',
-                    '--if-exists',
-                    '--no-owner',
-                    '--no-privileges',
-                    str(db_dump_path),
-                ],
-                env=env,
-            )
+            if engine_kind == 'postgresql':
+                if not db_dump_path.exists():
+                    return Response(
+                        {'detail': 'Backup sem arquivo database.dump para restauração PostgreSQL.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                env = os.environ.copy()
+                env['PGPASSWORD'] = cfg['password']
+                _run_command(
+                    [
+                        'pg_restore',
+                        '--host', cfg['host'],
+                        '--port', cfg['port'],
+                        '--username', cfg['user'],
+                        '--dbname', cfg['db'],
+                        '--clean',
+                        '--if-exists',
+                        '--no-owner',
+                        '--no-privileges',
+                        str(db_dump_path),
+                    ],
+                    env=env,
+                )
+            elif engine_kind == 'sqlite':
+                fixture_file_name = manifest.get('database_fixture_file') or 'database.json'
+                db_fixture_from_manifest = extract_dir / fixture_file_name
+                if not db_fixture_from_manifest.exists():
+                    return Response(
+                        {'detail': 'Backup não contém fixture JSON para restauração em SQLite.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                db_name = settings.DATABASES.get('default', {}).get('NAME')
+                if not db_name:
+                    return Response(
+                        {'detail': 'Configuração SQLite inválida: DATABASES.default.NAME ausente.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                sqlite_db_path = Path(str(db_name))
+                connections['default'].close()
+                if sqlite_db_path.exists():
+                    shutil.copy2(sqlite_db_path, sqlite_backup_path)
+                call_command('flush', '--no-input', verbosity=0)
+                call_command('loaddata', str(db_fixture_from_manifest), verbosity=0)
 
             if media_root.exists():
                 shutil.copytree(media_root, media_backup_path, dirs_exist_ok=True)
@@ -4488,6 +4549,16 @@ def admin_backup_importar(request):
             shutil.copytree(media_src_path, media_root)
         except Exception as exc:
             logger.error('Erro ao importar backup completo: %s', exc, exc_info=True)
+            if engine_kind == 'sqlite' and sqlite_backup_path.exists():
+                try:
+                    db_name = settings.DATABASES.get('default', {}).get('NAME')
+                    if db_name:
+                        sqlite_db_path = Path(str(db_name))
+                        connections['default'].close()
+                        sqlite_db_path.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(sqlite_backup_path, sqlite_db_path)
+                except Exception:
+                    logger.error('Falha ao restaurar SQLite anterior após erro de import.', exc_info=True)
             if media_backup_path.exists():
                 try:
                     if media_root.exists():

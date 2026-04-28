@@ -1,9 +1,11 @@
 import { Heart, HeartHandshake, Eye, Users, BookOpen, Music, MapPin } from 'lucide-react'
 import { useConfiguracao } from '../contexts/ConfiguracaoContext'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
+import { useLocation } from 'react-router-dom'
 
 function Sobre() {
   const { configuracao } = useConfiguracao()
+  const location = useLocation()
   const corHeaderPagina = configuracao?.cor_header_pagina && /^#[0-9A-Fa-f]{6}$/.test(configuracao.cor_header_pagina) ? configuracao.cor_header_pagina : '#1a365d'
   
   // Extrair src e atributos do iframe do código embed
@@ -28,6 +30,19 @@ function Sobre() {
       height: heightMatch ? heightMatch[1] : '450',
     }
   }, [configuracao?.google_maps_embed])
+
+  useEffect(() => {
+    if (location.hash !== '#como-chegar') return
+
+    // Aguarda o render da seção quando a configuração chega de forma assíncrona.
+    const timer = setTimeout(() => {
+      const secao = document.getElementById('como-chegar')
+      if (!secao) return
+      secao.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 120)
+
+    return () => clearTimeout(timer)
+  }, [location.hash, configuracao?.google_maps_embed])
   const valores = [
     {
       icon: <BookOpen className="h-8 w-8" />,
@@ -267,7 +282,7 @@ function Sobre() {
 
       {/* Como Chegar */}
       {configuracao?.google_maps_embed && (
-        <section id="como-chegar" className="py-20 bg-white">
+        <section id="como-chegar" className="py-20 bg-white scroll-mt-24">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-12">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary-100 text-primary-600 mb-4">

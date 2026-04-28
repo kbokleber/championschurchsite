@@ -74,16 +74,26 @@ function pad2(n) {
   return String(n).padStart(2, '0')
 }
 
-function getBuildStampUTC() {
+function getBuildStampBrasilia() {
   const d = new Date()
-  return [
-    pad2(d.getUTCDate()),
-    pad2(d.getUTCMonth() + 1),
-    d.getUTCFullYear(),
-    '-',
-    pad2(d.getUTCHours()),
-    pad2(d.getUTCMinutes()),
-  ].join('')
+  const parts = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d)
+
+  const partValue = (type) => parts.find((p) => p.type === type)?.value || ''
+  const day = partValue('day')
+  const month = partValue('month')
+  const year = partValue('year')
+  const hour = partValue('hour')
+  const minute = partValue('minute')
+
+  return `${day}${month}${year}-${hour}${minute}`
 }
 
 function getCommitShort() {
@@ -104,8 +114,8 @@ function getCommitShort() {
 }
 
 function getBuildId() {
-  // Muda a cada rebuild (timestamp UTC), e identifica commit quando disponível.
-  return `${getBuildStampUTC()}-${getCommitShort()}`
+  // Muda a cada rebuild (horário de Brasília), e identifica commit quando disponível.
+  return `${getBuildStampBrasilia()}-${getCommitShort()}`
 }
 
 // https://vitejs.dev/config/

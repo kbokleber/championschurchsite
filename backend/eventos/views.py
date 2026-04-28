@@ -18,7 +18,7 @@ from pathlib import Path
 import hashlib
 
 from rest_framework import viewsets, status
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes, authentication_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly, AllowAny
 from rest_framework.exceptions import ValidationError
@@ -776,6 +776,7 @@ def participante_esqueci_senha(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@authentication_classes([])
 def participante_registro(request):
     """
     Registra um novo participante e faz inscrição no evento.
@@ -800,7 +801,30 @@ def participante_registro(request):
     if not isinstance(acompanhantes, list):
         acompanhantes = []
     
-    if not nome or not telefone:
+    # Se houver sessão de participante válida no header customizado, sempre usar esse membro
+    # para evitar que uma nova inscrição seja vinculada a outro telefone acidentalmente.
+    membro_autenticado = None
+    try:
+        token_auth = (
+            request.headers.get('X-Participante-Token')
+            or request.META.get('HTTP_X_PARTICIPANTE_TOKEN')
+            or ''
+        ).strip()
+        if token_auth:
+            payload_auth = jwt.decode(
+                token_auth,
+                settings.SECRET_KEY,
+                algorithms=['HS256'],
+                options={'verify_exp': False, 'verify_iat': False},
+            )
+            if payload_auth.get('type') == 'participante':
+                membro_candidato = Membro.objects.get(id=payload_auth['participante_id'])
+                if payload_auth.get('pwd_sig') == _participante_pwd_token_sig(membro_candidato):
+                    membro_autenticado = membro_candidato
+    except Exception:
+        membro_autenticado = None
+
+    if not nome or (not telefone and not membro_autenticado):
         return Response(
             {'error': 'Nome e telefone são obrigatórios'},
             status=status.HTTP_400_BAD_REQUEST
@@ -812,10 +836,9 @@ def participante_registro(request):
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Normalizar telefone
-    telefone_normalizado = Membro.normalizar_telefone(telefone)
-    
-    if len(telefone_normalizado) < 10:
+    # Normalizar telefone quando não há sessão autenticada de participante.
+    telefone_normalizado = Membro.normalizar_telefone(telefone) if telefone else ''
+    if not membro_autenticado and len(telefone_normalizado) < 10:
         return Response(
             {'error': 'Telefone inválido. Digite o DDD + número.'},
             status=status.HTTP_400_BAD_REQUEST
@@ -840,24 +863,37 @@ def participante_registro(request):
     # Buscar ou criar membro principal
     novo_cadastro = False
     senha_gerada = None
-    
-    try:
-        membro = Membro.objects.get(telefone=telefone_normalizado)
-        # Atualizar nome se diferente
-        if membro.nome != nome:
+
+    if membro_autenticado:
+        membro = membro_autenticado
+        update_fields = []
+        if nome and membro.nome != nome:
             membro.nome = nome
-            membro.save(update_fields=['nome'])
-    except Membro.DoesNotExist:
-        # Criar novo membro
-        membro = Membro(
-            nome=nome,
-            telefone=telefone_normalizado,
-            email=email,
-            status='visitante'
-        )
-        senha_gerada = membro.definir_senha()
-        membro.save()
-        novo_cadastro = True
+            update_fields.append('nome')
+        if email and membro.email != email:
+            membro.email = email
+            update_fields.append('email')
+        if update_fields:
+            membro.save(update_fields=update_fields)
+        telefone_normalizado = membro.telefone or telefone_normalizado
+    else:
+        try:
+            membro = Membro.objects.get(telefone=telefone_normalizado)
+            # Atualizar nome se diferente
+            if membro.nome != nome:
+                membro.nome = nome
+                membro.save(update_fields=['nome'])
+        except Membro.DoesNotExist:
+            # Criar novo membro
+            membro = Membro(
+                nome=nome,
+                telefone=telefone_normalizado,
+                email=email,
+                status='visitante'
+            )
+            senha_gerada = membro.definir_senha()
+            membro.save()
+            novo_cadastro = True
     
     # Verificar se já está inscrito (inscrições canceladas não contam — usuário pode se inscrever de novo)
     inscricao_existente = Inscricao.objects.filter(
@@ -1678,6 +1714,7 @@ def participante_registro(request):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@authentication_classes([])
 def participante_perfil(request):
     """
     Retorna o perfil e ingressos do participante logado.
@@ -1686,8 +1723,15 @@ def participante_perfil(request):
     import jwt
     from django.conf import settings
     
+    participante_header = (
+        request.headers.get('X-Participante-Token')
+        or request.META.get('HTTP_X_PARTICIPANTE_TOKEN')
+        or ''
+    ).strip()
     auth_header = request.headers.get('Authorization') or request.META.get('HTTP_AUTHORIZATION') or ''
-    if auth_header.startswith('Bearer '):
+    if participante_header:
+        token = participante_header
+    elif auth_header.startswith('Bearer '):
         token = auth_header.split(' ', 1)[1].strip()
     else:
         token = (request.query_params.get('token') or request.GET.get('token') or '').strip()

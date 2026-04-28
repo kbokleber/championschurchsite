@@ -201,7 +201,7 @@ function AdminLayout({ children }) {
         <div className="flex-shrink-0 p-4 border-t border-gray-700 bg-church-navy">
           <p
             className="px-4 py-2 text-xs text-gray-500 mb-2"
-            title="Versão base + build automático (UTC + commit)"
+            title="Versão base + build automático (horário de Brasília + commit)"
           >
             Versão {APP_VERSION} ({APP_BUILD_ID})
           </p>

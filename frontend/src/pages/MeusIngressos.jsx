@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { Ticket, QrCode, Calendar, MapPin, Download, Check, Clock, X, LogIn, Phone, Lock, LogOut, User, Users, DollarSign, AlertCircle, ExternalLink, RefreshCw, HelpCircle } from 'lucide-react'
 import { useParticipante } from '../contexts/ParticipanteContext'
 import { useConfiguracao } from '../contexts/ConfiguracaoContext'
@@ -9,6 +9,7 @@ import api from '../services/api'
 
 function MeusIngressos() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams] = useSearchParams()
   const { configuracao } = useConfiguracao()
   const { participante, ingressos, isLoggedIn, loading, loadError, login, logout, atualizarIngressos, tentarCarregarNovamente, getToken } = useParticipante()
@@ -27,6 +28,7 @@ function MeusIngressos() {
   const [filtroAno, setFiltroAno] = useState('') // '' = todos, '2026', '2025'...
   const [filtroMes, setFiltroMes] = useState('') // '' = todos, '1' a '12'
   const [tentandoNovamente, setTentandoNovamente] = useState(false)
+  const atualizacaoEmAndamentoRef = useRef(false)
 
   // Extrai ano da data de início do evento
   const getAnoEvento = (ingresso) => {
@@ -250,22 +252,38 @@ function MeusIngressos() {
 
   // Função para atualizar manualmente/automaticamente (força busca no servidor e atualiza a lista)
   const handleAtualizar = useCallback(async ({ silent = false } = {}) => {
+    if (atualizacaoEmAndamentoRef.current) {
+      return { success: false, skipped: true }
+    }
+    atualizacaoEmAndamentoRef.current = true
     setAtualizando(true)
     try {
-      await atualizarIngressos({ forcar: true, silent })
+      const resultado = await atualizarIngressos({ forcar: true, silent })
+      if (!resultado?.success && !silent && !resultado?.skipped) {
+        setErro('Não foi possível atualizar seus ingressos agora. Tente novamente.')
+      } else if (resultado?.success) {
+        setErro('')
+      }
+      return resultado
+    } catch (e) {
+      if (!silent) setErro('Falha ao atualizar ingressos. Verifique sua conexão e tente novamente.')
+      return { success: false, error: e?.message || 'erro' }
     } finally {
+      atualizacaoEmAndamentoRef.current = false
       setAtualizando(false)
     }
   }, [atualizarIngressos])
 
-  // Ao abrir Meus Ingressos logado: sempre consultar novamente no banco.
+  // Sempre que a rota de Meus Ingressos for aberta novamente (ou usuário logar),
+  // consultar ingressos no backend da pessoa logada.
   useEffect(() => {
     if (isLoggedIn) {
       setFiltroAno('')
       setFiltroMes('')
       handleAtualizar({ silent: true })
     }
-  }, [isLoggedIn, handleAtualizar])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedIn, location.key])
 
   // Quando a lista de ingressos é atualizada (ex.: após inscrição ou atualizar), resetar filtros para o novo ingresso aparecer
   useEffect(() => {

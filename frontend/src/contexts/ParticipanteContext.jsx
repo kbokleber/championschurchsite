@@ -105,7 +105,7 @@ export function ParticipanteProvider({ children }) {
     try {
       const response = await api.get('/participante/perfil/', {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'X-Participante-Token': token,
           'Cache-Control': 'no-cache',
           'Pragma': 'no-cache'
         },
@@ -124,9 +124,7 @@ export function ParticipanteProvider({ children }) {
       else if (!silent) console.warn('Sessão inválida ou expirada. Faça login novamente neste navegador.')
       
       if (isUnauthorized) {
-        const cache = lerCache()
         const errorMsg = (error.response?.data?.error || '').toLowerCase()
-        const isTokenExpirado = errorMsg.includes('expirado') || errorMsg.includes('expired')
         const isTokenInvalido =
           errorMsg.includes('inválido') ||
           errorMsg.includes('invalido') ||
@@ -144,36 +142,14 @@ export function ParticipanteProvider({ children }) {
           return { success: false, unauthorized: true, tokenInvalido: true }
         }
 
-        // Em refresh de background (troca de aba/F5 com cache), não deslogar
-        // imediatamente por 401 transitório. Mantemos a sessão visual e
-        // permitimos nova tentativa.
-        if (isRefresh && cache.participante) {
-          setParticipante((prev) => prev || cache.participante)
-          setIngressos((prev) => (Array.isArray(prev) && prev.length > 0 ? prev : cache.ingressos))
-          if (!silent) setLoadError(true)
-          return { success: false, unauthorized: true }
-        }
-
-        // Se o token expirou e temos cache, manter logado usando o cache
-        // O usuário continuará logado visualmente, mas precisará fazer login novamente
-        // apenas quando tentar fazer uma ação que requer token válido
-        if (isTokenExpirado) {
-          if (cache.participante) {
-            // Manter dados do cache e não fazer logout imediato
-            // O usuário permanecerá logado visualmente
-            console.warn('Token expirado, mas mantendo sessão com cache. Faça login novamente para atualizar.')
-            if (!silent) setLoadError(false)
-            return { success: false, tokenExpirado: true }
-          }
-        }
-        
-        // Erro 401 = não autorizado. Limpar token e cache, fazer logout
+        // Regra de consistência: em qualquer 401, deslogar completamente.
+        // Evita "login fantasma" (mostra logado, mas sem ingressos atualizados).
         localStorage.removeItem('participante_token')
         setParticipante(null)
         setIngressos([])
         limparCache()
         if (!silent) setLoadError(false)
-        return { success: false }
+        return { success: false, unauthorized: true, tokenInvalido: isTokenInvalido }
       }
       
       const temCache = !!lerCache().participante
@@ -217,10 +193,18 @@ export function ParticipanteProvider({ children }) {
     // Suporta payload JSON padrão OU FormData (para upload de arquivos do
     // formulário dinâmico). Quando FormData, o axios define o Content-Type
     // correto automaticamente.
+    const tokenAtual = localStorage.getItem('participante_token')
     const isFormData = typeof FormData !== 'undefined' && dados instanceof FormData
-    const config = isFormData
-      ? { headers: { 'Content-Type': 'multipart/form-data' } }
-      : undefined
+    const headers = {}
+    if (tokenAtual) {
+      // Não usar Authorization aqui, pois o backend admin (SimpleJWT) pode interceptar
+      // e rejeitar o token de participante antes de chegar na view.
+      headers['X-Participante-Token'] = tokenAtual
+    }
+    if (isFormData) {
+      headers['Content-Type'] = 'multipart/form-data'
+    }
+    const config = Object.keys(headers).length > 0 ? { headers } : undefined
     const response = await api.post('/participante/registro/', dados, config)
     if (response.data.success) {
       const token = response.data.token
@@ -249,7 +233,8 @@ export function ParticipanteProvider({ children }) {
   const atualizarIngressos = async (opcoes = {}) => {
     const token = localStorage.getItem('participante_token')
     if (!token) return { success: false }
-    if (opcoes.forcar) limparCacheIngressos()
+    // Não limpar cache antes da resposta da API.
+    // Se a consulta falhar (ex.: 401 transitório/rede), manter ingressos já exibidos.
     return await carregarPerfil(token, { isRefresh: true, silent: !!opcoes.silent })
   }
 

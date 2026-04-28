@@ -33,7 +33,7 @@ export function AuthProvider({ children }) {
         }
       } else {
         // Superusuário tem acesso a tudo
-        userData.menus_permitidos = ['dashboard', 'eventos', 'membros', 'inscricoes', 'cobrancas', 'checkin', 'contatos', 'categorias', 'configuracoes', 'usuarios', 'grupos']
+        userData.menus_permitidos = ['dashboard', 'eventos', 'membros', 'inscricoes', 'cobrancas', 'checkin', 'contatos', 'categorias', 'configuracoes', 'usuarios', 'grupos', 'formularios_inscricao', 'loja', 'backup_import']
       }
       
       setUser(userData)

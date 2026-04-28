@@ -6,8 +6,14 @@ import json
 import requests
 import threading
 import logging
+import os
+import shutil
+import subprocess
+import tarfile
+import tempfile
 from collections import Counter
 from io import BytesIO
+from pathlib import Path
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
@@ -4137,6 +4143,236 @@ def _admin_tem_permissao_inscricoes(user):
         return Grupo.usuario_tem_permissao_menu(user, 'inscricoes')
     except Exception:
         return False
+
+
+def _admin_exige_superuser(request):
+    if not request.user.is_superuser:
+        return Response(
+            {'detail': 'Apenas superusuários podem executar esta ação.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return None
+
+
+def _postgres_config():
+    return {
+        'host': os.environ.get('POSTGRES_HOST', ''),
+        'port': os.environ.get('POSTGRES_PORT', '5432'),
+        'db': os.environ.get('POSTGRES_DB', ''),
+        'user': os.environ.get('POSTGRES_USER', ''),
+        'password': os.environ.get('POSTGRES_PASSWORD', ''),
+    }
+
+
+def _validar_requisitos_backup():
+    cfg = _postgres_config()
+    faltando = [k for k, v in cfg.items() if not v]
+    if faltando:
+        return f"Configuração PostgreSQL incompleta: {', '.join(sorted(faltando))}"
+
+    if shutil.which('pg_dump') is None:
+        return 'Comando pg_dump não encontrado no servidor.'
+    if shutil.which('pg_restore') is None:
+        return 'Comando pg_restore não encontrado no servidor.'
+
+    media_root = Path(settings.MEDIA_ROOT)
+    if not media_root.exists():
+        return f'MEDIA_ROOT não existe: {media_root}'
+    if not media_root.is_dir():
+        return f'MEDIA_ROOT inválido (não é diretório): {media_root}'
+    if not os.access(media_root, os.R_OK):
+        return f'Sem permissão de leitura em MEDIA_ROOT: {media_root}'
+    return None
+
+
+def _run_command(args, env=None):
+    result = subprocess.run(
+        args,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        stderr = (result.stderr or '').strip()
+        raise RuntimeError(stderr or f'Falha ao executar comando: {" ".join(args)}')
+    return result
+
+
+def _safe_extract_tar(tar, target_dir: Path):
+    target_dir = target_dir.resolve()
+    for member in tar.getmembers():
+        member_target = (target_dir / member.name).resolve()
+        if not str(member_target).startswith(str(target_dir)):
+            raise RuntimeError('Arquivo de backup inválido: caminho inseguro detectado.')
+    tar.extractall(path=target_dir)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def admin_backup_exportar(request):
+    denied = _admin_exige_superuser(request)
+    if denied:
+        return denied
+
+    erro_validacao = _validar_requisitos_backup()
+    if erro_validacao:
+        return Response({'detail': erro_validacao}, status=status.HTTP_400_BAD_REQUEST)
+
+    cfg = _postgres_config()
+    media_root = Path(settings.MEDIA_ROOT)
+    timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+
+    with tempfile.TemporaryDirectory(prefix='champions_backup_') as tmpdir:
+        tmp_path = Path(tmpdir)
+        db_dump_path = tmp_path / 'database.dump'
+        media_copy_path = tmp_path / 'media'
+        manifest_path = tmp_path / 'manifest.json'
+        package_path = tmp_path / f'champions_backup_{timestamp}.tar.gz'
+
+        env = os.environ.copy()
+        env['PGPASSWORD'] = cfg['password']
+
+        try:
+            _run_command(
+                [
+                    'pg_dump',
+                    '--host', cfg['host'],
+                    '--port', cfg['port'],
+                    '--username', cfg['user'],
+                    '--dbname', cfg['db'],
+                    '--format=custom',
+                    '--no-owner',
+                    '--no-privileges',
+                    '--file', str(db_dump_path),
+                ],
+                env=env,
+            )
+
+            shutil.copytree(media_root, media_copy_path)
+            manifest = {
+                'version': 1,
+                'created_at': timezone.now().isoformat(),
+                'database_file': 'database.dump',
+                'database_format': 'pg_custom',
+                'media_dir': 'media',
+            }
+            manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
+
+            with tarfile.open(package_path, 'w:gz') as tar:
+                tar.add(db_dump_path, arcname='database.dump')
+                tar.add(media_copy_path, arcname='media')
+                tar.add(manifest_path, arcname='manifest.json')
+        except Exception as exc:
+            logger.error('Erro ao exportar backup completo: %s', exc, exc_info=True)
+            return Response(
+                {'detail': f'Falha ao gerar backup: {str(exc)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        package_bytes = package_path.read_bytes()
+        response = HttpResponse(package_bytes, content_type='application/gzip')
+        response['Content-Disposition'] = f'attachment; filename="{package_path.name}"'
+        return response
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def admin_backup_importar(request):
+    denied = _admin_exige_superuser(request)
+    if denied:
+        return denied
+
+    erro_validacao = _validar_requisitos_backup()
+    if erro_validacao:
+        return Response({'detail': erro_validacao}, status=status.HTTP_400_BAD_REQUEST)
+
+    arquivo = request.FILES.get('arquivo')
+    if not arquivo:
+        return Response({'detail': 'Arquivo de backup é obrigatório.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    nome = (arquivo.name or '').lower()
+    if not nome.endswith(('.tar.gz', '.tgz')):
+        return Response({'detail': 'Formato inválido. Envie um arquivo .tar.gz.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    cfg = _postgres_config()
+    media_root = Path(settings.MEDIA_ROOT)
+
+    with tempfile.TemporaryDirectory(prefix='champions_restore_') as tmpdir:
+        tmp_path = Path(tmpdir)
+        backup_file = tmp_path / 'backup.tar.gz'
+        extract_dir = tmp_path / 'extracted'
+        extract_dir.mkdir(parents=True, exist_ok=True)
+
+        with open(backup_file, 'wb') as fp:
+            for chunk in arquivo.chunks():
+                fp.write(chunk)
+
+        try:
+            with tarfile.open(backup_file, 'r:gz') as tar:
+                _safe_extract_tar(tar, extract_dir)
+        except Exception:
+            return Response({'detail': 'Não foi possível ler o arquivo de backup.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        manifest_path = extract_dir / 'manifest.json'
+        db_dump_path = extract_dir / 'database.dump'
+        media_src_path = extract_dir / 'media'
+
+        if not manifest_path.exists() or not db_dump_path.exists() or not media_src_path.exists():
+            return Response(
+                {'detail': 'Estrutura de backup inválida. Esperado: manifest.json, database.dump e pasta media.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+        except Exception:
+            return Response({'detail': 'Manifesto do backup inválido.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if manifest.get('database_file') != 'database.dump' or manifest.get('media_dir') != 'media':
+            return Response({'detail': 'Manifesto incompatível com este importador.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        env = os.environ.copy()
+        env['PGPASSWORD'] = cfg['password']
+        media_backup_path = tmp_path / 'media_before_restore'
+
+        try:
+            _run_command(
+                [
+                    'pg_restore',
+                    '--host', cfg['host'],
+                    '--port', cfg['port'],
+                    '--username', cfg['user'],
+                    '--dbname', cfg['db'],
+                    '--clean',
+                    '--if-exists',
+                    '--no-owner',
+                    '--no-privileges',
+                    str(db_dump_path),
+                ],
+                env=env,
+            )
+
+            if media_root.exists():
+                shutil.copytree(media_root, media_backup_path, dirs_exist_ok=True)
+                shutil.rmtree(media_root)
+            media_root.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(media_src_path, media_root)
+        except Exception as exc:
+            logger.error('Erro ao importar backup completo: %s', exc, exc_info=True)
+            if media_backup_path.exists():
+                try:
+                    if media_root.exists():
+                        shutil.rmtree(media_root)
+                    shutil.copytree(media_backup_path, media_root)
+                except Exception:
+                    logger.error('Falha ao restaurar mídia anterior após erro de import.', exc_info=True)
+            return Response(
+                {'detail': f'Falha ao importar backup: {str(exc)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    return Response({'detail': 'Backup importado com sucesso.'})
 
 
 def _export_evento_data_str(evento):

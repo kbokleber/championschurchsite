@@ -17,6 +17,7 @@ from .views import (
     buscar_participante_por_telefone,
     configuracao_publica, configuracao_admin,
     verificar_permissao_menu, menus_permitidos, popular_permissoes_menu,
+    admin_backup_exportar, admin_backup_importar,
     # Mercado Pago
     criar_pagamento_pix, pagar_cartao, mercadopago_webhook, verificar_pagamento, mercadopago_config_publica
 )
@@ -74,6 +75,8 @@ urlpatterns = [
     path('auth/menus-permitidos/', menus_permitidos, name='menus_permitidos'),
     path('auth/verificar-permissao/<str:codigo_menu>/', verificar_permissao_menu, name='verificar_permissao'),
     path('admin/popular-permissoes/', popular_permissoes_menu, name='popular_permissoes_menu'),
+    path('admin/backup/exportar/', admin_backup_exportar, name='admin_backup_exportar'),
+    path('admin/backup/importar/', admin_backup_importar, name='admin_backup_importar'),
     
     # Dashboard
     path('dashboard/stats/', dashboard_stats, name='dashboard_stats'),

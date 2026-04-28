@@ -8,6 +8,7 @@ import Navbar from './components/Navbar'
 import Footer from './components/Footer'
 import ProtectedRoute from './components/ProtectedRoute'
 import AdminLayout from './components/AdminLayout'
+import LoadingSpinner from './components/LoadingSpinner'
 
 // Páginas públicas
 import Home from './pages/Home'
@@ -43,6 +44,7 @@ import AdminLojaPagamento from './pages/admin/AdminLojaPagamento'
 import AdminLojaReservas from './pages/admin/AdminLojaReservas'
 import AdminLojaAuditoria from './pages/admin/AdminLojaAuditoria'
 import AdminLojaFinanceiro from './pages/admin/AdminLojaFinanceiro'
+import AdminBackupImport from './pages/admin/AdminBackupImport'
 
 const MENU_HOME_PATH = {
   dashboard: '/admin',
@@ -58,6 +60,29 @@ const MENU_HOME_PATH = {
   grupos: '/admin/grupos',
   formularios_inscricao: '/admin/formularios',
   loja: '/admin/loja',
+  backup_import: '/admin/backup-import',
+}
+
+function SuperuserRoute({ children }) {
+  const { user, loading, isAuthenticated } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <LoadingSpinner size="lg" text="Verificando permissões..." />
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/admin/login" replace />
+  }
+
+  if (!user?.is_superuser) {
+    return <Navigate to="/admin" replace />
+  }
+
+  return children
 }
 
 function AdminHome() {
@@ -289,6 +314,13 @@ function App() {
         <Route path="/admin/loja/pagamento/:cobrancaLojaId" element={
           <ProtectedRoute>
             <AdminLayout><AdminLojaPagamento /></AdminLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/backup-import" element={
+          <ProtectedRoute>
+            <SuperuserRoute>
+              <AdminLayout><AdminBackupImport /></AdminLayout>
+            </SuperuserRoute>
           </ProtectedRoute>
         } />
       </Routes>

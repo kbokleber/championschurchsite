@@ -4200,6 +4200,15 @@ def _run_command(args, env=None):
     return result
 
 
+def _backup_host_label(request):
+    host = (request.get_host() or '').strip().lower()
+    host = host.split(':', 1)[0]  # remove porta
+    if not host:
+        return 'championschurch'
+    safe = ''.join(ch if ch.isalnum() or ch in '.-' else '-' for ch in host).strip('.-')
+    return safe or 'championschurch'
+
+
 def _safe_extract_tar(tar, target_dir: Path):
     target_dir = target_dir.resolve()
     for member in tar.getmembers():
@@ -4223,13 +4232,15 @@ def admin_backup_exportar(request):
     cfg = _postgres_config()
     media_root = Path(settings.MEDIA_ROOT)
     timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+    host_label = _backup_host_label(request)
+    backup_filename = f'{host_label}_backup_{timestamp}.tar.gz'
 
     with tempfile.TemporaryDirectory(prefix='champions_backup_') as tmpdir:
         tmp_path = Path(tmpdir)
         db_dump_path = tmp_path / 'database.dump'
         media_copy_path = tmp_path / 'media'
         manifest_path = tmp_path / 'manifest.json'
-        package_path = tmp_path / f'champions_backup_{timestamp}.tar.gz'
+        package_path = tmp_path / backup_filename
 
         env = os.environ.copy()
         env['PGPASSWORD'] = cfg['password']
@@ -4272,7 +4283,7 @@ def admin_backup_exportar(request):
             )
         package_bytes = package_path.read_bytes()
         response = HttpResponse(package_bytes, content_type='application/gzip')
-        response['Content-Disposition'] = f'attachment; filename="{package_path.name}"'
+        response['Content-Disposition'] = f'attachment; filename="{backup_filename}"'
         return response
 
 

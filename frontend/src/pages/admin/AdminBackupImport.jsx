@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { DatabaseBackup, Upload, AlertTriangle, Loader2 } from 'lucide-react'
 import api, { formatApiError } from '../../services/api'
+import ConfirmModal from '../../components/ConfirmModal'
 
 function AdminBackupImport() {
   const [exportando, setExportando] = useState(false)
@@ -8,6 +9,7 @@ function AdminBackupImport() {
   const [arquivo, setArquivo] = useState(null)
   const [mensagem, setMensagem] = useState(null)
   const [erro, setErro] = useState(null)
+  const [showImportConfirm, setShowImportConfirm] = useState(false)
 
   const limparFeedback = () => {
     setMensagem(null)
@@ -47,20 +49,12 @@ function AdminBackupImport() {
     }
   }
 
-  const handleImportar = async (e) => {
-    e.preventDefault()
-    limparFeedback()
-
+  const handleImportar = async () => {
     if (!arquivo) {
       setErro('Selecione um arquivo .tar.gz para importar.')
       return
     }
-
-    const confirmar = window.confirm(
-      'Esta ação irá substituir o banco PostgreSQL e os arquivos de mídia atuais. Deseja continuar?'
-    )
-    if (!confirmar) return
-
+    limparFeedback()
     setImportando(true)
     try {
       const formData = new FormData()
@@ -68,11 +62,22 @@ function AdminBackupImport() {
       const response = await api.post('/admin/backup/importar/', formData)
       setMensagem(response?.data?.detail || 'Backup importado com sucesso.')
       setArquivo(null)
+      setShowImportConfirm(false)
     } catch (error) {
       setErro(formatApiError(error, 'Falha ao importar backup.'))
     } finally {
       setImportando(false)
     }
+  }
+
+  const handleSubmitImport = (e) => {
+    e.preventDefault()
+    limparFeedback()
+    if (!arquivo) {
+      setErro('Selecione um arquivo .tar.gz para importar.')
+      return
+    }
+    setShowImportConfirm(true)
   }
 
   return (
@@ -125,7 +130,7 @@ function AdminBackupImport() {
           </button>
         </div>
 
-        <form onSubmit={handleImportar} className="bg-white rounded-xl shadow-md p-6 space-y-4">
+        <form onSubmit={handleSubmitImport} className="bg-white rounded-xl shadow-md p-6 space-y-4">
           <div className="flex items-center gap-2">
             <Upload className="h-5 w-5 text-primary-600" />
             <h2 className="text-lg font-semibold text-gray-900">Importar backup completo</h2>
@@ -150,6 +155,22 @@ function AdminBackupImport() {
           </button>
         </form>
       </div>
+
+      <ConfirmModal
+        isOpen={showImportConfirm}
+        onClose={() => !importando && setShowImportConfirm(false)}
+        onConfirm={handleImportar}
+        type="danger"
+        title="Confirmação de Restore"
+        message="Este processo é irreversível e substituirá o banco PostgreSQL e os arquivos de mídia atuais."
+        confirmText="Aceitar e importar"
+        cancelText="Cancelar"
+        loading={importando}
+      >
+        <p className="text-sm text-red-600 text-center font-medium">
+          Confirme apenas se você tem certeza.
+        </p>
+      </ConfirmModal>
     </div>
   )
 }

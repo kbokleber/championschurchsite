@@ -223,6 +223,9 @@ else:
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# URL pública do frontend (opcional). Ex.: http://localhost:5174
+FRONTEND_PUBLIC_URL = os.environ.get('FRONTEND_PUBLIC_URL', '').strip()
+
 # ==============================================
 # CORS SETTINGS
 # ==============================================

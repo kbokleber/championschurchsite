@@ -978,6 +978,26 @@ class ConfiguracaoSite(models.Model):
         blank=True,
         help_text='Nome da instância configurada na Evolution API'
     )
+    wa_msg_reset_senha = models.TextField(
+        verbose_name='Template WhatsApp - Reset de senha',
+        blank=True,
+        help_text='Mensagem para reset de senha. Ex.: Olá {{nome}}, sua senha é {{senha}}.'
+    )
+    wa_msg_inscricao_gratis = models.TextField(
+        verbose_name='Template WhatsApp - Inscrição grátis',
+        blank=True,
+        help_text='Mensagem para inscrição em evento grátis.'
+    )
+    wa_msg_inscricao_paga_pendente = models.TextField(
+        verbose_name='Template WhatsApp - Inscrição paga pendente',
+        blank=True,
+        help_text='Mensagem para inscrição paga ainda pendente de confirmação.'
+    )
+    wa_msg_inscricao_paga_confirmada = models.TextField(
+        verbose_name='Template WhatsApp - Inscrição paga confirmada',
+        blank=True,
+        help_text='Mensagem para pagamento confirmado (evento pago).'
+    )
     
     # Metadata
     atualizado_em = models.DateTimeField(auto_now=True, verbose_name='Atualizado em')

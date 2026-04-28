@@ -12,6 +12,7 @@ function AdminMembros() {
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('todos')
+  const [somenteComContato, setSomenteComContato] = useState(true)
   const [page, setPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
   const [deletando, setDeletando] = useState(false)
@@ -37,6 +38,7 @@ function AdminMembros() {
       const params = { page }
       if (busca.trim()) params.nome = busca.trim()
       if (filtroStatus !== 'todos') params.status = filtroStatus
+      if (somenteComContato) params.com_contato = 'true'
       const response = await api.get('/membros/', { params })
       const data = response.data
       setMembros(data.results ?? data)
@@ -53,12 +55,12 @@ function AdminMembros() {
   // Ao mudar busca ou status, volta para página 1
   useEffect(() => {
     setPage(1)
-  }, [busca, filtroStatus])
+  }, [busca, filtroStatus, somenteComContato])
 
   // Carrega membros quando página, busca ou status mudam
   useEffect(() => {
     fetchMembros()
-  }, [page, busca, filtroStatus])
+  }, [page, busca, filtroStatus, somenteComContato])
 
   // Abre o modal de confirmação
   const handleDelete = (membro) => {
@@ -158,6 +160,15 @@ function AdminMembros() {
             <option value="visitante">Visitante</option>
           </select>
         </div>
+
+        <label className="mt-3 inline-flex items-center gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={somenteComContato}
+            onChange={(e) => setSomenteComContato(e.target.checked)}
+          />
+          Mostrar somente cadastros com contato (telefone)
+        </label>
       </div>
 
       {/* Members Table */}

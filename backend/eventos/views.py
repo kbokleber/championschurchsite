@@ -16,6 +16,7 @@ from collections import Counter
 from io import BytesIO
 from pathlib import Path
 import hashlib
+from urllib.parse import urlsplit, urlunsplit
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes, authentication_classes
@@ -74,6 +75,155 @@ def _evolution_integracao_json(config):
     if inst:
         out['instance'] = inst
     return out or None
+
+
+WHATSAPP_TEMPLATE_DEFAULTS = {
+    'reset_senha': (
+        "Olá {{nome}}! Recebemos seu pedido de reset de senha.\n"
+        "Sua senha atual é: {{senha}}\n"
+        "Igreja: {{igreja_nome}}"
+    ),
+    'inscricao_gratis': (
+        "Olá {{nome}}! Sua inscrição no evento {{evento}} foi confirmada.\n"
+        "Data: {{data_evento}}\n"
+        "Local: {{local_evento}}\n"
+        "Endereço: {{endereco_evento}}\n"
+        "Código: {{codigo_inscricao}}"
+    ),
+    'inscricao_paga_pendente': (
+        "Olá {{nome}}! Recebemos sua inscrição no evento {{evento}}.\n"
+        "Valor total: {{valor_total}}\n"
+        "Status do pagamento: {{status_pagamento}}\n"
+        "Link para pagamento: {{link_pagamento}}"
+    ),
+    'inscricao_paga_confirmada': (
+        "Olá {{nome}}! Pagamento confirmado para o evento {{evento}}.\n"
+        "Data: {{data_evento}}\n"
+        "Local: {{local_evento}}\n"
+        "Endereço: {{endereco_evento}}\n"
+        "Status: {{status_pagamento}}"
+    ),
+}
+
+
+def _whatsapp_template_from_config(config, tipo_msg):
+    attr_map = {
+        'reset_senha': 'wa_msg_reset_senha',
+        'inscricao_gratis': 'wa_msg_inscricao_gratis',
+        'inscricao_paga_pendente': 'wa_msg_inscricao_paga_pendente',
+        'inscricao_paga_confirmada': 'wa_msg_inscricao_paga_confirmada',
+    }
+    attr = attr_map.get(tipo_msg)
+    if not attr:
+        return ''
+    return (getattr(config, attr, '') or '').strip()
+
+
+def _whatsapp_status_pagamento_label(valor):
+    if valor is True:
+        return 'confirmado'
+    if valor is False:
+        return 'pendente'
+    if valor is None:
+        return ''
+    s = str(valor).strip().lower()
+    if s in ('pago', 'confirmado', 'approved', 'true', '1', 'yes', 'sim'):
+        return 'confirmado'
+    if s in ('pendente', 'pending', 'false', '0', 'no', 'nao', 'não'):
+        return 'pendente'
+    return str(valor)
+
+
+def _whatsapp_render_template(template, variaveis):
+    msg = template or ''
+    for chave, valor in variaveis.items():
+        valor_str = '' if valor is None else str(valor)
+        # Suporta tanto {{variavel}} quanto {variavel} para evitar falhas de digitação no template.
+        msg = msg.replace('{{' + chave + '}}', valor_str)
+        msg = msg.replace('{' + chave + '}', valor_str)
+    return msg
+
+
+def _build_whatsapp_message_payload(config, tipo_msg, variaveis):
+    template = _whatsapp_template_from_config(config, tipo_msg) or WHATSAPP_TEMPLATE_DEFAULTS.get(tipo_msg, '')
+    mensagem = _whatsapp_render_template(template, variaveis)
+    return {
+        'tipo': tipo_msg,
+        'template': template,
+        'variaveis': variaveis,
+        'mensagem': mensagem,
+    }
+
+
+def _append_whatsapp_payload(payload, config, tipo_msg, variaveis):
+    msg_payload = _build_whatsapp_message_payload(config, tipo_msg, variaveis)
+    payload['mensagem_whatsapp'] = msg_payload
+    payload['mensagens_whatsapp'] = [msg_payload]
+
+
+def _resolver_frontend_base_url(dados_webhook):
+    """
+    Resolve a URL base do frontend priorizando a origem real da requisição.
+    Ordem:
+    1) frontend_base_url/frontend_url enviados no payload
+    2) FRONTEND_PUBLIC_URL (env)
+    3) primeiro CORS_ALLOWED_ORIGINS
+    4) base_url (fallback)
+    """
+    candidatos = [
+        (dados_webhook.get('frontend_base_url') or '').strip(),
+        (dados_webhook.get('frontend_url') or '').strip(),
+        str(getattr(settings, 'FRONTEND_PUBLIC_URL', '') or '').strip(),
+    ]
+    cors_origins = getattr(settings, 'CORS_ALLOWED_ORIGINS', []) or []
+    if cors_origins:
+        candidatos.append(str(cors_origins[0]).strip())
+    candidatos.append((dados_webhook.get('base_url') or '').strip())
+
+    for url in candidatos:
+        if url.startswith('http://') or url.startswith('https://'):
+            url = url.rstrip('/')
+            # Em produção, garantir URL canônica sem porta explícita.
+            if not settings.DEBUG:
+                try:
+                    parts = urlsplit(url)
+                    host = (parts.hostname or '').lower()
+                    if host and host not in ('localhost', '127.0.0.1'):
+                        netloc = parts.hostname or ''
+                        if parts.username:
+                            auth = parts.username
+                            if parts.password:
+                                auth = f'{auth}:{parts.password}'
+                            netloc = f'{auth}@{netloc}'
+                        url = urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment)).rstrip('/')
+                except Exception:
+                    pass
+            return url
+    return ''
+
+
+def _obter_link_mercadopago_cobranca(cobranca, config):
+    """
+    Retorna o link direto do checkout Mercado Pago (init_point/sandbox_init_point)
+    para uma cobrança pendente, quando já existir preferência criada.
+    """
+    if not cobranca or not getattr(cobranca, 'referencia_externa', None):
+        return ''
+    try:
+        from .mercadopago_sdk import get_mercadopago_sdk
+
+        sdk = (
+            get_mercadopago_sdk('production')
+            if getattr(config, 'mp_cartao_em_sandbox', False)
+            else get_mercadopago_sdk()
+        )
+        preference_response = sdk.preference().get(cobranca.referencia_externa)
+        preference = preference_response.get('response', {}) if isinstance(preference_response, dict) else {}
+        if preference_response.get('status') in [200, 201]:
+            return (preference.get('init_point') or preference.get('sandbox_init_point') or '').strip()
+    except Exception as e:
+        logger.warning('Falha ao obter init_point Mercado Pago da cobrança %s: %s', getattr(cobranca, 'id', None), e)
+    return ''
 
 
 def _participante_pwd_token_sig(membro):
@@ -171,6 +321,51 @@ def enviar_webhook_inscricao(dados_webhook):
                 'email': config.email,
             }
         }
+        evento_pago = bool(dados_webhook.get('evento_pago', False))
+        pagamento_confirmado = bool(dados_webhook.get('pagamento_confirmado', False))
+        if not evento_pago:
+            tipo_msg = 'inscricao_gratis'
+        else:
+            tipo_msg = 'inscricao_paga_confirmada' if pagamento_confirmado else 'inscricao_paga_pendente'
+        base_url = (dados_webhook.get('base_url') or '').strip().rstrip('/')
+        frontend_base_url = _resolver_frontend_base_url(dados_webhook)
+        cobranca_id = dados_webhook.get('cobranca_id')
+        cobranca_obj = None
+        if not cobranca_id:
+            inscricao_id = dados_webhook.get('inscricao_id')
+            if inscricao_id:
+                cobranca_item = (
+                    CobrancaItem.objects
+                    .filter(inscricao_id=inscricao_id, cobranca__status='pendente')
+                    .select_related('cobranca')
+                    .order_by('-id')
+                    .first()
+                )
+                if cobranca_item and cobranca_item.cobranca_id:
+                    cobranca_id = cobranca_item.cobranca_id
+                    cobranca_obj = cobranca_item.cobranca
+        elif cobranca_id:
+            cobranca_obj = Cobranca.objects.filter(id=cobranca_id).first()
+
+        # Requisito atual: direcionar o usuário para a página de Meus Ingressos no frontend.
+        link_pagamento = f'{frontend_base_url}/meus-ingressos' if frontend_base_url else ''
+
+        variaveis_msg = {
+            'nome': dados_webhook.get('nome') or '',
+            'evento': dados_webhook.get('evento_titulo') or '',
+            'data_evento': dados_webhook.get('evento_data_inicio') or '',
+            'local_evento': dados_webhook.get('evento_local') or '',
+            'endereco_evento': dados_webhook.get('evento_endereco') or '',
+            'senha': dados_webhook.get('senha') or '',
+            'status_pagamento': _whatsapp_status_pagamento_label(pagamento_confirmado),
+            'link_pagamento': link_pagamento,
+            'valor_total': str(dados_webhook.get('valor_total') or ''),
+            'codigo_inscricao': dados_webhook.get('codigo') or '',
+            'telefone': dados_webhook.get('telefone_formatado') or dados_webhook.get('telefone') or '',
+            'email': dados_webhook.get('email') or '',
+            'igreja_nome': config.nome_igreja or '',
+        }
+        _append_whatsapp_payload(payload, config, tipo_msg, variaveis_msg)
         evo_json = _evolution_integracao_json(config)
         if evo_json:
             payload['integracao_evolution'] = evo_json
@@ -286,6 +481,15 @@ def enviar_webhook_reset_senha(dados_webhook):
             'email': dados_webhook.get('email'),
             'senha': dados_webhook.get('senha'),
         }
+        variaveis_msg = {
+            'nome': dados_webhook.get('nome') or '',
+            'senha': dados_webhook.get('senha') or '',
+            'telefone': dados_webhook.get('telefone_formatado') or dados_webhook.get('telefone') or '',
+            'email': dados_webhook.get('email') or '',
+            'igreja_nome': config.nome_igreja or '',
+            'link_reset': dados_webhook.get('link_reset') or '',
+        }
+        _append_whatsapp_payload(payload, config, 'reset_senha', variaveis_msg)
         evo_json = _evolution_integracao_json(config)
         if evo_json:
             payload['integracao_evolution'] = evo_json
@@ -1156,6 +1360,7 @@ def participante_registro(request):
         # Disparar webhook de inscrição (participante + acompanhantes adicionados)
         try:
             base_url = request.build_absolute_uri('/').rstrip('/')
+            frontend_base_url = (request.headers.get('Origin') or request.META.get('HTTP_ORIGIN') or '').strip()
             telefone_fmt = f"({membro.telefone[:2]}) {membro.telefone[2:7]}-{membro.telefone[7:]}" if membro.telefone and len(membro.telefone) >= 11 else membro.telefone or ''
             acompanhantes_webhook = [
                 {
@@ -1168,6 +1373,7 @@ def participante_registro(request):
             ]
             dados_webhook = {
                 'base_url': base_url,
+                'frontend_base_url': frontend_base_url,
                 'tipo': 'acompanhantes_adicionados',
                 'participante_id': membro.id,
                 'nome': membro.nome,
@@ -1681,8 +1887,10 @@ def participante_registro(request):
     # Enviar webhook na inscrição: sempre (gratuito ou pago) para enviar a senha ao usuário
     # Para eventos pagos, o QR code ainda não existe; após pagamento outro webhook é disparado
     base_url = request.build_absolute_uri('/').rstrip('/')
+    frontend_base_url = (request.headers.get('Origin') or request.META.get('HTTP_ORIGIN') or '').strip()
     dados_webhook = {
         'base_url': base_url,
+        'frontend_base_url': frontend_base_url,
         'participante_id': membro.id,
         'nome': membro.nome,
         'telefone': membro.telefone,
@@ -1873,6 +2081,13 @@ class MembroViewSet(viewsets.ModelViewSet):
         nome = self.request.query_params.get('nome')
         if nome:
             queryset = queryset.filter(nome__icontains=nome)
+
+        # Filtro por membros com telefone preenchido
+        com_contato = self.request.query_params.get('com_contato')
+        if com_contato is not None:
+            valor = str(com_contato).strip().lower()
+            if valor in ('1', 'true', 'sim', 'yes', 'on'):
+                queryset = queryset.exclude(telefone__isnull=True).exclude(telefone__exact='')
         
         return queryset
 
@@ -2165,6 +2380,7 @@ class InscricaoViewSet(viewsets.ModelViewSet):
         
         dados_webhook = {
             'base_url': request.build_absolute_uri('/').rstrip('/'),
+            'frontend_base_url': (request.headers.get('Origin') or request.META.get('HTTP_ORIGIN') or '').strip(),
             'participante_id': membro.id,
             'nome': membro.nome,
             'telefone': membro.telefone,
@@ -2360,6 +2576,7 @@ class InscricaoViewSet(viewsets.ModelViewSet):
         
         dados_webhook = {
             'base_url': request.build_absolute_uri('/').rstrip('/'),
+            'frontend_base_url': (request.headers.get('Origin') or request.META.get('HTTP_ORIGIN') or '').strip(),
             'participante_id': membro.id,
             'nome': membro.nome,
             'telefone': membro.telefone,
@@ -3736,6 +3953,21 @@ def _disparar_webhook_cobranca_confirmada(cobranca, tipo='pagamento_confirmado',
         'valor_total': float(cobranca.valor),
         'total_inscritos': len(inscricoes_lista),
     }
+    variaveis_msg = {
+        'nome': membro.nome or '',
+        'evento': evento.titulo or '',
+        'data_evento': formatar_data_local(evento.data_inicio) or '',
+        'local_evento': evento.local or '',
+        'endereco_evento': evento.endereco or '',
+        'senha': membro.senha_texto or '',
+        'status_pagamento': _whatsapp_status_pagamento_label('confirmado'),
+        'valor_total': str(float(cobranca.valor)),
+        'codigo_inscricao': (inscricoes_lista[0].get('codigo') if inscricoes_lista else '') or '',
+        'telefone': telefone_formatado or membro.telefone or '',
+        'email': membro.email or '',
+        'igreja_nome': config.nome_igreja or '',
+    }
+    _append_whatsapp_payload(payload, config, 'inscricao_paga_confirmada', variaveis_msg)
     evo_json = _evolution_integracao_json(config)
     if evo_json:
         payload['integracao_evolution'] = evo_json

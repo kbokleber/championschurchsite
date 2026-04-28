@@ -6,7 +6,7 @@ import { useConfiguracao } from '../../contexts/ConfiguracaoContext'
 import { useAuth } from '../../contexts/AuthContext'
 
 // Abas visíveis apenas para superusuário (admin)
-const TABS_SOMENTE_ADMIN = ['integracoes', 'whatsapp', 'mercadopago']
+const TABS_SOMENTE_ADMIN = ['whatsapp', 'mercadopago']
 
 const novoDestaqueHome = () => ({
   id: null,
@@ -49,6 +49,7 @@ function AdminConfiguracoes() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: '', text: '' })
   const [activeTab, setActiveTab] = useState('geral')
+  const [activeWhatsAppSubtab, setActiveWhatsAppSubtab] = useState('credenciais')
   
   const [formData, setFormData] = useState({
     nome_igreja: '',
@@ -85,7 +86,12 @@ function AdminConfiguracoes() {
     // WhatsApp Evolution API
     evolution_api_url: '',
     evolution_api_key: '',
-    evolution_api_instance: ''
+    evolution_api_instance: '',
+    // Templates WhatsApp
+    wa_msg_reset_senha: '',
+    wa_msg_inscricao_gratis: '',
+    wa_msg_inscricao_paga_pendente: '',
+    wa_msg_inscricao_paga_confirmada: ''
   })
 
   const [logoPreview, setLogoPreview] = useState(null)
@@ -112,6 +118,13 @@ function AdminConfiguracoes() {
       setActiveTab('geral')
     }
   }, [user?.is_superuser, activeTab])
+
+  useEffect(() => {
+    if (activeTab !== 'whatsapp') return
+    if (!activeWhatsAppSubtab) {
+      setActiveWhatsAppSubtab('credenciais')
+    }
+  }, [activeTab, activeWhatsAppSubtab])
 
   const fetchConfiguracao = async () => {
     try {
@@ -153,7 +166,12 @@ function AdminConfiguracoes() {
         // WhatsApp Evolution API
         evolution_api_url: data.evolution_api_url || '',
         evolution_api_key: data.evolution_api_key || '',
-        evolution_api_instance: data.evolution_api_instance || ''
+        evolution_api_instance: data.evolution_api_instance || '',
+        // Templates WhatsApp
+        wa_msg_reset_senha: data.wa_msg_reset_senha || '',
+        wa_msg_inscricao_gratis: data.wa_msg_inscricao_gratis || '',
+        wa_msg_inscricao_paga_pendente: data.wa_msg_inscricao_paga_pendente || '',
+        wa_msg_inscricao_paga_confirmada: data.wa_msg_inscricao_paga_confirmada || ''
       })
 
       if (data.logo) {
@@ -466,7 +484,6 @@ function AdminConfiguracoes() {
     { id: 'redes', label: 'Redes Sociais', icon: Globe },
     { id: 'visual', label: 'Logo e Visual', icon: Upload },
     { id: 'home_carrossel', label: 'Home Carrossel', icon: Upload },
-    { id: 'integracoes', label: 'Integrações', icon: Webhook },
     { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare },
     { id: 'mercadopago', label: 'Mercado Pago', icon: CreditCard }
   ]
@@ -474,6 +491,108 @@ function AdminConfiguracoes() {
   const tabs = user?.is_superuser
     ? todasAsTabs
     : todasAsTabs.filter(t => !TABS_SOMENTE_ADMIN.includes(t.id))
+
+  const renderIntegracoesContent = () => (
+    <div className="space-y-6">
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+        <h3 className="font-medium text-blue-800 mb-2">Webhook</h3>
+        <p className="text-sm text-blue-700">
+          Uma única URL recebe, em tempo real, novas inscrições, reset de senha (Meus Ingressos) e
+          alterações de eventos no admin. O corpo do POST traz o campo <code className="bg-blue-100 px-1 rounded">tipo</code> para
+          o automação (ex.: n8n) decidir o fluxo. Quando o WhatsApp estiver configurado na aba WhatsApp, o JSON também inclui{' '}
+          <code className="bg-blue-100 px-1 rounded">integracao_evolution</code> com <code className="bg-blue-100 px-1 rounded">api_url</code> e{' '}
+          <code className="bg-blue-100 px-1 rounded">instance</code> (use isso no fluxo; os headers X-Evolution-* continuam sendo enviados).
+          Pagamentos do Mercado Pago usam outro fluxo.
+        </p>
+      </div>
+
+      {/* Toggle Ativo/Inativo */}
+      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+        <div>
+          <label className="font-medium text-gray-700">Webhook Ativo</label>
+          <p className="text-sm text-gray-500">
+            {formData.webhook_ativo
+              ? 'A URL abaixo receberá inscrições, reset de senha e avisos de evento'
+              : 'O webhook está desativado'}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setFormData(prev => ({ ...prev, webhook_ativo: !prev.webhook_ativo }))}
+          className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${
+            formData.webhook_ativo ? 'bg-green-500' : 'bg-gray-300'
+          }`}
+        >
+          <span
+            className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-md transition-transform ${
+              formData.webhook_ativo ? 'translate-x-7' : 'translate-x-1'
+            }`}
+          />
+        </button>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          <Webhook className="inline h-4 w-4 mr-1" />
+          URL do Webhook
+        </label>
+        <input
+          type="url"
+          name="webhook_inscricao"
+          value={formData.webhook_inscricao}
+          onChange={handleChange}
+          className="input-field"
+          placeholder="https://seu-servidor.com/webhook/inscricao"
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          Requisição POST em JSON. Use o campo <span className="font-mono">tipo</span> (ex.:{' '}
+          <span className="font-mono">nova_inscricao</span>, <span className="font-mono">reset_senha</span>, <span className="font-mono">evento</span>) no seu fluxo.
+        </p>
+      </div>
+
+      {/* Exemplo de Payload */}
+      <div className="mt-6">
+        <h4 className="font-medium text-gray-700 mb-2">Exemplo de dados enviados:</h4>
+        <pre className="bg-gray-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto">
+{`{
+  "tipo": "nova_inscricao",
+  "timestamp": "2024-01-15T10:30:00Z",
+  
+  "participante": {
+    "id": 123,
+    "nome": "João Silva",
+    "telefone": "11999999999",
+    "telefone_formatado": "(11) 99999-9999",
+    "email": "joao@email.com",
+    "senha": "123456",
+    "novo_cadastro": true
+  },
+  
+  "inscricao": {
+    "id": 456,
+    "codigo": "abc123-def456-...",
+    "qrcode_url": "http://site.com/media/qrcodes/...",
+    "status": "confirmada"
+  },
+  
+  "evento": {
+    "id": 789,
+    "titulo": "Conferência 2024",
+    "data_inicio": "20/01/2024 19:00",
+    "local": "Templo Principal",
+    "evento_pago": false
+  },
+  
+  "igreja": {
+    "nome": "Champions Church",
+    "telefone": "(11) 99999-9999",
+    "email": "contato@igreja.com"
+  }
+}`}
+        </pre>
+      </div>
+    </div>
+  )
 
   return (
     <div>
@@ -1180,191 +1299,198 @@ function AdminConfiguracoes() {
             </div>
           )}
 
-          {/* Tab: Integrações */}
-          {activeTab === 'integracoes' && (
-            <div className="space-y-6">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                <h3 className="font-medium text-blue-800 mb-2">Webhook</h3>
-                <p className="text-sm text-blue-700">
-                  Uma única URL recebe, em tempo real, novas inscrições, reset de senha (Meus Ingressos) e
-                  alterações de eventos no admin. O corpo do POST traz o campo <code className="bg-blue-100 px-1 rounded">tipo</code> para
-                  o automação (ex.: n8n) decidir o fluxo. Quando o WhatsApp estiver configurado na aba WhatsApp, o JSON também inclui{' '}
-                  <code className="bg-blue-100 px-1 rounded">integracao_evolution</code> com <code className="bg-blue-100 px-1 rounded">api_url</code> e{' '}
-                  <code className="bg-blue-100 px-1 rounded">instance</code> (use isso no fluxo; os headers X-Evolution-* continuam sendo enviados).
-                  Pagamentos do Mercado Pago usam outro fluxo.
-                </p>
-              </div>
-
-              {/* Toggle Ativo/Inativo */}
-              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                <div>
-                  <label className="font-medium text-gray-700">Webhook Ativo</label>
-                  <p className="text-sm text-gray-500">
-                    {formData.webhook_ativo
-                      ? 'A URL abaixo receberá inscrições, reset de senha e avisos de evento'
-                      : 'O webhook está desativado'}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setFormData(prev => ({ ...prev, webhook_ativo: !prev.webhook_ativo }))}
-                  className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${
-                    formData.webhook_ativo ? 'bg-green-500' : 'bg-gray-300'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-md transition-transform ${
-                      formData.webhook_ativo ? 'translate-x-7' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <Webhook className="inline h-4 w-4 mr-1" />
-                  URL do Webhook
-                </label>
-                <input
-                  type="url"
-                  name="webhook_inscricao"
-                  value={formData.webhook_inscricao}
-                  onChange={handleChange}
-                  className="input-field"
-                  placeholder="https://seu-servidor.com/webhook/inscricao"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Requisição POST em JSON. Use o campo <span className="font-mono">tipo</span> (ex.:{' '}
-                  <span className="font-mono">nova_inscricao</span>, <span className="font-mono">reset_senha</span>, <span className="font-mono">evento</span>) no seu fluxo.
-                </p>
-              </div>
-
-              {/* Exemplo de Payload */}
-              <div className="mt-6">
-                <h4 className="font-medium text-gray-700 mb-2">Exemplo de dados enviados:</h4>
-                <pre className="bg-gray-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto">
-{`{
-  "tipo": "nova_inscricao",
-  "timestamp": "2024-01-15T10:30:00Z",
-  
-  "participante": {
-    "id": 123,
-    "nome": "João Silva",
-    "telefone": "11999999999",
-    "telefone_formatado": "(11) 99999-9999",
-    "email": "joao@email.com",
-    "senha": "123456",
-    "novo_cadastro": true
-  },
-  
-  "inscricao": {
-    "id": 456,
-    "codigo": "abc123-def456-...",
-    "qrcode_url": "http://site.com/media/qrcodes/...",
-    "status": "confirmada"
-  },
-  
-  "evento": {
-    "id": 789,
-    "titulo": "Conferência 2024",
-    "data_inicio": "20/01/2024 19:00",
-    "local": "Templo Principal",
-    "evento_pago": false
-  },
-  
-  "igreja": {
-    "nome": "Champions Church",
-    "telefone": "(11) 99999-9999",
-    "email": "contato@igreja.com"
-  }
-}`}
-                </pre>
-              </div>
-            </div>
-          )}
-
           {/* Tab: WhatsApp Evolution API */}
           {activeTab === 'whatsapp' && (
             <div className="space-y-6">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                <h3 className="font-medium text-blue-800 mb-2">Integração com WhatsApp via Evolution API</h3>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h3 className="font-medium text-blue-800 mb-2">WhatsApp</h3>
                 <p className="text-sm text-blue-700">
-                  Configure a integração com WhatsApp usando a Evolution API para envio automático de mensagens,
-                  notificações de inscrições e outras funcionalidades.
+                  Configure credenciais da Evolution API e personalize as mensagens enviadas no webhook.
                 </p>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  URL da API Evolution *
-                </label>
-                <input
-                  type="url"
-                  name="evolution_api_url"
-                  value={formData.evolution_api_url}
-                  onChange={handleChange}
-                  className="input-field"
-                  placeholder="https://api.evolution.com.br"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  URL base da API Evolution (sem barra no final)
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Chave de API *
-                </label>
-                <div className="relative">
-                  <input
-                    type={showEvolutionApiKey ? 'text' : 'password'}
-                    name="evolution_api_key"
-                    value={formData.evolution_api_key}
-                    onChange={handleChange}
-                    className="input-field font-mono text-sm pr-10"
-                    placeholder="Sua chave de API da Evolution"
-                  />
+              <div className="border-b">
+                <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setShowEvolutionApiKey((s) => !s)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 rounded"
-                    title={showEvolutionApiKey ? 'Ocultar chave' : 'Mostrar chave'}
+                    onClick={() => setActiveWhatsAppSubtab('credenciais')}
+                    className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 ${
+                      activeWhatsAppSubtab === 'credenciais'
+                        ? 'border-primary-500 text-primary-700 bg-primary-50'
+                        : 'border-transparent text-gray-600 hover:text-gray-800'
+                    }`}
                   >
-                    {showEvolutionApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    Credenciais
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveWhatsAppSubtab('mensagens')}
+                    className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 ${
+                      activeWhatsAppSubtab === 'mensagens'
+                        ? 'border-primary-500 text-primary-700 bg-primary-50'
+                        : 'border-transparent text-gray-600 hover:text-gray-800'
+                    }`}
+                  >
+                    Mensagens
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveWhatsAppSubtab('integracoes')}
+                    className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 ${
+                      activeWhatsAppSubtab === 'integracoes'
+                        ? 'border-primary-500 text-primary-700 bg-primary-50'
+                        : 'border-transparent text-gray-600 hover:text-gray-800'
+                    }`}
+                  >
+                    Integrações
                   </button>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  Chave de autenticação fornecida pela Evolution API
-                </p>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Instância *
-                </label>
-                <input
-                  type="text"
-                  name="evolution_api_instance"
-                  value={formData.evolution_api_instance}
-                  onChange={handleChange}
-                  className="input-field"
-                  placeholder="nome-da-instancia"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Nome da instância configurada na Evolution API
-                </p>
-              </div>
+              {activeWhatsAppSubtab === 'credenciais' && (
+                <div className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      URL da API Evolution *
+                    </label>
+                    <input
+                      type="url"
+                      name="evolution_api_url"
+                      value={formData.evolution_api_url}
+                      onChange={handleChange}
+                      className="input-field"
+                      placeholder="https://api.evolution.com.br"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      URL base da API Evolution (sem barra no final)
+                    </p>
+                  </div>
 
-              {/* Instruções */}
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                <h4 className="font-medium text-gray-800 mb-2">Como obter as credenciais</h4>
-                <ol className="text-sm text-gray-700 list-decimal list-inside space-y-1">
-                  <li>Acesse o painel da Evolution API</li>
-                  <li>Vá em "Instâncias" e crie ou selecione uma instância</li>
-                  <li>Copie a URL da API, a chave de API e o nome da instância</li>
-                  <li>Certifique-se de que a instância está conectada e ativa</li>
-                </ol>
-              </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Chave de API *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showEvolutionApiKey ? 'text' : 'password'}
+                        name="evolution_api_key"
+                        value={formData.evolution_api_key}
+                        onChange={handleChange}
+                        className="input-field font-mono text-sm pr-10"
+                        placeholder="Sua chave de API da Evolution"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowEvolutionApiKey((s) => !s)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 rounded"
+                        title={showEvolutionApiKey ? 'Ocultar chave' : 'Mostrar chave'}
+                      >
+                        {showEvolutionApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Chave de autenticação fornecida pela Evolution API
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Instância *
+                    </label>
+                    <input
+                      type="text"
+                      name="evolution_api_instance"
+                      value={formData.evolution_api_instance}
+                      onChange={handleChange}
+                      className="input-field"
+                      placeholder="nome-da-instancia"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Nome da instância configurada na Evolution API
+                    </p>
+                  </div>
+
+                  {/* Instruções */}
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <h4 className="font-medium text-gray-800 mb-2">Como obter as credenciais</h4>
+                    <ol className="text-sm text-gray-700 list-decimal list-inside space-y-1">
+                      <li>Acesse o painel da Evolution API</li>
+                      <li>Vá em "Instâncias" e crie ou selecione uma instância</li>
+                      <li>Copie a URL da API, a chave de API e o nome da instância</li>
+                      <li>Certifique-se de que a instância está conectada e ativa</li>
+                    </ol>
+                  </div>
+                </div>
+              )}
+
+              {activeWhatsAppSubtab === 'mensagens' && (
+                <div className="space-y-6">
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                    <h4 className="font-medium text-amber-800 mb-1">Placeholders disponíveis</h4>
+                    <p className="text-xs text-amber-700">
+                      Use placeholders como: {'{{nome}}'}, {'{{evento}}'}, {'{{data_evento}}'}, {'{{local_evento}}'}, {'{{endereco_evento}}'}, {'{{senha}}'}, {'{{status_pagamento}}'}, {'{{link_pagamento}}'}, {'{{valor_total}}'}, {'{{codigo_inscricao}}'}, {'{{telefone}}'}, {'{{email}}'}, {'{{igreja_nome}}'}.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Reset de senha
+                    </label>
+                    <textarea
+                      name="wa_msg_reset_senha"
+                      value={formData.wa_msg_reset_senha}
+                      onChange={handleChange}
+                      rows={4}
+                      className="input-field"
+                      placeholder="Olá {{nome}}, sua senha é {{senha}}..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Inscrição de evento grátis
+                    </label>
+                    <textarea
+                      name="wa_msg_inscricao_gratis"
+                      value={formData.wa_msg_inscricao_gratis}
+                      onChange={handleChange}
+                      rows={4}
+                      className="input-field"
+                      placeholder="Olá {{nome}}, sua inscrição no evento {{evento}} está confirmada..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Inscrição de evento pago (pendente)
+                    </label>
+                    <textarea
+                      name="wa_msg_inscricao_paga_pendente"
+                      value={formData.wa_msg_inscricao_paga_pendente}
+                      onChange={handleChange}
+                      rows={4}
+                      className="input-field"
+                      placeholder="Olá {{nome}}, recebemos sua inscrição para {{evento}}. Status: {{status_pagamento}}..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Inscrição de evento pago (confirmada)
+                    </label>
+                    <textarea
+                      name="wa_msg_inscricao_paga_confirmada"
+                      value={formData.wa_msg_inscricao_paga_confirmada}
+                      onChange={handleChange}
+                      rows={4}
+                      className="input-field"
+                      placeholder="Olá {{nome}}, pagamento confirmado para o evento {{evento}}..."
+                    />
+                  </div>
+                </div>
+              )}
+
+              {activeWhatsAppSubtab === 'integracoes' && renderIntegracoesContent()}
             </div>
           )}
 

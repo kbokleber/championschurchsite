@@ -904,6 +904,8 @@ class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
             'mp_public_key', 'mp_is_sandbox',  # Campos computados
             # WhatsApp Evolution API
             'evolution_api_url', 'evolution_api_key', 'evolution_api_instance',
+            'wa_msg_reset_senha', 'wa_msg_inscricao_gratis',
+            'wa_msg_inscricao_paga_pendente', 'wa_msg_inscricao_paga_confirmada',
             'destaques_home',
             'atualizado_em'
         ]

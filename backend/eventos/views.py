@@ -2891,12 +2891,11 @@ def configuracao_admin(request):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
-                # Remove os itens antigos (incluindo imagens antigas)
-                for antigo in config.destaques_home.all():
-                    if antigo.imagem:
-                        antigo.imagem.delete(save=False)
-                    antigo.delete()
-
+                existentes = {
+                    item.id: item
+                    for item in config.destaques_home.all()
+                }
+                ids_processados = set()
                 for idx, item in enumerate(itens):
                     if not isinstance(item, dict):
                         continue
@@ -2907,16 +2906,47 @@ def configuracao_admin(request):
                     ativo = item.get('ativo', True)
                     ordem = item.get('ordem', idx)
                     imagem_file = request.FILES.get(f'destaque_home_imagem_{idx}')
-                    destaque = DestaqueHomeItem.objects.create(
-                        configuracao=config,
-                        titulo=titulo[:120] if titulo else 'Sem título',
-                        descricao=descricao,
-                        ordem=int(ordem) if str(ordem).isdigit() else idx,
-                        ativo=bool(ativo),
-                    )
+                    imagem_removida = item.get('imagem_removida') in (True, 'true', 'True', 1, '1')
+                    item_id = item.get('id')
+                    destaque = None
+
+                    try:
+                        item_id_int = int(item_id) if item_id is not None else None
+                    except (TypeError, ValueError):
+                        item_id_int = None
+
+                    if item_id_int and item_id_int in existentes:
+                        destaque = existentes[item_id_int]
+                        destaque.titulo = titulo[:120] if titulo else 'Sem título'
+                        destaque.descricao = descricao
+                        destaque.ordem = int(ordem) if str(ordem).isdigit() else idx
+                        destaque.ativo = bool(ativo)
+                    else:
+                        destaque = DestaqueHomeItem(
+                            configuracao=config,
+                            titulo=titulo[:120] if titulo else 'Sem título',
+                            descricao=descricao,
+                            ordem=int(ordem) if str(ordem).isdigit() else idx,
+                            ativo=bool(ativo),
+                        )
+
                     if imagem_file:
+                        if destaque.imagem:
+                            destaque.imagem.delete(save=False)
                         destaque.imagem = imagem_file
-                        destaque.save(update_fields=['imagem'])
+                    elif imagem_removida and destaque.imagem:
+                        destaque.imagem.delete(save=False)
+                        destaque.imagem = None
+
+                    destaque.save()
+                    ids_processados.add(destaque.id)
+
+                # Remove somente os itens excluídos no frontend
+                for antigo_id, antigo in existentes.items():
+                    if antigo_id not in ids_processados:
+                        if antigo.imagem:
+                            antigo.imagem.delete(save=False)
+                        antigo.delete()
             config.refresh_from_db()
             return Response(ConfiguracaoSiteSerializer(config).data)
         

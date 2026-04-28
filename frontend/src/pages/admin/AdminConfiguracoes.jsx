@@ -402,10 +402,12 @@ function AdminConfiguracoes() {
       }
 
       const payloadDestaquesHome = destaquesHome.map((item, index) => ({
+        id: item.id || null,
         titulo: item.titulo || '',
         descricao: item.descricao || '',
         ativo: !!item.ativo,
-        ordem: index
+        ordem: index,
+        imagem_removida: !item.imagemPreview
       }))
       data.append('destaques_home_json', JSON.stringify(payloadDestaquesHome))
       destaquesHome.forEach((item, index) => {

@@ -132,15 +132,15 @@ function Home() {
                     key={`${slide?.id ?? index}-${index}`}
                     className={`${index === slideAtual ? 'block' : 'hidden'}`}
                   >
-                    <div className="bg-gradient-to-b from-white to-primary-50/40 p-10 rounded-2xl border-2 border-primary-100 shadow-[0_20px_45px_-20px_rgba(15,23,42,0.35)] text-center min-h-[360px] flex flex-col items-center justify-start">
+                    <div className="bg-gradient-to-b from-white to-primary-50/40 px-5 py-8 sm:p-10 rounded-2xl border-2 border-primary-100 shadow-[0_20px_45px_-20px_rgba(15,23,42,0.35)] text-center min-h-[360px] flex flex-col items-center justify-start">
                       {imagemSlide ? (
                         <img
                           src={imagemSlide}
                           alt={slide?.titulo || `Slide ${index + 1}`}
-                          className="w-full max-w-[340px] h-[500px] rounded-2xl object-cover mb-6 border border-primary-100 shadow-sm"
+                          className="w-full max-w-[400px] h-[500px] rounded-2xl object-cover mb-6 border border-primary-100 shadow-sm"
                         />
                       ) : (
-                        <div className="w-full max-w-[340px] h-[500px] rounded-2xl bg-primary-100 text-primary-600 mb-6 text-xs font-semibold flex items-center justify-center border border-primary-100">
+                        <div className="w-full max-w-[400px] h-[500px] rounded-2xl bg-primary-100 text-primary-600 mb-6 text-xs font-semibold flex items-center justify-center border border-primary-100">
                           Sem imagem
                         </div>
                       )}

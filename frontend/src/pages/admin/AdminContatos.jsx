@@ -47,7 +47,7 @@ function AdminContatos() {
         setContatos(prev => prev.map(c => 
           c.id === contato.id ? contatoAtualizado : c
         ))
-        
+
         // Selecionar com estado atualizado
         setContatoSelecionado(contatoAtualizado)
       } catch (error) {
@@ -94,8 +94,8 @@ function AdminContatos() {
       contato.nome?.toLowerCase().includes(busca.toLowerCase()) ||
       contato.email?.toLowerCase().includes(busca.toLowerCase()) ||
       contato.assunto?.toLowerCase().includes(busca.toLowerCase())
-    const matchLido = 
-      filtroLido === 'todos' || 
+    const matchLido =
+      filtroLido === 'todos' ||
       (filtroLido === 'lido' && contato.lido) ||
       (filtroLido === 'nao_lido' && !contato.lido)
     return matchBusca && matchLido

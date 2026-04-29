@@ -823,9 +823,9 @@ class ContatoSerializer(serializers.ModelSerializer):
         model = Contato
         fields = [
             'id', 'nome', 'email', 'telefone', 'assunto',
-            'mensagem', 'data_envio'
+            'mensagem', 'data_envio', 'lido', 'respondido'
         ]
-        read_only_fields = ['id', 'data_envio']
+        read_only_fields = ['id', 'data_envio', 'lido', 'respondido']
 
 
 class CategoriaParticipanteSerializer(serializers.ModelSerializer):

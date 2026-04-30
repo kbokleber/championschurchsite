@@ -16,7 +16,7 @@ from .views import (
     participante_login, participante_esqueci_senha, participante_registro, participante_perfil,
     buscar_participante_por_telefone,
     configuracao_publica, configuracao_admin,
-    admin_testar_conexao_whatsapp,
+    admin_testar_conexao_whatsapp, admin_testar_conexao_mercadopago,
     verificar_permissao_menu, menus_permitidos, popular_permissoes_menu,
     admin_backup_exportar, admin_backup_importar,
     # Mercado Pago
@@ -95,6 +95,7 @@ urlpatterns = [
     path('configuracao/', configuracao_publica, name='configuracao_publica'),
     path('admin/configuracao/', configuracao_admin, name='configuracao_admin'),
     path('admin/whatsapp/testar-conexao/', admin_testar_conexao_whatsapp, name='admin_testar_conexao_whatsapp'),
+    path('admin/mercadopago/testar-conexao/', admin_testar_conexao_mercadopago, name='admin_testar_conexao_mercadopago'),
 
     # Admin - exportar inscrições (planilha)
     path('admin/inscricoes/exportar/', admin_exportar_inscricoes_xlsx, name='admin_exportar_inscricoes'),

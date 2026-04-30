@@ -113,6 +113,8 @@ function AdminConfiguracoes() {
   const [destaquesHome, setDestaquesHome] = useState([novoDestaqueHome()])
   const [testingWhatsApp, setTestingWhatsApp] = useState(false)
   const [whatsAppTestResult, setWhatsAppTestResult] = useState(null)
+  const [testingMercadoPago, setTestingMercadoPago] = useState(false)
+  const [mercadoPagoTestResult, setMercadoPagoTestResult] = useState(null)
 
   useEffect(() => {
     fetchConfiguracao()
@@ -443,6 +445,33 @@ function AdminConfiguracoes() {
     if (result.ok) return 'Conectado'
     if (result.motivo === 'whatsapp_desconectado') return 'Desconectado'
     return 'Falha'
+  }
+
+  const handleTestarConexaoMercadoPago = async () => {
+    setTestingMercadoPago(true)
+    setMercadoPagoTestResult(null)
+    setMessage({ type: '', text: '' })
+    try {
+      const response = await api.post('/admin/mercadopago/testar-conexao/', {
+        mp_ambiente: formData.mp_ambiente,
+        mp_public_key_sandbox: formData.mp_public_key_sandbox,
+        mp_access_token_sandbox: formData.mp_access_token_sandbox,
+        mp_public_key_production: formData.mp_public_key_production,
+        mp_access_token_production: formData.mp_access_token_production,
+        mp_webhook_secret: formData.mp_webhook_secret
+      })
+      setMercadoPagoTestResult(response.data)
+      setMessage({ type: 'success', text: 'Teste de conexão do Mercado Pago concluído com sucesso.' })
+    } catch (error) {
+      const result = error.response?.data
+      if (result) {
+        setMercadoPagoTestResult(result)
+      }
+      const detalhe = result?.detalhe || error.message || 'Falha ao testar conexão Mercado Pago.'
+      setMessage({ type: 'error', text: `Falha no teste do Mercado Pago: ${detalhe}` })
+    } finally {
+      setTestingMercadoPago(false)
+    }
   }
 
   const handleSubmit = async (e) => {
@@ -1807,6 +1836,59 @@ function AdminConfiguracoes() {
                     </div>
                   </label>
                 </div>
+              </div>
+
+              <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <h4 className="font-medium text-gray-800">Teste de conexão</h4>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Valida as credenciais do ambiente selecionado sem criar pagamento.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleTestarConexaoMercadoPago}
+                    disabled={testingMercadoPago}
+                    className="btn-outline inline-flex items-center"
+                  >
+                    {testingMercadoPago ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                        Testando...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Testar conexão
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {mercadoPagoTestResult && (
+                  <div className={`mt-4 rounded-lg border p-3 text-sm ${
+                    mercadoPagoTestResult.ok
+                      ? 'border-green-200 bg-green-50 text-green-800'
+                      : 'border-red-200 bg-red-50 text-red-800'
+                  }`}>
+                    <p><strong>Status:</strong> {mercadoPagoTestResult.ok ? 'Conectado' : 'Falha'}</p>
+                    <p><strong>Ambiente:</strong> {mercadoPagoTestResult.ambiente || '-'}</p>
+                    <p><strong>Motivo:</strong> {mercadoPagoTestResult.motivo || '-'}</p>
+                    <p><strong>HTTP:</strong> {String(mercadoPagoTestResult.status_http ?? '-')}</p>
+                    <p><strong>Webhook URL:</strong> {mercadoPagoTestResult.webhook_url || '-'}</p>
+                    <p><strong>Webhook Secret:</strong> {mercadoPagoTestResult.webhook_secret_configurado ? 'Configurado' : 'Não configurado'}</p>
+                    {mercadoPagoTestResult.conta && (
+                      <p>
+                        <strong>Conta:</strong>{' '}
+                        {mercadoPagoTestResult.conta.nickname || mercadoPagoTestResult.conta.email || mercadoPagoTestResult.conta.id || '-'}
+                      </p>
+                    )}
+                    {mercadoPagoTestResult.detalhe && (
+                      <p className="mt-1 break-all"><strong>Detalhe:</strong> {mercadoPagoTestResult.detalhe}</p>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Cartão em sandbox (PIX em produção, cartão em teste) */}

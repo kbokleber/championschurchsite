@@ -3137,6 +3137,78 @@ def admin_testar_conexao_whatsapp(request):
     return Response(diagnostico, status=http_status)
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def admin_testar_conexao_mercadopago(request):
+    """
+    Endpoint de diagnóstico das credenciais Mercado Pago.
+    Valida o Access Token em /users/me sem criar cobrança/pagamento.
+    """
+    config = ConfiguracaoSite.get_config()
+    ambiente = (request.data.get('mp_ambiente') or config.mp_ambiente or 'sandbox').strip()
+    if ambiente not in ('sandbox', 'production'):
+        ambiente = 'sandbox'
+
+    if ambiente == 'production':
+        public_key = (request.data.get('mp_public_key_production') or config.mp_public_key_production or '').strip()
+        access_token = (request.data.get('mp_access_token_production') or config.mp_access_token_production or '').strip()
+    else:
+        public_key = (request.data.get('mp_public_key_sandbox') or config.mp_public_key_sandbox or '').strip()
+        access_token = (request.data.get('mp_access_token_sandbox') or config.mp_access_token_sandbox or '').strip()
+
+    webhook_secret = (request.data.get('mp_webhook_secret') or config.mp_webhook_secret or '').strip()
+    resultado = {
+        'ok': False,
+        'motivo': 'configuracao_incompleta',
+        'ambiente': ambiente,
+        'status_http': None,
+        'url_usada': 'https://api.mercadopago.com/users/me',
+        'detalhe': None,
+        'conta': None,
+        'public_key_configurada': bool(public_key),
+        'access_token_configurado': bool(access_token),
+        'webhook_secret_configurado': bool(webhook_secret),
+        'webhook_url': request.build_absolute_uri('/api/mercadopago/webhook/'),
+    }
+
+    if not public_key or not access_token:
+        resultado['detalhe'] = 'Informe Public Key e Access Token do ambiente selecionado.'
+        return Response(resultado, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        response = requests.get(
+            'https://api.mercadopago.com/users/me',
+            headers={
+                'Authorization': f'Bearer {access_token}',
+                'User-Agent': 'ChampionsChurch-MercadoPago/1.0',
+            },
+            timeout=20,
+        )
+        resultado['status_http'] = response.status_code
+
+        if 200 <= response.status_code < 300:
+            data = response.json() if response.content else {}
+            resultado['ok'] = True
+            resultado['motivo'] = 'ok'
+            resultado['detalhe'] = 'Credenciais autenticadas com sucesso.'
+            resultado['conta'] = {
+                'id': data.get('id'),
+                'nickname': data.get('nickname'),
+                'email': data.get('email'),
+                'site_id': data.get('site_id'),
+            }
+            return Response(resultado)
+
+        resultado['motivo'] = 'nao_autorizado' if response.status_code in (401, 403) else 'http_erro'
+        resultado['detalhe'] = (response.text or '')[:600]
+        return Response(resultado, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as exc:
+        resultado['motivo'] = 'requisicao_erro'
+        resultado['detalhe'] = str(exc)
+        logger.warning('Falha ao testar conexão Mercado Pago: %s', exc)
+        return Response(resultado, status=status.HTTP_400_BAD_REQUEST)
+
+
 # ============================================
 # COBRANÇAS
 # ============================================

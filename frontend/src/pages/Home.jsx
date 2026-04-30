@@ -89,7 +89,7 @@ function Home() {
     <div>
       {/* Hero Section: fundo com imagem do banner ou gradiente azul */}
       <section
-        className={`relative min-h-[600px] flex items-center ${bannerUrl ? 'bg-cover bg-center bg-no-repeat' : 'bg-gradient-to-br from-church-navy via-primary-900 to-church-navy'}`}
+        className={`relative min-h-[600px] flex items-center ${bannerUrl ? 'bg-cover bg-no-repeat bg-[position:58%_center] md:bg-center' : 'bg-gradient-to-br from-church-navy via-primary-900 to-church-navy'}`}
         style={bannerUrl ? { backgroundImage: `url(${bannerUrl})` } : undefined}
       >
         <div className={`absolute inset-0 ${bannerUrl ? 'bg-black/50' : 'bg-black/30'}`}></div>

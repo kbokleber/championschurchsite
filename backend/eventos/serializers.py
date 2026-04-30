@@ -712,7 +712,7 @@ class InscricaoSerializer(serializers.ModelSerializer):
     evento_pago = serializers.BooleanField(source='evento.evento_pago', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     status_pagamento_display = serializers.CharField(source='get_status_pagamento_display', read_only=True)
-    categoria_nome = serializers.CharField(source='categoria.nome', read_only=True, allow_null=True)
+    categoria_nome = serializers.SerializerMethodField()
     data_inscricao_formatada = serializers.SerializerMethodField()
     data_checkin_formatada = serializers.SerializerMethodField()
     data_pagamento_formatada = serializers.SerializerMethodField()
@@ -740,6 +740,13 @@ class InscricaoSerializer(serializers.ModelSerializer):
     def get_evento_data(self, obj):
         if obj.evento and obj.evento.data_inicio:
             return timezone.localtime(obj.evento.data_inicio).strftime('%d/%m/%Y %H:%M')
+        return None
+
+    def get_categoria_nome(self, obj):
+        if obj.categoria:
+            return obj.categoria.nome
+        if not obj.is_acompanhante:
+            return 'Adulto'
         return None
     
     def get_data_inscricao_formatada(self, obj):

@@ -108,6 +108,7 @@ function AdminConfiguracoes() {
   const [clearBannerMobileRequested, setClearBannerMobileRequested] = useState(false)
   const [showAccessTokenSandbox, setShowAccessTokenSandbox] = useState(false)
   const [showAccessTokenProduction, setShowAccessTokenProduction] = useState(false)
+  const [showMpWebhookSecret, setShowMpWebhookSecret] = useState(false)
   const [showEvolutionApiKey, setShowEvolutionApiKey] = useState(false)
   const [destaquesHome, setDestaquesHome] = useState([novoDestaqueHome()])
   const [testingWhatsApp, setTestingWhatsApp] = useState(false)
@@ -1927,15 +1928,25 @@ function AdminConfiguracoes() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Webhook Secret
                     </label>
-                    <input
-                      type="password"
-                      name="mp_webhook_secret"
-                      value={formData.mp_webhook_secret}
-                      onChange={handleChange}
-                      className="input-field font-mono text-sm"
-                      placeholder="Secret do painel MP (Webhooks)"
-                      autoComplete="off"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showMpWebhookSecret ? 'text' : 'password'}
+                        name="mp_webhook_secret"
+                        value={formData.mp_webhook_secret}
+                        onChange={handleChange}
+                        className="input-field font-mono text-sm pr-10"
+                        placeholder="Secret do painel MP (Webhooks)"
+                        autoComplete="off"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowMpWebhookSecret((s) => !s)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 rounded"
+                        title={showMpWebhookSecret ? 'Ocultar secret' : 'Mostrar secret'}
+                      >
+                        {showMpWebhookSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                     <p className="text-xs text-gray-500 mt-1">
                       Painel MP → Webhooks → Configurar notificações. Usado para validar a assinatura das notificações.
                     </p>

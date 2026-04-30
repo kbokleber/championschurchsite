@@ -121,6 +121,20 @@ def _whatsapp_template_from_config(config, tipo_msg):
     return (getattr(config, attr, '') or '').strip()
 
 
+def _get_categoria_adulto_padrao():
+    categoria, _ = CategoriaParticipante.objects.get_or_create(
+        nome='Adulto',
+        defaults={
+            'descricao': 'Categoria padrão para adultos',
+            'tipo_valor': 'porcentagem',
+            'valor': 100,
+            'ordem': 1,
+            'ativo': True,
+        }
+    )
+    return categoria
+
+
 def _whatsapp_status_pagamento_label(valor):
     if valor is True:
         return 'confirmado'
@@ -1408,19 +1422,8 @@ def participante_registro(request):
                 arquivo=upload,
             )
 
-    # Buscar ou criar categoria "Adulto" para o responsável
-    categoria_adulto = None
-    if evento.evento_pago:
-        categoria_adulto, _ = CategoriaParticipante.objects.get_or_create(
-            nome='Adulto',
-            defaults={
-                'descricao': 'Categoria padrão para adultos',
-                'tipo_valor': 'porcentagem',
-                'valor': 100,  # 100% do valor do evento
-                'ordem': 1,
-                'ativo': True
-            }
-        )
+    # Responsável é sempre adulto; acompanhantes usam a categoria informada.
+    categoria_adulto = _get_categoria_adulto_padrao()
     
     # Primeiro, calcular o valor dos acompanhantes para somar ao total
     valor_acompanhantes = 0
@@ -2703,25 +2706,85 @@ class InscricaoViewSet(viewsets.ModelViewSet):
         queryset = Inscricao.objects.filter(
             evento=evento,
             status='confirmada'
-        ).select_related('membro', 'evento')
+        ).select_related('membro', 'evento', 'responsavel')
         if evento.evento_pago:
             queryset = queryset.exclude(status_pagamento='pendente')
-        if nome:
-            if len(nome) < 2:
-                return Response(
-                    {'error': 'Digite ao menos 2 caracteres para buscar.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            queryset = queryset.filter(membro__nome__icontains=nome)
-        queryset = queryset.order_by('membro__nome')
+        filtro_nome = nome.lower()
+        if nome and len(nome) < 2:
+            return Response(
+                {'error': 'Digite ao menos 2 caracteres para buscar.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        inscricoes = list(queryset.order_by('membro__nome', 'id'))
+        principais = [ins for ins in inscricoes if not ins.is_acompanhante]
+        acompanhantes_por_responsavel = {}
+        acompanhantes_sem_responsavel = []
+
+        for ins in inscricoes:
+            if not ins.is_acompanhante:
+                continue
+            if ins.responsavel_id:
+                acompanhantes_por_responsavel.setdefault(ins.responsavel_id, []).append(ins)
+            else:
+                acompanhantes_sem_responsavel.append(ins)
+
+        principais.sort(key=lambda ins: (ins.membro.nome or '').lower())
+        for grupo in acompanhantes_por_responsavel.values():
+            grupo.sort(key=lambda ins: (ins.membro.nome or '').lower())
+        acompanhantes_sem_responsavel.sort(key=lambda ins: (ins.membro.nome or '').lower())
+
+        def nome_match(ins):
+            if not filtro_nome:
+                return True
+            nomes = [ins.membro.nome or '']
+            if ins.responsavel:
+                nomes.append(ins.responsavel.nome or '')
+            return any(filtro_nome in n.lower() for n in nomes)
+
+        ordenadas = []
+        principais_ids = {ins.membro_id for ins in principais}
+        for principal in principais:
+            acompanhantes = acompanhantes_por_responsavel.get(principal.membro_id, [])
+            grupo_match = nome_match(principal) or any(nome_match(acomp) for acomp in acompanhantes)
+            if not grupo_match:
+                continue
+            ordenadas.append(principal)
+            ordenadas.extend(acompanhantes)
+
+        for acomp in acompanhantes_sem_responsavel:
+            if nome_match(acomp):
+                ordenadas.append(acomp)
+
+        # Caso raro: acompanhante vinculado a responsável cuja inscrição principal não está no resultado.
+        for responsavel_id, acompanhantes in acompanhantes_por_responsavel.items():
+            if responsavel_id in principais_ids:
+                continue
+            ordenadas.extend([acomp for acomp in acompanhantes if nome_match(acomp)])
+
         lista = []
-        for ins in queryset:
+
+        def formatar_telefone_checkin(valor):
+            digits = ''.join(ch for ch in (valor or '') if ch.isdigit())
+            if len(digits) == 11:
+                return f"({digits[:2]}) {digits[2:7]}-{digits[7:]}"
+            if len(digits) == 10:
+                return f"({digits[:2]}) {digits[2:6]}-{digits[6:]}"
+            return valor or ''
+
+        for ins in ordenadas:
+            responsavel = ins.responsavel if ins.is_acompanhante else None
             lista.append({
                 'id': ins.id,
                 'membro_nome': ins.membro.nome,
+                'membro_telefone': ins.membro.telefone or '',
+                'membro_telefone_formatado': formatar_telefone_checkin(ins.membro.telefone),
                 'presente': ins.presente,
                 'data_checkin': timezone.localtime(ins.data_checkin).strftime('%d/%m/%Y %H:%M:%S') if ins.data_checkin else None,
                 'is_acompanhante': ins.is_acompanhante,
+                'responsavel_nome': responsavel.nome if responsavel else '',
+                'responsavel_telefone': responsavel.telefone if responsavel else '',
+                'responsavel_telefone_formatado': formatar_telefone_checkin(responsavel.telefone) if responsavel else '',
                 'evento_titulo': ins.evento.titulo,
             })
         return Response({
@@ -4833,7 +4896,7 @@ def admin_exportar_inscricoes_xlsx(request):
             timezone.localtime(insc.data_inscricao).strftime('%d/%m/%Y %H:%M:%S') if insc.data_inscricao else '',
             insc.get_status_display(),
             insc.get_status_pagamento_display(),
-            insc.categoria.nome if insc.categoria else '',
+            insc.categoria.nome if insc.categoria else ('Adulto' if not insc.is_acompanhante else ''),
             valor_str,
             'Sim' if insc.presente else 'Não',
             'Sim' if insc.is_acompanhante else 'Não',

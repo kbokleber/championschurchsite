@@ -199,6 +199,17 @@ function Checkin() {
     iniciarScanner()
   }
 
+  const descricaoParticipanteManual = (ins) => {
+    if (ins.is_acompanhante) {
+      const responsavel = ins.responsavel_nome ? `acompanhante de ${ins.responsavel_nome}` : 'acompanhante'
+      const telefoneResponsavel = ins.responsavel_telefone_formatado || ins.responsavel_telefone
+      return telefoneResponsavel ? `${responsavel} (${telefoneResponsavel})` : responsavel
+    }
+
+    const telefone = ins.membro_telefone_formatado || ins.membro_telefone
+    return telefone ? `(${telefone})` : ''
+  }
+
   const renderResultadoQR = () => {
     if (!resultado) return null
     if (resultado.sucesso) {
@@ -453,8 +464,12 @@ function Checkin() {
                       <div className="min-w-0">
                         <p className="font-medium text-gray-900 truncate">
                           {ins.membro_nome}
-                          {ins.is_acompanhante && <span className="text-gray-500 text-sm ml-1">(acompanhante)</span>}
                         </p>
+                        {descricaoParticipanteManual(ins) && (
+                          <p className="text-sm text-gray-500 truncate">
+                            {descricaoParticipanteManual(ins)}
+                          </p>
+                        )}
                         {ins.presente ? (
                           <p className="text-sm text-green-600 flex items-center gap-1">
                             <Check className="h-4 w-4" />

@@ -603,6 +603,10 @@ function AdminConfiguracoes() {
     ? todasAsTabs
     : todasAsTabs.filter(t => !TABS_SOMENTE_ADMIN.includes(t.id))
 
+  const sandboxCredentialsIncomplete =
+    formData.mp_ambiente === 'sandbox' &&
+    (!formData.mp_public_key_sandbox?.trim() || !formData.mp_access_token_sandbox?.trim())
+
   const renderIntegracoesContent = () => (
     <div className="space-y-6">
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
@@ -1758,6 +1762,21 @@ function AdminConfiguracoes() {
                 </div>
               </div>
 
+              {sandboxCredentialsIncomplete && (
+                <div className="border border-amber-200 bg-amber-50 rounded-lg p-4">
+                  <div className="flex items-start">
+                    <AlertTriangle className="h-5 w-5 text-amber-600 mr-3 mt-0.5" />
+                    <div>
+                      <h3 className="font-medium text-amber-800">Informe as credenciais de teste</h3>
+                      <p className="text-sm text-amber-700 mt-1">
+                        Para garantir que o pagamento seja fictício, copie Public Key e Access Token da aba <strong>Teste</strong> da sua aplicação no Mercado Pago.
+                        O prefixo pode aparecer como APP_USR-, então confira pela aba selecionada no painel.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Toggle Ativo/Inativo */}
               <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                 <div>
@@ -1875,6 +1894,9 @@ function AdminConfiguracoes() {
                     <p><strong>Status:</strong> {mercadoPagoTestResult.ok ? 'Conectado' : 'Falha'}</p>
                     <p><strong>Ambiente:</strong> {mercadoPagoTestResult.ambiente || '-'}</p>
                     <p><strong>Motivo:</strong> {mercadoPagoTestResult.motivo || '-'}</p>
+                    {mercadoPagoTestResult.ambiente === 'sandbox' && (
+                      <p><strong>Pagamento fictício:</strong> {mercadoPagoTestResult.credenciais_teste ? 'Sim, usando credenciais configuradas no Sandbox' : 'Não confirmado'}</p>
+                    )}
                     <p><strong>HTTP:</strong> {String(mercadoPagoTestResult.status_http ?? '-')}</p>
                     <p><strong>Webhook URL:</strong> {mercadoPagoTestResult.webhook_url || '-'}</p>
                     <p><strong>Webhook Secret:</strong> {mercadoPagoTestResult.webhook_secret_configurado ? 'Configurado' : 'Não configurado'}</p>
@@ -1928,7 +1950,7 @@ function AdminConfiguracoes() {
                       value={formData.mp_public_key_sandbox}
                       onChange={handleChange}
                       className="input-field font-mono text-sm"
-                      placeholder="APP_USR-..."
+                      placeholder="Cole a Public Key da aba Teste"
                     />
                   </div>
                   <div>
@@ -1942,7 +1964,7 @@ function AdminConfiguracoes() {
                         value={formData.mp_access_token_sandbox}
                         onChange={handleChange}
                         className="input-field font-mono text-sm pr-10"
-                        placeholder="APP_USR-..."
+                        placeholder="Cole o Access Token da aba Teste"
                       />
                       <button
                         type="button"

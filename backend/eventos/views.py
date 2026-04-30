@@ -3175,6 +3175,17 @@ def admin_testar_conexao_mercadopago(request):
         resultado['detalhe'] = 'Informe Public Key e Access Token do ambiente selecionado.'
         return Response(resultado, status=status.HTTP_400_BAD_REQUEST)
 
+    credenciais_ok, detalhe_credenciais = _validar_credenciais_mp_ambiente(
+        ambiente,
+        public_key,
+        access_token,
+    )
+    if not credenciais_ok:
+        resultado['motivo'] = 'credenciais_ambiente_incompativel'
+        resultado['detalhe'] = detalhe_credenciais
+        resultado['credenciais_teste'] = False
+        return Response(resultado, status=status.HTTP_400_BAD_REQUEST)
+
     try:
         response = requests.get(
             'https://api.mercadopago.com/users/me',
@@ -3191,6 +3202,7 @@ def admin_testar_conexao_mercadopago(request):
             resultado['ok'] = True
             resultado['motivo'] = 'ok'
             resultado['detalhe'] = 'Credenciais autenticadas com sucesso.'
+            resultado['credenciais_teste'] = ambiente == 'sandbox'
             resultado['conta'] = {
                 'id': data.get('id'),
                 'nickname': data.get('nickname'),
@@ -3501,8 +3513,17 @@ def criar_pagamento_pix(request):
             {'error': 'Mercado Pago não está ativo nas configurações'},
             status=status.HTTP_400_BAD_REQUEST
         )
-    # PIX exige produção; se "cartão em sandbox" estiver ativo, usar produção para criar preferência
-    sdk = get_mercadopago_sdk('production') if getattr(config, 'mp_cartao_em_sandbox', False) else get_mercadopago_sdk()
+    # PIX exige produção; se "cartão em sandbox" estiver ativo, usar produção para criar preferência.
+    mp_env = 'production' if getattr(config, 'mp_cartao_em_sandbox', False) else config.mp_ambiente
+    credenciais_ok, detalhe_credenciais = _validar_credenciais_mp_ambiente(
+        mp_env,
+        config.get_mp_public_key_for(mp_env),
+        config.get_mp_access_token_for(mp_env),
+    )
+    if not credenciais_ok:
+        return Response({'error': detalhe_credenciais}, status=status.HTTP_400_BAD_REQUEST)
+
+    sdk = get_mercadopago_sdk(mp_env)
     if not sdk:
         return Response(
             {'error': 'Mercado Pago não configurado corretamente'},
@@ -3513,6 +3534,10 @@ def criar_pagamento_pix(request):
     # REUTILIZAR PREFERÊNCIA EXISTENTE
     # ========================================
     # Se já existe uma referência externa (preferência criada), buscar o link existente
+    if mp_env == 'sandbox' and cobranca.referencia_externa:
+        cobranca.referencia_externa = ''
+        cobranca.save(update_fields=['referencia_externa'])
+
     if cobranca.referencia_externa:
         try:
             print(f"[MP] Reutilizando preferência existente: {cobranca.referencia_externa}")
@@ -3521,13 +3546,12 @@ def criar_pagamento_pix(request):
             
             if preference_response.get("status") in [200, 201] and preference.get("init_point"):
                 print(f"[MP] Link existente encontrado: {preference.get('init_point')}")
-                env = 'production' if getattr(config, 'mp_cartao_em_sandbox', False) else config.mp_ambiente
                 return Response({
                     'success': True,
                     'preference_id': cobranca.referencia_externa,
                     'init_point': preference.get("init_point"),
                     'sandbox_init_point': preference.get("sandbox_init_point"),
-                    'is_sandbox': env == 'sandbox',
+                    'is_sandbox': mp_env == 'sandbox',
                     'valor': float(cobranca.valor),
                     'cobranca': {'id': cobranca.id, 'codigo': cobranca.codigo},
                     'reutilizado': True,
@@ -3581,12 +3605,14 @@ def criar_pagamento_pix(request):
         item_data["picture_url"] = imagem_url
     items = [item_data]
     
-    # Email do pagador
-    # Em ambiente de teste (localhost), usar email placeholder para evitar conflito com conta do vendedor
+    # Email do pagador.
+    # Em sandbox, não enviamos email real para evitar misturar conta real com checkout de teste.
     base_url = request.build_absolute_uri('/')
     is_localhost = 'localhost' in base_url or '127.0.0.1' in base_url
-    
-    if is_localhost:
+
+    if mp_env == 'sandbox':
+        email_pagador = ''
+    elif is_localhost:
         # Usar email único baseado no telefone para testes
         email_pagador = f"teste{membro.telefone}@testepagamento.com"
     else:
@@ -3595,10 +3621,6 @@ def criar_pagamento_pix(request):
     # Dados da preferência (Checkout Pro) — apenas PIX e cartão (sem boleto)
     preference_data = {
         "items": items,
-        "payer": {
-            "email": email_pagador,
-            "name": membro.nome,
-        },
         "external_reference": cobranca.codigo,
         "statement_descriptor": "IGREJA",
         "payment_methods": {
@@ -3620,6 +3642,11 @@ def criar_pagamento_pix(request):
             "membro_nome": membro.nome,
         },
     }
+    if email_pagador:
+        preference_data["payer"] = {
+            "email": email_pagador,
+            "name": membro.nome,
+        }
     
     # Adicionar notification_url apenas se não for localhost
     webhook_url = request.build_absolute_uri('/api/mercadopago/webhook/')
@@ -3649,13 +3676,12 @@ def criar_pagamento_pix(request):
         cobranca.save()
         
         # Retornar links de pagamento (is_sandbox para o frontend exibir dica de cartão de teste)
-        env = 'production' if getattr(config, 'mp_cartao_em_sandbox', False) else config.mp_ambiente
         return Response({
             'success': True,
             'preference_id': preference.get("id"),
             'init_point': preference.get("init_point"),
             'sandbox_init_point': preference.get("sandbox_init_point"),
-            'is_sandbox': env == 'sandbox',
+            'is_sandbox': mp_env == 'sandbox',
             'valor': float(cobranca.valor),
             'cobranca': {
                 'id': cobranca.id,
@@ -3681,6 +3707,25 @@ def _eh_payload_simulacao_mp(request):
         and data.get('action') == 'payment.updated'
         and str(rid) == '123456'
     )
+
+
+def _validar_credenciais_mp_ambiente(ambiente, public_key, access_token):
+    """
+    Faz validação básica de compatibilidade.
+    O Mercado Pago pode exibir credenciais da aba "Teste" também com prefixo APP_USR-,
+    então o prefixo não é uma fonte confiável para distinguir teste de produção.
+    """
+    public_key_upper = (public_key or '').strip().upper()
+    access_token_upper = (access_token or '').strip().upper()
+
+    if ambiente == 'production':
+        if public_key_upper.startswith('TEST-') or access_token_upper.startswith('TEST-'):
+            return (
+                False,
+                'Para Produção, use as credenciais produtivas do Mercado Pago. Credenciais TEST- são apenas para sandbox.',
+            )
+
+    return True, None
 
 
 def _verificar_assinatura_webhook_mp(request):

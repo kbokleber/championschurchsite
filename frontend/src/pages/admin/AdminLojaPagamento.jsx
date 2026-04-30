@@ -15,6 +15,7 @@ function AdminLojaPagamento() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState(null)
   const [link, setLink] = useState(null)
+  const [linkSandbox, setLinkSandbox] = useState(false)
   const [pago, setPago] = useState(false)
   const [gerando, setGerando] = useState(false)
   const [verificando, setVerificando] = useState(false)
@@ -43,11 +44,10 @@ function AdminLojaPagamento() {
     if (pago) return
     if (st?.initPoint) {
       const isSandbox = !!st.isSandbox
-      const l = isSandbox
-        ? (st.sandboxInitPoint || st.initPoint)
-        : (st.initPoint || st.sandboxInitPoint)
+      const l = st.initPoint || st.sandboxInitPoint
       if (l) {
         setLink(l)
+        setLinkSandbox(isSandbox)
         return
       }
     }
@@ -59,11 +59,12 @@ function AdminLojaPagamento() {
           meio_pagamento: 'pix_mp',
         })
         const isSandbox = !!data.is_sandbox
-        const l2 = isSandbox
-          ? (data.sandbox_init_point || data.init_point)
-          : (data.init_point || data.sandbox_init_point)
+        const l2 = data.init_point || data.sandbox_init_point
         const ok = data.success === true || Boolean(l2)
-        if (ok && l2) setLink(l2)
+        if (ok && l2) {
+          setLink(l2)
+          setLinkSandbox(isSandbox)
+        }
       } catch (e) {
         setErro(formatApiError(e, 'Não foi possível recuperar o link de pagamento.'))
       } finally {
@@ -223,6 +224,15 @@ function AdminLojaPagamento() {
           {gerando && <p className="text-sm text-gray-500">Preparando o link…</p>}
           {link && (
             <>
+              {linkSandbox && (
+                <div className="mb-3 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-left text-sm text-yellow-800">
+                  <p className="font-semibold">Checkout em Sandbox</p>
+                  <p className="mt-1">
+                    Para concluir o teste, entre no Mercado Pago com um usuário comprador de teste.
+                    Não use sua conta real nem a conta vendedora da integração.
+                  </p>
+                </div>
+              )}
               <a
                 href={link}
                 target="_blank"

@@ -15,6 +15,20 @@ logger = logging.getLogger(__name__)
 MP_MAX_CHARS = 256
 
 
+def _validar_credenciais_mp_ambiente(ambiente, public_key, access_token):
+    public_key_upper = (public_key or '').strip().upper()
+    access_token_upper = (access_token or '').strip().upper()
+
+    if ambiente == 'production':
+        if public_key_upper.startswith('TEST-') or access_token_upper.startswith('TEST-'):
+            return (
+                False,
+                'Para Produção, use as credenciais produtivas do Mercado Pago. Credenciais TEST- são apenas para sandbox.',
+            )
+
+    return True, None
+
+
 def criar_preferencia_pagamento_loja(request, cobranca_loja) -> Response:
     """
     Cria preferência no MP para a cobrança de loja ou reutiliza referência_externa existente
@@ -45,26 +59,38 @@ def criar_preferencia_pagamento_loja(request, cobranca_loja) -> Response:
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    sdk = get_mercadopago_sdk('production') if getattr(config, 'mp_cartao_em_sandbox', False) else get_mercadopago_sdk()
+    mp_env = 'production' if getattr(config, 'mp_cartao_em_sandbox', False) else config.mp_ambiente
+    credenciais_ok, detalhe_credenciais = _validar_credenciais_mp_ambiente(
+        mp_env,
+        config.get_mp_public_key_for(mp_env),
+        config.get_mp_access_token_for(mp_env),
+    )
+    if not credenciais_ok:
+        return Response({'error': detalhe_credenciais}, status=status.HTTP_400_BAD_REQUEST)
+
+    sdk = get_mercadopago_sdk(mp_env)
     if not sdk:
         return Response(
             {'error': 'Mercado Pago não configurado corretamente'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
+    if mp_env == 'sandbox' and cobranca_loja.referencia_externa:
+        cobranca_loja.referencia_externa = ''
+        cobranca_loja.save(update_fields=['referencia_externa'])
+
     if cobranca_loja.referencia_externa:
         try:
             preference_response = sdk.preference().get(cobranca_loja.referencia_externa)
             preference = preference_response.get('response', {})
             if preference_response.get('status') in [200, 201] and preference.get('init_point'):
-                env = 'production' if getattr(config, 'mp_cartao_em_sandbox', False) else config.mp_ambiente
                 return Response(
                     {
                         'success': True,
                         'preference_id': cobranca_loja.referencia_externa,
                         'init_point': preference.get('init_point'),
                         'sandbox_init_point': preference.get('sandbox_init_point'),
-                        'is_sandbox': env == 'sandbox',
+                        'is_sandbox': mp_env == 'sandbox',
                         'valor': float(cobranca_loja.valor),
                         'cobranca_loja': {
                             'id': cobranca_loja.id,
@@ -103,7 +129,12 @@ def criar_preferencia_pagamento_loja(request, cobranca_loja) -> Response:
     base_url = request.build_absolute_uri('/')
     is_localhost = 'localhost' in base_url or '127.0.0.1' in base_url
     u = venda.criado_por
-    email_pagador = f'loja{getattr(u, "id", 0)}@loja-interna.local' if is_localhost else (getattr(u, 'email', None) or 'loja@igreja.local')
+    if mp_env == 'sandbox':
+        email_pagador = ''
+    elif is_localhost:
+        email_pagador = f'loja{getattr(u, "id", 0)}@loja-interna.local'
+    else:
+        email_pagador = getattr(u, 'email', None) or 'loja@igreja.local'
     try:
         nome_pagador = (u.get_full_name() or u.get_username() or 'Loja') if u else 'Loja'
     except Exception:
@@ -111,10 +142,6 @@ def criar_preferencia_pagamento_loja(request, cobranca_loja) -> Response:
 
     preference_data = {
         'items': items,
-        'payer': {
-            'email': email_pagador,
-            'name': nome_pagador[:200],
-        },
         'external_reference': cobranca_loja.codigo,
         'statement_descriptor': 'IGREJA',
         'payment_methods': {
@@ -129,6 +156,11 @@ def criar_preferencia_pagamento_loja(request, cobranca_loja) -> Response:
             'cobranca_loja_id': cobranca_loja.id,
         },
     }
+    if email_pagador:
+        preference_data['payer'] = {
+            'email': email_pagador,
+            'name': nome_pagador[:200],
+        }
     # Retorno automático só em domínio público https.
     # Em localhost o MP costuma rejeitar back_urls (400: back_url.success must be defined).
     site_base = request.build_absolute_uri('/').rstrip('/')
@@ -160,14 +192,13 @@ def criar_preferencia_pagamento_loja(request, cobranca_loja) -> Response:
         cobranca_loja.referencia_externa = str(preference.get('id', ''))
         cobranca_loja.metodo_pagamento = 'Mercado Pago (Checkout Pro)'
         cobranca_loja.save(update_fields=['referencia_externa', 'metodo_pagamento'])
-        env = 'production' if getattr(config, 'mp_cartao_em_sandbox', False) else config.mp_ambiente
         return Response(
             {
                 'success': True,
                 'preference_id': preference.get('id'),
                 'init_point': preference.get('init_point'),
                 'sandbox_init_point': preference.get('sandbox_init_point'),
-                'is_sandbox': env == 'sandbox',
+                'is_sandbox': mp_env == 'sandbox',
                 'valor': float(cobranca_loja.valor),
                 'cobranca_loja': {
                     'id': cobranca_loja.id,

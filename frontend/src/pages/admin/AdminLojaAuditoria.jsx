@@ -16,6 +16,14 @@ const EVENTO_AUDITORIA = {
   venda_cancelada: 'Venda cancelada',
 }
 
+function getHojeInputDate() {
+  const hoje = new Date()
+  const ano = hoje.getFullYear()
+  const mes = String(hoje.getMonth() + 1).padStart(2, '0')
+  const dia = String(hoje.getDate()).padStart(2, '0')
+  return `${ano}-${mes}-${dia}`
+}
+
 function AdminLojaAuditoria() {
   const { user } = useAuth()
   const podeVerAuditoria = Boolean(user?.is_superuser)
@@ -24,8 +32,8 @@ function AdminLojaAuditoria() {
   const [loading, setLoading] = useState(true)
   const [fCat, setFCat] = useState('')
   const [fEvento, setFEvento] = useState('')
-  const [dataInicio, setDataInicio] = useState('')
-  const [dataFim, setDataFim] = useState('')
+  const [dataInicio, setDataInicio] = useState(getHojeInputDate)
+  const [dataFim, setDataFim] = useState(getHojeInputDate)
 
   const load = async () => {
     try {

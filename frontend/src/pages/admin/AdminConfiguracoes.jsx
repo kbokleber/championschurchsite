@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Save, Upload, X, Church, Mail, Phone, MapPin, Facebook, Instagram, Youtube, Twitter, Globe, Webhook, ToggleLeft, ToggleRight, CreditCard, AlertTriangle, CheckCircle, Eye, EyeOff, MessageSquare, Download, Plus, Trash2, ChevronUp, ChevronDown } from 'lucide-react'
+import { Save, Upload, X, Church, Mail, Phone, MapPin, Facebook, Instagram, Youtube, Twitter, Globe, Webhook, ToggleLeft, ToggleRight, CreditCard, AlertTriangle, CheckCircle, Eye, EyeOff, MessageSquare, Download, Plus, Trash2, ChevronUp, ChevronDown, RefreshCw } from 'lucide-react'
 import api from '../../services/api'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import { useConfiguracao } from '../../contexts/ConfiguracaoContext'
@@ -110,6 +110,8 @@ function AdminConfiguracoes() {
   const [showAccessTokenProduction, setShowAccessTokenProduction] = useState(false)
   const [showEvolutionApiKey, setShowEvolutionApiKey] = useState(false)
   const [destaquesHome, setDestaquesHome] = useState([novoDestaqueHome()])
+  const [testingWhatsApp, setTestingWhatsApp] = useState(false)
+  const [whatsAppTestResult, setWhatsAppTestResult] = useState(null)
 
   useEffect(() => {
     fetchConfiguracao()
@@ -397,6 +399,51 @@ function AdminConfiguracoes() {
     })
   }
 
+  const handleTestarConexaoWhatsApp = async () => {
+    setTestingWhatsApp(true)
+    setWhatsAppTestResult(null)
+    setMessage({ type: '', text: '' })
+    try {
+      const response = await api.post('/admin/whatsapp/testar-conexao/', {
+        evolution_api_url: formData.evolution_api_url,
+        evolution_api_key: formData.evolution_api_key,
+        evolution_api_instance: formData.evolution_api_instance
+      })
+      setWhatsAppTestResult(response.data)
+      setMessage({ type: 'success', text: 'Teste de conexão concluído com sucesso.' })
+    } catch (error) {
+      const result = error.response?.data
+      if (result) {
+        setWhatsAppTestResult(result)
+      }
+      const detalhe = result?.detalhe || error.message || 'Falha ao testar conexão WhatsApp.'
+      setMessage({ type: 'error', text: `Falha no teste da Evolution Go: ${detalhe}` })
+    } finally {
+      setTestingWhatsApp(false)
+    }
+  }
+
+  const getWhatsAppQrImage = (result) => {
+    const value = result?.qr_image || result?.qr_code
+    if (!value || typeof value !== 'string') return null
+    const clean = value.trim()
+    if (!clean) return null
+    if (clean.startsWith('data:image/') || clean.startsWith('http://') || clean.startsWith('https://')) {
+      return clean
+    }
+    if (clean.length > 200) {
+      return `data:image/png;base64,${clean}`
+    }
+    return null
+  }
+
+  const getWhatsAppStatusLabel = (result) => {
+    if (!result) return '-'
+    if (result.ok) return 'Conectado'
+    if (result.motivo === 'whatsapp_desconectado') return 'Desconectado'
+    return 'Falha'
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setSaving(true)
@@ -531,12 +578,9 @@ function AdminConfiguracoes() {
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
         <h3 className="font-medium text-blue-800 mb-2">Webhook</h3>
         <p className="text-sm text-blue-700">
-          Uma única URL recebe, em tempo real, novas inscrições, reset de senha (Meus Ingressos) e
-          alterações de eventos no admin. O corpo do POST traz o campo <code className="bg-blue-100 px-1 rounded">tipo</code> para
-          o automação (ex.: n8n) decidir o fluxo. Quando o WhatsApp estiver configurado na aba WhatsApp, o JSON também inclui{' '}
-          <code className="bg-blue-100 px-1 rounded">integracao_evolution</code> com <code className="bg-blue-100 px-1 rounded">api_url</code> e{' '}
-          <code className="bg-blue-100 px-1 rounded">instance</code> (use isso no fluxo; os headers X-Evolution-* continuam sendo enviados).
-          Pagamentos do Mercado Pago usam outro fluxo.
+          Este webhook é para automações externas (ex.: n8n), principalmente eventos e integrações de negócio.
+          As mensagens WhatsApp transacionais (reset/inscrição/confirmação) agora são enviadas diretamente
+          pelo backend via Evolution Go.
         </p>
       </div>
 
@@ -546,7 +590,7 @@ function AdminConfiguracoes() {
           <label className="font-medium text-gray-700">Webhook Ativo</label>
           <p className="text-sm text-gray-500">
             {formData.webhook_ativo
-              ? 'A URL abaixo receberá inscrições, reset de senha e avisos de evento'
+              ? 'A URL abaixo receberá notificações das automações habilitadas'
               : 'O webhook está desativado'}
           </p>
         </div>
@@ -568,7 +612,7 @@ function AdminConfiguracoes() {
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
           <Webhook className="inline h-4 w-4 mr-1" />
-          URL do Webhook
+          URL do Webhook (automações)
         </label>
         <input
           type="url"
@@ -579,8 +623,7 @@ function AdminConfiguracoes() {
           placeholder="https://seu-servidor.com/webhook/inscricao"
         />
         <p className="text-xs text-gray-500 mt-1">
-          Requisição POST em JSON. Use o campo <span className="font-mono">tipo</span> (ex.:{' '}
-          <span className="font-mono">nova_inscricao</span>, <span className="font-mono">reset_senha</span>, <span className="font-mono">evento</span>) no seu fluxo.
+          Requisição POST em JSON. Use o campo <span className="font-mono">tipo</span> para rotear eventos no seu fluxo.
         </p>
       </div>
 
@@ -1394,7 +1437,7 @@ function AdminConfiguracoes() {
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <h3 className="font-medium text-blue-800 mb-2">WhatsApp</h3>
                 <p className="text-sm text-blue-700">
-                  Configure credenciais da Evolution API e personalize as mensagens enviadas no webhook.
+                  Configure credenciais da Evolution Go e personalize as mensagens transacionais enviadas diretamente pelo backend.
                 </p>
               </div>
 
@@ -1440,7 +1483,7 @@ function AdminConfiguracoes() {
                 <div className="space-y-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      URL da API Evolution *
+                      URL da API Evolution Go *
                     </label>
                     <input
                       type="url"
@@ -1448,16 +1491,16 @@ function AdminConfiguracoes() {
                       value={formData.evolution_api_url}
                       onChange={handleChange}
                       className="input-field"
-                      placeholder="https://api.evolution.com.br"
+                      placeholder="https://sua-evolutiongo.com"
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      URL base da API Evolution (sem barra no final)
+                      URL base da Evolution Go (sem barra no final)
                     </p>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Chave de API *
+                      API Key / Token da Instância *
                     </label>
                     <div className="relative">
                       <input
@@ -1466,7 +1509,7 @@ function AdminConfiguracoes() {
                         value={formData.evolution_api_key}
                         onChange={handleChange}
                         className="input-field font-mono text-sm pr-10"
-                        placeholder="Sua chave de API da Evolution"
+                        placeholder="Sua chave de API da Evolution Go"
                       />
                       <button
                         type="button"
@@ -1478,13 +1521,13 @@ function AdminConfiguracoes() {
                       </button>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
-                      Chave de autenticação fornecida pela Evolution API
+                      Nesta instalação, use o Token da Instância para envio/status. A GLOBAL_API_KEY serve para rotas administrativas.
                     </p>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Instância *
+                      Instância (opcional)
                     </label>
                     <input
                       type="text"
@@ -1495,19 +1538,87 @@ function AdminConfiguracoes() {
                       placeholder="nome-da-instancia"
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      Nome da instância configurada na Evolution API
+                      Use quando sua instalação exigir identificação de instância.
                     </p>
                   </div>
 
                   {/* Instruções */}
                   <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                    <h4 className="font-medium text-gray-800 mb-2">Como obter as credenciais</h4>
+                    <h4 className="font-medium text-gray-800 mb-2">Como configurar a Evolution Go</h4>
                     <ol className="text-sm text-gray-700 list-decimal list-inside space-y-1">
-                      <li>Acesse o painel da Evolution API</li>
-                      <li>Vá em "Instâncias" e crie ou selecione uma instância</li>
-                      <li>Copie a URL da API, a chave de API e o nome da instância</li>
-                      <li>Certifique-se de que a instância está conectada e ativa</li>
+                      <li>Abra sua instalação Evolution Go e confirme que a licença está ativa</li>
+                      <li>Copie a URL base da API (ex.: https://seu-dominio)</li>
+                      <li>Para envio/status, copie o Token da Instância no painel da instância</li>
+                      <li>Se necessário, informe a instância utilizada para envio</li>
                     </ol>
+                  </div>
+
+                  <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div>
+                        <h4 className="font-medium text-gray-800">Teste de conexão</h4>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Verifica autenticação e status da instância na Evolution Go.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleTestarConexaoWhatsApp}
+                        disabled={testingWhatsApp}
+                        className="btn-outline inline-flex items-center"
+                      >
+                        {testingWhatsApp ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                            Testando...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                            Testar conexão
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {whatsAppTestResult && (
+                      <div className={`mt-4 rounded-lg border p-3 text-sm ${
+                        whatsAppTestResult.ok
+                          ? 'border-green-200 bg-green-50 text-green-800'
+                          : whatsAppTestResult.motivo === 'whatsapp_desconectado'
+                            ? 'border-amber-200 bg-amber-50 text-amber-800'
+                          : 'border-red-200 bg-red-50 text-red-800'
+                      }`}>
+                        <p><strong>Status:</strong> {getWhatsAppStatusLabel(whatsAppTestResult)}</p>
+                        <p><strong>Motivo:</strong> {whatsAppTestResult.motivo || '-'}</p>
+                        <p><strong>HTTP:</strong> {String(whatsAppTestResult.status_http ?? '-')}</p>
+                        <p><strong>URL testada:</strong> {whatsAppTestResult.url_usada || '-'}</p>
+                        {whatsAppTestResult.detalhe && (
+                          <p className="mt-1 break-all"><strong>Detalhe:</strong> {whatsAppTestResult.detalhe}</p>
+                        )}
+                        {whatsAppTestResult.motivo === 'whatsapp_desconectado' && (
+                          <div className="mt-4 rounded-lg border border-amber-300 bg-white p-4 text-gray-800">
+                            <h5 className="font-semibold text-gray-900">Conectar telefone</h5>
+                            <p className="mt-1 text-xs text-gray-600">
+                              Abra o WhatsApp no celular, toque em Aparelhos conectados e leia o QR Code abaixo.
+                              Depois clique em Testar conexão novamente.
+                            </p>
+                            {getWhatsAppQrImage(whatsAppTestResult) ? (
+                              <img
+                                src={getWhatsAppQrImage(whatsAppTestResult)}
+                                alt="QR Code para conectar WhatsApp"
+                                className="mt-4 h-56 w-56 rounded-lg border border-gray-200 bg-white object-contain p-2"
+                              />
+                            ) : (
+                              <p className="mt-3 text-xs text-amber-700">
+                                A instância está desconectada, mas a Evolution Go não retornou um QR Code nesta tentativa.
+                                Clique em Testar conexão novamente em alguns segundos.
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { 
   Church, LayoutDashboard, Calendar, Users, 
   FileText, Mail, LogOut, Menu, X, ChevronDown,
-  Home, QrCode, Settings, Tags, DollarSign, Shield, Store, DatabaseBackup
+  Home, QrCode, Settings, Tags, DollarSign, Shield, Store, DatabaseBackup, KeyRound
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useConfiguracao } from '../contexts/ConfiguracaoContext'
@@ -35,6 +35,15 @@ function AdminLayout({ children }) {
   const location = useLocation()
   const navigate = useNavigate()
   const [menusPermitidos, setMenusPermitidos] = useState([])
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false)
+  const [passwordSaving, setPasswordSaving] = useState(false)
+  const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' })
+  const [passwordForm, setPasswordForm] = useState({
+    senha_atual: '',
+    nova_senha: '',
+    confirmar_senha: ''
+  })
 
   const temLogoBranco = configuracao?.logo_branco && String(configuracao.logo_branco).trim() !== ''
   const temLogo = configuracao?.logo && String(configuracao.logo).trim() !== ''
@@ -122,6 +131,41 @@ function AdminLayout({ children }) {
   const handleLogout = () => {
     logout()
     navigate('/admin/login')
+  }
+
+  const openPasswordModal = () => {
+    setUserMenuOpen(false)
+    setPasswordMessage({ type: '', text: '' })
+    setPasswordForm({ senha_atual: '', nova_senha: '', confirmar_senha: '' })
+    setPasswordModalOpen(true)
+  }
+
+  const closePasswordModal = () => {
+    if (passwordSaving) return
+    setPasswordModalOpen(false)
+  }
+
+  const handlePasswordChange = (event) => {
+    const { name, value } = event.target
+    setPasswordForm(prev => ({ ...prev, [name]: value }))
+  }
+
+  const handlePasswordSubmit = async (event) => {
+    event.preventDefault()
+    setPasswordSaving(true)
+    setPasswordMessage({ type: '', text: '' })
+
+    try {
+      await api.post('/auth/alterar-senha/', passwordForm)
+      setPasswordMessage({ type: 'success', text: 'Senha alterada com sucesso.' })
+      setPasswordForm({ senha_atual: '', nova_senha: '', confirmar_senha: '' })
+      setTimeout(() => setPasswordModalOpen(false), 1000)
+    } catch (error) {
+      const detail = error.response?.data?.detail || 'Não foi possível alterar a senha.'
+      setPasswordMessage({ type: 'error', text: detail })
+    } finally {
+      setPasswordSaving(false)
+    }
   }
 
   return (
@@ -237,20 +281,140 @@ function AdminLayout({ children }) {
           <div className="flex-grow lg:flex-grow-0" />
 
           {/* User Menu */}
-          <div className="flex items-center space-x-4">
-            <div className="text-right">
-              <p className="text-sm font-medium text-church-navy">
-                {user?.first_name || user?.username}
-              </p>
-              <p className="text-xs text-gray-500">Administrador</p>
-            </div>
-            <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
-              <span className="text-primary-600 font-bold">
-                {(user?.first_name || user?.username || 'U')[0].toUpperCase()}
-              </span>
-            </div>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setUserMenuOpen(prev => !prev)}
+              className="flex items-center space-x-3 rounded-lg px-2 py-1.5 hover:bg-gray-50 transition-colors"
+            >
+              <div className="text-right hidden sm:block">
+                <p className="text-sm font-medium text-church-navy">
+                  {user?.first_name || user?.username}
+                </p>
+                <p className="text-xs text-gray-500">Administrador</p>
+              </div>
+              <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
+                <span className="text-primary-600 font-bold">
+                  {(user?.first_name || user?.username || 'U')[0].toUpperCase()}
+                </span>
+              </div>
+              <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {userMenuOpen && (
+              <div className="absolute right-0 mt-2 w-56 rounded-lg border border-gray-200 bg-white shadow-lg z-50 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={openPasswordModal}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  <KeyRound className="h-4 w-4 text-gray-500" />
+                  Alterar senha
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-600 hover:bg-red-50"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sair
+                </button>
+              </div>
+            )}
           </div>
         </header>
+
+        {passwordModalOpen && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4">
+            <div className="w-full max-w-md rounded-xl bg-white shadow-xl">
+              <div className="flex items-center justify-between border-b px-6 py-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-church-navy">Alterar senha</h2>
+                  <p className="text-sm text-gray-500">Atualize a senha do seu usuário admin.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closePasswordModal}
+                  className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handlePasswordSubmit} className="space-y-4 px-6 py-5">
+                {passwordMessage.text && (
+                  <div className={`rounded-lg border p-3 text-sm ${
+                    passwordMessage.type === 'success'
+                      ? 'border-green-200 bg-green-50 text-green-700'
+                      : 'border-red-200 bg-red-50 text-red-700'
+                  }`}>
+                    {passwordMessage.text}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Senha atual</label>
+                  <input
+                    type="password"
+                    name="senha_atual"
+                    value={passwordForm.senha_atual}
+                    onChange={handlePasswordChange}
+                    className="input-field"
+                    autoComplete="current-password"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nova senha</label>
+                  <input
+                    type="password"
+                    name="nova_senha"
+                    value={passwordForm.nova_senha}
+                    onChange={handlePasswordChange}
+                    className="input-field"
+                    autoComplete="new-password"
+                    minLength={6}
+                    required
+                  />
+                  <p className="mt-1 text-xs text-gray-500">Mínimo de 6 caracteres.</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Confirmar nova senha</label>
+                  <input
+                    type="password"
+                    name="confirmar_senha"
+                    value={passwordForm.confirmar_senha}
+                    onChange={handlePasswordChange}
+                    className="input-field"
+                    autoComplete="new-password"
+                    minLength={6}
+                    required
+                  />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={closePasswordModal}
+                    className="btn-outline"
+                    disabled={passwordSaving}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn-primary"
+                    disabled={passwordSaving}
+                  >
+                    {passwordSaving ? 'Salvando...' : 'Salvar senha'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* Page Content */}
         <main className="p-4 lg:p-8">

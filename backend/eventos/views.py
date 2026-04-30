@@ -16,6 +16,7 @@ from collections import Counter
 from io import BytesIO
 from pathlib import Path
 import hashlib
+from types import SimpleNamespace
 from urllib.parse import urlsplit, urlunsplit
 
 from rest_framework import viewsets, status
@@ -44,6 +45,7 @@ from .cobranca_inscricao import (
     ajustar_cobrancas_ao_cancelar_inscricao,
     recalcular_cobranca_apos_mudanca_itens,
 )
+from .evolution_go import enviar_texto_evolution_go, diagnosticar_conexao_evolution_go
 from .serializers import (
     MembroSerializer, MembroResumoSerializer,
     EventoSerializer, EventoListaSerializer,
@@ -238,118 +240,21 @@ def _participante_pwd_token_sig(membro):
 
 def enviar_webhook_inscricao(dados_webhook):
     """
-    Envia webhook de inscrição de forma assíncrona.
+    Envia mensagem WhatsApp de inscrição via Evolution Go.
     Chamado em uma thread separada para não bloquear a resposta.
     """
-    print('>>> WEBHOOK: Iniciando envio de webhook...')
+    print('>>> WHATSAPP: Iniciando envio de mensagem de inscrição...')
     try:
         config = ConfiguracaoSite.get_config()
         config.refresh_from_db()
-
-        if not config.webhook_ativo or not config.webhook_inscricao:
-            print(f'>>> WEBHOOK: Inativo ou não configurado. Ativo: {config.webhook_ativo}, URL: {config.webhook_inscricao}')
-            logger.info('Webhook não configurado ou inativo')
-            return
-        
-        print(f'>>> WEBHOOK: URL configurada: {config.webhook_inscricao}')
-        
-        # Monta a URL completa do QR Code
-        base_url = dados_webhook.get('base_url', 'http://localhost:8000')
-        qrcode_path = dados_webhook.get('qrcode_path')
-        qrcode_url = f"{base_url}{qrcode_path}" if qrcode_path else None
-        
-        # Processar acompanhantes com URLs completas dos QR Codes
-        acompanhantes_webhook = []
-        for acomp in dados_webhook.get('acompanhantes', []):
-            acomp_qrcode = acomp.get('qrcode')
-            acomp_qrcode_url = f"{base_url}{acomp_qrcode}" if acomp_qrcode else None
-            acompanhantes_webhook.append({
-                'id': acomp.get('id'),
-                'nome': acomp.get('nome'),
-                'codigo': acomp.get('codigo'),
-                'qrcode_url': acomp_qrcode_url,
-            })
-        
-        # Payload do webhook
-        payload = {
-            'tipo': dados_webhook.get('tipo', 'nova_inscricao'),
-            'timestamp': timezone.now().isoformat(),
-            
-            # Dados do responsável (quem fez a inscrição)
-            'responsavel': {
-                'id': dados_webhook.get('participante_id'),
-                'nome': dados_webhook.get('nome'),
-                'telefone': dados_webhook.get('telefone'),
-                'telefone_formatado': dados_webhook.get('telefone_formatado'),
-                'email': dados_webhook.get('email'),
-                'senha': dados_webhook.get('senha'),
-                'novo_cadastro': dados_webhook.get('novo_cadastro', False),
-            },
-            
-            # Inscrição do responsável
-            'inscricao': {
-                'id': dados_webhook.get('inscricao_id'),
-                'codigo': dados_webhook.get('codigo'),
-                'qrcode_url': qrcode_url,
-                'status': 'confirmada',
-            },
-            
-            # Lista de acompanhantes
-            'acompanhantes': acompanhantes_webhook,
-            'total_inscritos': dados_webhook.get('total_inscritos', 1),
-            
-            # Dados do evento
-            'evento': {
-                'id': dados_webhook.get('evento_id'),
-                'titulo': dados_webhook.get('evento_titulo'),
-                'data_inicio': dados_webhook.get('evento_data_inicio'),
-                'data_fim': dados_webhook.get('evento_data_fim'),
-                'local': dados_webhook.get('evento_local'),
-                'endereco': dados_webhook.get('evento_endereco'),
-                'evento_pago': dados_webhook.get('evento_pago', False),
-                'valor_unitario': str(dados_webhook.get('evento_valor')) if dados_webhook.get('evento_valor') else None,
-            },
-            
-            # Valor total a pagar (responsável + acompanhantes)
-            'valor_total': str(dados_webhook.get('valor_total')) if dados_webhook.get('valor_total') else None,
-            'pagamento_confirmado': dados_webhook.get('pagamento_confirmado', False),
-            
-            # Dados da igreja
-            'igreja': {
-                'nome': config.nome_igreja,
-                'telefone': config.telefone,
-                'email': config.email,
-            }
-        }
         evento_pago = bool(dados_webhook.get('evento_pago', False))
         pagamento_confirmado = bool(dados_webhook.get('pagamento_confirmado', False))
         if not evento_pago:
             tipo_msg = 'inscricao_gratis'
         else:
             tipo_msg = 'inscricao_paga_confirmada' if pagamento_confirmado else 'inscricao_paga_pendente'
-        base_url = (dados_webhook.get('base_url') or '').strip().rstrip('/')
         frontend_base_url = _resolver_frontend_base_url(dados_webhook)
-        cobranca_id = dados_webhook.get('cobranca_id')
-        cobranca_obj = None
-        if not cobranca_id:
-            inscricao_id = dados_webhook.get('inscricao_id')
-            if inscricao_id:
-                cobranca_item = (
-                    CobrancaItem.objects
-                    .filter(inscricao_id=inscricao_id, cobranca__status='pendente')
-                    .select_related('cobranca')
-                    .order_by('-id')
-                    .first()
-                )
-                if cobranca_item and cobranca_item.cobranca_id:
-                    cobranca_id = cobranca_item.cobranca_id
-                    cobranca_obj = cobranca_item.cobranca
-        elif cobranca_id:
-            cobranca_obj = Cobranca.objects.filter(id=cobranca_id).first()
-
-        # Requisito atual: direcionar o usuário para a página de Meus Ingressos no frontend.
         link_pagamento = f'{frontend_base_url}/meus-ingressos' if frontend_base_url else ''
-
         variaveis_msg = {
             'nome': dados_webhook.get('nome') or '',
             'evento': dados_webhook.get('evento_titulo') or '',
@@ -365,40 +270,30 @@ def enviar_webhook_inscricao(dados_webhook):
             'email': dados_webhook.get('email') or '',
             'igreja_nome': config.nome_igreja or '',
         }
-        _append_whatsapp_payload(payload, config, tipo_msg, variaveis_msg)
-        evo_json = _evolution_integracao_json(config)
-        if evo_json:
-            payload['integracao_evolution'] = evo_json
-        
-        # Preparar headers com informações da Evolution API
-        headers = {
-            'Content-Type': 'application/json',
-            'User-Agent': 'ChampionsChurch-Webhook/1.0'
-        }
-        
-        # Adicionar informações da Evolution API nos headers
-        if config.evolution_api_url:
-            headers['X-Evolution-API-URL'] = config.evolution_api_url
-        if config.evolution_api_key:
-            headers['X-Evolution-API-Key'] = config.evolution_api_key
-        if config.evolution_api_instance:
-            headers['X-Evolution-Instance'] = config.evolution_api_instance
-        
-        # Envia o webhook
-        print(f'>>> WEBHOOK: Enviando para {config.webhook_inscricao}...')
-        response = requests.post(
-            config.webhook_inscricao,
-            json=payload,
-            headers=headers,
-            timeout=30
-        )
-        
-        print(f'>>> WEBHOOK: Resposta: {response.status_code}')
-        logger.info(f'Webhook enviado: {response.status_code} - {config.webhook_inscricao}')
-        
+        msg_payload = _build_whatsapp_message_payload(config, tipo_msg, variaveis_msg)
+        telefone_destino = (dados_webhook.get('telefone') or '').strip()
+        resultado = enviar_texto_evolution_go(config, telefone_destino, msg_payload.get('mensagem', ''))
+        if not resultado.get('entregue'):
+            logger.error(
+                'WhatsApp inscrição falhou (tipo=%s, telefone=%s, motivo=%s, status=%s, erro=%s)',
+                tipo_msg,
+                resultado.get('telefone') or telefone_destino,
+                resultado.get('motivo'),
+                resultado.get('http_status'),
+                (resultado.get('erro') or '')[:300],
+            )
+        else:
+            logger.info(
+                'WhatsApp inscrição enviado (tipo=%s, telefone=%s, url=%s)',
+                tipo_msg,
+                resultado.get('telefone'),
+                resultado.get('url_usada'),
+            )
+        return resultado
     except Exception as e:
-        print(f'>>> WEBHOOK ERRO: {str(e)}')
-        logger.error(f'Erro ao enviar webhook: {str(e)}')
+        print(f'>>> WHATSAPP ERRO: {str(e)}')
+        logger.error(f'Erro ao enviar WhatsApp de inscrição: {str(e)}')
+        return {'entregue': False, 'motivo': 'requisicao_erro', 'erro': str(e)}
 
 
 def _resposta_2xx_json_indica_falha(response):
@@ -450,37 +345,17 @@ def _resposta_2xx_item_dict_indica_falha(d: dict) -> bool:
 
 def enviar_webhook_reset_senha(dados_webhook):
     """
-    Envia webhook de "esqueci minha senha" (síncrono) para a mesma URL de inscrição.
+    Envia mensagem de "esqueci minha senha" (síncrono) via Evolution Go.
 
     Retorno:
-        entregue (bool): True se a resposta HTTP for 2xx e o corpo não indicar falha
-        motivo (str): webhook_inativo | url_nao_configurada | corpo_indica_falha | http_erro | requisicao_erro
+        entregue (bool): True se o envio for aceito pela Evolution Go
+        motivo (str): configuracao_incompleta | telefone_invalido | corpo_indica_falha | http_erro | requisicao_erro | ok
         detalhe (str|None): resumo para log (e opcional envio_ao_cliente, sem vazar se não cadastrado)
     """
     resultado = {'entregue': False, 'motivo': 'requisicao_erro', 'http_status': None, 'url_usada': None, 'erro': None}
     try:
         config = ConfiguracaoSite.get_config()
         config.refresh_from_db()
-        if not config.webhook_ativo:
-            logger.info('Webhook inativo - reset senha: não enviado (webhook_ativo=False)')
-            resultado['motivo'] = 'webhook_inativo'
-            return resultado
-        url = (getattr(config, 'webhook_inscricao', None) or '').strip()
-        if not url:
-            logger.info('Nenhuma URL: webhook_inscricao vazio')
-            resultado['motivo'] = 'url_nao_configurada'
-            return resultado
-        resultado['url_usada'] = url
-        payload = {
-            'tipo': 'reset_senha',
-            'timestamp': timezone.now().isoformat(),
-            'participante_id': dados_webhook.get('participante_id'),
-            'nome': dados_webhook.get('nome'),
-            'telefone': dados_webhook.get('telefone'),
-            'telefone_formatado': dados_webhook.get('telefone_formatado'),
-            'email': dados_webhook.get('email'),
-            'senha': dados_webhook.get('senha'),
-        }
         variaveis_msg = {
             'nome': dados_webhook.get('nome') or '',
             'senha': dados_webhook.get('senha') or '',
@@ -489,59 +364,29 @@ def enviar_webhook_reset_senha(dados_webhook):
             'igreja_nome': config.nome_igreja or '',
             'link_reset': dados_webhook.get('link_reset') or '',
         }
-        _append_whatsapp_payload(payload, config, 'reset_senha', variaveis_msg)
-        evo_json = _evolution_integracao_json(config)
-        if evo_json:
-            payload['integracao_evolution'] = evo_json
-
-        headers = {
-            'Content-Type': 'application/json',
-            'User-Agent': 'ChampionsChurch-Webhook/1.0'
-        }
-        if config.evolution_api_url:
-            headers['X-Evolution-API-URL'] = config.evolution_api_url
-        if config.evolution_api_key:
-            headers['X-Evolution-API-Key'] = config.evolution_api_key
-        if config.evolution_api_instance:
-            headers['X-Evolution-Instance'] = config.evolution_api_instance
-
-        logger.info(
-            'Enviando webhook reset_senha para %s (evolution_instance=%r)',
-            url,
-            (config.evolution_api_instance or '')[:80],
+        msg_payload = _build_whatsapp_message_payload(config, 'reset_senha', variaveis_msg)
+        resultado = enviar_texto_evolution_go(
+            config,
+            dados_webhook.get('telefone') or '',
+            msg_payload.get('mensagem', ''),
         )
-        response = requests.post(
-            url,
-            json=payload,
-            headers=headers,
-            timeout=30
-        )
-        resultado['http_status'] = response.status_code
-        if 200 <= response.status_code < 300:
-            if _resposta_2xx_json_indica_falha(response):
-                body_preview = (response.text or '')[:500]
-                resultado['erro'] = body_preview
-                resultado['motivo'] = 'corpo_indica_falha'
-                logger.error(
-                    'Webhook reset_senha: HTTP 2xx mas resposta indica falha (corpo) - %s - %s',
-                    url, body_preview
-                )
-            else:
-                resultado['entregue'] = True
-                resultado['motivo'] = 'ok'
-                logger.info('Webhook reset_senha OK: HTTP %s - %s', response.status_code, url)
+        if resultado.get('entregue'):
+            logger.info(
+                'WhatsApp reset_senha enviado (telefone=%s, url=%s)',
+                resultado.get('telefone'),
+                resultado.get('url_usada'),
+            )
         else:
-            resultado['motivo'] = 'http_erro'
-            body_preview = (response.text or '')[:500]
-            resultado['erro'] = body_preview
             logger.error(
-                'Webhook reset_senha falhou: HTTP %s - %s - corpo: %s',
-                response.status_code, url, body_preview
+                'WhatsApp reset_senha falhou (motivo=%s, status=%s, erro=%s)',
+                resultado.get('motivo'),
+                resultado.get('http_status'),
+                (resultado.get('erro') or '')[:300],
             )
     except Exception as e:
         resultado['motivo'] = 'requisicao_erro'
         resultado['erro'] = str(e)
-        logger.error('Exceção ao enviar webhook reset_senha: %s', e, exc_info=True)
+        logger.error('Exceção ao enviar WhatsApp reset_senha: %s', e, exc_info=True)
     return resultado
 
 
@@ -613,6 +458,43 @@ def get_current_user(request):
     """Retorna os dados do usuário autenticado."""
     serializer = UserSerializer(request.user)
     return Response(serializer.data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def alterar_minha_senha(request):
+    """Permite que o usuário admin logado altere a própria senha."""
+    senha_atual = request.data.get('senha_atual') or ''
+    nova_senha = request.data.get('nova_senha') or ''
+    confirmar_senha = request.data.get('confirmar_senha') or ''
+
+    if not senha_atual or not nova_senha or not confirmar_senha:
+        return Response(
+            {'detail': 'Informe a senha atual, a nova senha e a confirmação.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not request.user.check_password(senha_atual):
+        return Response(
+            {'detail': 'Senha atual incorreta.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if nova_senha != confirmar_senha:
+        return Response(
+            {'detail': 'A confirmação da senha não confere.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if len(nova_senha) < 6:
+        return Response(
+            {'detail': 'A nova senha deve ter pelo menos 6 caracteres.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    request.user.set_password(nova_senha)
+    request.user.save(update_fields=['password'])
+    return Response({'message': 'Senha alterada com sucesso.'})
 
 
 # ============================================
@@ -906,7 +788,7 @@ def participante_login(request):
 def participante_esqueci_senha(request):
     """
     Esqueci minha senha: gera uma nova senha e só persiste no banco após a
-    integração (webhook ``reset_senha`` em ``webhook_inscricao``) retornar
+    integração de WhatsApp (reset_senha) retornar
     entregue/positivo. Assim a senha antiga continua válida se o envio falhar.
     Resposta opaca se o telefone não existir.
     """
@@ -959,7 +841,7 @@ def participante_esqueci_senha(request):
         membro.senha = senha_hash_antes
         membro.senha_texto = senha_texto_antes
         motivo = (res_wh.get('motivo') or '') if isinstance(res_wh, dict) else ''
-        if motivo in ('webhook_inativo', 'url_nao_configurada'):
+        if motivo in ('configuracao_incompleta',):
             message = (
                 'Não foi possível enviar a nova senha agora: o aviso no celular não está disponível. '
                 'Sua senha permanece a mesma. Fale com a equipe da igreja se precisar de acesso imediato.'
@@ -3175,6 +3057,23 @@ def configuracao_admin(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def admin_testar_conexao_whatsapp(request):
+    """
+    Endpoint de diagnóstico da integração Evolution Go.
+    """
+    config = ConfiguracaoSite.get_config()
+    config_teste = SimpleNamespace(
+        evolution_api_url=(request.data.get('evolution_api_url') or config.evolution_api_url or ''),
+        evolution_api_key=(request.data.get('evolution_api_key') or config.evolution_api_key or ''),
+        evolution_api_instance=(request.data.get('evolution_api_instance') or config.evolution_api_instance or ''),
+    )
+    diagnostico = diagnosticar_conexao_evolution_go(config_teste)
+    http_status = status.HTTP_200_OK if diagnostico.get('ok') else status.HTTP_400_BAD_REQUEST
+    return Response(diagnostico, status=http_status)
+
+
 # ============================================
 # COBRANÇAS
 # ============================================
@@ -3832,14 +3731,11 @@ def mercadopago_webhook(request):
 
 def _disparar_webhook_cobranca_confirmada(cobranca, tipo='pagamento_confirmado', request=None):
     """
-    Dispara webhook quando uma cobrança é confirmada (via MP, manual ou isento).
-    Mesmo payload com QR codes; tipo define: 'pagamento_confirmado' | 'confirmado_pagamento_manual' | 'isento'.
+    Dispara WhatsApp quando uma cobrança é confirmada (via MP, manual ou isento).
+    tipo define: 'pagamento_confirmado' | 'confirmado_pagamento_manual' | 'isento'.
     """
     config = ConfiguracaoSite.get_config()
     config.refresh_from_db()
-    if not config.webhook_ativo or not config.webhook_inscricao:
-        print('[WEBHOOK] Webhook inativo ou não configurado')
-        return
     
     base_url = request.build_absolute_uri('/').rstrip('/') if request else 'http://localhost:8000'
     membro = cobranca.membro
@@ -3928,35 +3824,6 @@ def _disparar_webhook_cobranca_confirmada(cobranca, tipo='pagamento_confirmado',
     except Inscricao.DoesNotExist:
         pass
     
-    payload = {
-        'tipo': tipo,
-        'timestamp': timezone.now().isoformat(),
-        'cobranca': {
-            'id': cobranca.id,
-            'codigo': cobranca.codigo,
-            'valor': float(cobranca.valor),
-            'status': cobranca.status,
-        },
-        'responsavel': {
-            'id': membro.id,
-            'nome': membro.nome,
-            'telefone': membro.telefone,
-            'telefone_formatado': telefone_formatado,
-            'email': membro.email,
-            'senha': membro.senha_texto,
-        },
-        'evento': {
-            'id': evento.id,
-            'titulo': evento.titulo,
-            'data_inicio': formatar_data_local(evento.data_inicio),
-            'data_fim': formatar_data_local(evento.data_fim),
-            'local': evento.local,
-            'endereco': evento.endereco,
-        },
-        'inscricoes': inscricoes_lista,
-        'valor_total': float(cobranca.valor),
-        'total_inscritos': len(inscricoes_lista),
-    }
     variaveis_msg = {
         'nome': membro.nome or '',
         'evento': evento.titulo or '',
@@ -3971,37 +3838,32 @@ def _disparar_webhook_cobranca_confirmada(cobranca, tipo='pagamento_confirmado',
         'email': membro.email or '',
         'igreja_nome': config.nome_igreja or '',
     }
-    _append_whatsapp_payload(payload, config, 'inscricao_paga_confirmada', variaveis_msg)
-    evo_json = _evolution_integracao_json(config)
-    if evo_json:
-        payload['integracao_evolution'] = evo_json
+    msg_payload = _build_whatsapp_message_payload(config, 'inscricao_paga_confirmada', variaveis_msg)
     
     def enviar():
         try:
-            # Preparar headers com informações da Evolution API
-            headers = {
-                'Content-Type': 'application/json',
-                'User-Agent': 'ChampionsChurch-Webhook/1.0'
-            }
-            
-            # Adicionar informações da Evolution API nos headers
-            if config.evolution_api_url:
-                headers['X-Evolution-API-URL'] = config.evolution_api_url
-            if config.evolution_api_key:
-                headers['X-Evolution-API-Key'] = config.evolution_api_key
-            if config.evolution_api_instance:
-                headers['X-Evolution-Instance'] = config.evolution_api_instance
-            
-            print(f'[WEBHOOK] Enviando para: {config.webhook_inscricao} (tipo={tipo})')
-            response = requests.post(
-                config.webhook_inscricao,
-                json=payload,
-                headers=headers,
-                timeout=30
+            resultado = enviar_texto_evolution_go(
+                config,
+                membro.telefone or '',
+                msg_payload.get('mensagem', ''),
             )
-            print(f'[WEBHOOK] Status: {response.status_code} - {response.text}')
+            if resultado.get('entregue'):
+                logger.info(
+                    'WhatsApp cobranca_confirmada enviado (tipo=%s, telefone=%s, url=%s)',
+                    tipo,
+                    resultado.get('telefone'),
+                    resultado.get('url_usada'),
+                )
+            else:
+                logger.error(
+                    'WhatsApp cobranca_confirmada falhou (tipo=%s, motivo=%s, status=%s, erro=%s)',
+                    tipo,
+                    resultado.get('motivo'),
+                    resultado.get('http_status'),
+                    (resultado.get('erro') or '')[:300],
+                )
         except Exception as e:
-            print(f'[WEBHOOK] Erro: {str(e)}')
+            print(f'[WHATSAPP] Erro: {str(e)}')
     
     thread = threading.Thread(target=enviar)
     thread.daemon = True

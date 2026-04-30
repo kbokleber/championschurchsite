@@ -12,10 +12,11 @@ from .views import (
     FormularioInscricaoViewSet,
     admin_respostas_inscricao, admin_arquivo_resposta, admin_inscricao_detalhe,
     admin_exportar_inscricoes_xlsx,
-    get_current_user, dashboard_stats, meus_ingressos,
+    get_current_user, alterar_minha_senha, dashboard_stats, meus_ingressos,
     participante_login, participante_esqueci_senha, participante_registro, participante_perfil,
     buscar_participante_por_telefone,
     configuracao_publica, configuracao_admin,
+    admin_testar_conexao_whatsapp,
     verificar_permissao_menu, menus_permitidos, popular_permissoes_menu,
     admin_backup_exportar, admin_backup_importar,
     # Mercado Pago
@@ -70,6 +71,7 @@ urlpatterns = [
     path('auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('auth/me/', get_current_user, name='current_user'),
+    path('auth/alterar-senha/', alterar_minha_senha, name='alterar_minha_senha'),
     
     # Permissões e Menus
     path('auth/menus-permitidos/', menus_permitidos, name='menus_permitidos'),
@@ -92,6 +94,7 @@ urlpatterns = [
     # Configurações do site
     path('configuracao/', configuracao_publica, name='configuracao_publica'),
     path('admin/configuracao/', configuracao_admin, name='configuracao_admin'),
+    path('admin/whatsapp/testar-conexao/', admin_testar_conexao_whatsapp, name='admin_testar_conexao_whatsapp'),
 
     # Admin - exportar inscrições (planilha)
     path('admin/inscricoes/exportar/', admin_exportar_inscricoes_xlsx, name='admin_exportar_inscricoes'),

@@ -1,4 +1,4 @@
-import { Heart, HeartHandshake, Eye, Users, BookOpen, Music, MapPin } from 'lucide-react'
+import { HeartHandshake, Eye, BookOpen, MapPin } from 'lucide-react'
 import { useConfiguracao } from '../contexts/ConfiguracaoContext'
 import { useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
@@ -43,77 +43,64 @@ function Sobre() {
 
     return () => clearTimeout(timer)
   }, [location.hash, configuracao?.google_maps_embed])
-  const valores = [
-    {
-      icon: <BookOpen className="h-8 w-8" />,
-      titulo: 'Palavra de Deus',
-      descricao: 'A Bíblia é nossa única regra de fé e prática.',
-    },
-    {
-      icon: <Heart className="h-8 w-8" />,
-      titulo: 'Amor',
-      descricao: 'Amar a Deus sobre todas as coisas e ao próximo como a nós mesmos.',
-    },
-    {
-      icon: <Users className="h-8 w-8" />,
-      titulo: 'Comunhão',
-      descricao: 'Valorizamos os relacionamentos e a vida em comunidade.',
-    },
-    {
-      icon: <Music className="h-8 w-8" />,
-      titulo: 'Adoração',
-      descricao: 'Adorar a Deus em espírito e em verdade é nosso propósito.',
-    },
-  ]
-
   const ministerios = [
     {
       nome: 'Intercessão',
+      logo: '/images/ministerios/intercessao.png',
       descricao:
         'É o altar invisível da igreja, onde joelhos dobrados movem céus, e corações rendidos sustentam aquilo que os olhos ainda não veem.',
     },
     {
       nome: 'Clean',
+      logo: '/images/ministerios/clean.png',
       descricao:
         'É servir em silêncio, preparando o ambiente para que vidas sejam transformadas, cada detalhe limpo se torna um ato de honra ao Senhor.',
     },
     {
       nome: 'Estacionamento',
+      logo: '/images/ministerios/estacionamento.png',
       descricao:
         'É o primeiro gesto de cuidado, antes mesmo de entrarem, já são acolhidos. Abre o caminho para que cada pessoa encontre o seu lugar.',
     },
     {
       nome: 'Recepção',
+      logo: '/images/ministerios/recepcao.png',
       descricao:
         'São braços abertos que refletem o amor de Cristo, um sorriso que diz: "você pertence". Transforma a chegada em encontro.',
     },
     {
       nome: 'Coffee',
+      logo: '/images/ministerios/coffee.png',
       descricao:
         'É comunhão em forma de cuidado, preparando e servindo com carinho, entre um lanche e outro, vidas se conectam, e o amor se manifesta nos detalhes simples.',
     },
     {
       nome: 'Store',
+      logo: '/images/ministerios/store.png',
       descricao:
         'É levar a mensagem além das palavras, cada item carrega propósito, e se torna lembrança viva do que Deus está fazendo.',
     },
     {
       nome: 'Mídia',
+      logo: '/images/ministerios/midia.png',
       descricao:
         'É a voz que ecoa, a imagem que alcança, torna visível o invisível, para que a mensagem toque cada coração, presente ou à distância.',
     },
     {
       nome: 'Champions Music',
+      logo: '/images/ministerios/champions-music.png',
       descricao:
         'É o som da rendição, onde notas e vozes se unem para conduzir a igreja à presença de Deus.',
     },
     {
       nome: 'Kids',
+      logo: '/images/ministerios/kids.png',
       descricao:
         'São sementes plantadas em terra fértil, pequenos corações aprendendo a amar Jesus, construindo um futuro cheio de fé.',
     },
     {
       nome: 'Teens',
+      logo: '/images/ministerios/teens.png',
       descricao:
         'É identidade sendo formada em Deus, jovens sendo levantados com propósito, para viverem uma fé verdadeira em meio ao mundo.',
     },
@@ -157,18 +144,16 @@ function Sobre() {
                 <p className="font-medium text-church-navy">Venha você também fazer parte!</p>
               </div>
             </div>
-            <div className="relative">
-              <div className="bg-gradient-to-br from-primary-100 to-primary-200 rounded-2xl p-8 shadow-lg">
-                <img
-                  src="/images/sobre-nossa-historia.png"
-                  alt="Liderança da Champions Church"
-                  className="rounded-xl shadow-md w-full max-w-md mx-auto h-80 sm:h-96 object-cover object-center"
-                />
-              </div>
+            <div>
+              <img
+                src="/images/sobre-nossa-historia.png"
+                alt="Liderança da Champions Church"
+                className="rounded-xl shadow-[0_10px_26px_rgba(30,41,59,0.25)] w-full max-w-md mx-auto h-80 sm:h-96 object-cover object-center"
+              />
             </div>
           </div>
 
-          <div className="mt-14 sm:mt-16 flex justify-center px-0">
+          <div className="mt-10 sm:mt-12 lg:mt-14 flex justify-center px-0">
             <figure className="w-full max-w-xl sm:max-w-2xl mx-auto text-center">
               <img
                 src="/images/sobre-familia-destaque.png"
@@ -223,35 +208,6 @@ function Sobre() {
         </div>
       </section>
 
-      {/* Values */}
-      <section className="py-20 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
-            <h2 className="section-title">Nossos Valores</h2>
-            <p className="section-subtitle">
-              Princípios que guiam nossa caminhada como igreja.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-            {valores.map((valor, index) => (
-              <div
-                key={index}
-                className="bg-gray-50 p-6 rounded-xl text-center hover:shadow-lg transition-shadow"
-              >
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary-100 text-primary-600 mb-4">
-                  {valor.icon}
-                </div>
-                <h3 className="text-lg font-bold text-church-navy mb-2">
-                  {valor.titulo}
-                </h3>
-                <p className="text-gray-600">{valor.descricao}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* Ministries */}
       <section className="py-20 bg-church-cream">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -268,7 +224,14 @@ function Sobre() {
                 key={index}
                 className="bg-white p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow flex flex-col"
               >
-                <h3 className="text-lg font-bold text-church-navy mb-3">
+                <div className="w-36 h-36 rounded-2xl overflow-hidden mx-auto mb-4">
+                  <img
+                    src={ministerio.logo}
+                    alt={`Logo do ministério ${ministerio.nome}`}
+                    className="w-full h-full object-cover scale-[1.48]"
+                  />
+                </div>
+                <h3 className="text-lg font-bold text-church-navy mb-3 text-center">
                   {ministerio.nome}
                 </h3>
                 <p className="text-gray-600 text-sm leading-relaxed grow">

@@ -858,7 +858,7 @@ class ConfiguracaoSitePublicSerializer(serializers.ModelSerializer):
         model = ConfiguracaoSite
         fields = [
             'id', 'nome_igreja', 'slogan', 'descricao',
-            'logo', 'logo_branco', 'favicon', 'imagem_banner', 'cor_header', 'cor_rodape', 'cor_header_pagina',
+            'logo', 'logo_branco', 'favicon', 'imagem_banner', 'imagem_banner_mobile', 'cor_header', 'cor_rodape', 'cor_header_pagina',
             'email', 'telefone', 'whatsapp',
             'endereco', 'cidade', 'estado', 'cep',
             'facebook', 'instagram', 'youtube', 'tiktok', 'twitter',
@@ -889,7 +889,7 @@ class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
         model = ConfiguracaoSite
         fields = [
             'id', 'nome_igreja', 'slogan', 'descricao',
-            'logo', 'logo_branco', 'favicon', 'imagem_banner', 'cor_header', 'cor_rodape', 'cor_header_pagina',
+            'logo', 'logo_branco', 'favicon', 'imagem_banner', 'imagem_banner_mobile', 'cor_header', 'cor_rodape', 'cor_header_pagina',
             'email', 'telefone', 'whatsapp',
             'endereco', 'cidade', 'estado', 'cep',
             'facebook', 'instagram', 'youtube', 'tiktok', 'twitter',

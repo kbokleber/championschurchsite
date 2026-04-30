@@ -8,11 +8,21 @@ import { useConfiguracao } from '../contexts/ConfiguracaoContext'
 
 function Home() {
   const { configuracao, getImageUrl } = useConfiguracao()
-  const temBanner = configuracao?.imagem_banner && String(configuracao.imagem_banner).trim() !== ''
-  const bannerUrl = temBanner ? getImageUrl(configuracao.imagem_banner) : null
+  const [isMobileView, setIsMobileView] = useState(() => window.innerWidth < 768)
+  const temBannerDesktop = configuracao?.imagem_banner && String(configuracao.imagem_banner).trim() !== ''
+  const temBannerMobile = configuracao?.imagem_banner_mobile && String(configuracao.imagem_banner_mobile).trim() !== ''
+  const bannerUrl = temBannerDesktop ? getImageUrl(configuracao.imagem_banner) : null
+  const bannerMobileUrl = temBannerMobile ? getImageUrl(configuracao.imagem_banner_mobile) : null
+  const bannerAtivoUrl = isMobileView ? (bannerMobileUrl || bannerUrl) : bannerUrl
   const [eventosDestaque, setEventosDestaque] = useState([])
   const [loading, setLoading] = useState(true)
   const [slideAtual, setSlideAtual] = useState(0)
+
+  useEffect(() => {
+    const onResize = () => setIsMobileView(window.innerWidth < 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   useEffect(() => {
     const fetchEventos = async () => {
@@ -89,10 +99,10 @@ function Home() {
     <div>
       {/* Hero Section: fundo com imagem do banner ou gradiente azul */}
       <section
-        className={`relative min-h-[600px] flex items-center ${bannerUrl ? 'bg-cover bg-no-repeat bg-[position:58%_center] md:bg-center' : 'bg-gradient-to-br from-church-navy via-primary-900 to-church-navy'}`}
-        style={bannerUrl ? { backgroundImage: `url(${bannerUrl})` } : undefined}
+        className={`relative min-h-[600px] flex items-center ${bannerAtivoUrl ? 'bg-cover bg-no-repeat bg-[position:58%_center] md:bg-center' : 'bg-gradient-to-br from-church-navy via-primary-900 to-church-navy'}`}
+        style={bannerAtivoUrl ? { backgroundImage: `url(${bannerAtivoUrl})` } : undefined}
       >
-        <div className={`absolute inset-0 ${bannerUrl ? 'bg-black/50' : 'bg-black/30'}`}></div>
+        <div className={`absolute inset-0 ${bannerAtivoUrl ? 'bg-black/50' : 'bg-black/30'}`}></div>
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center">
           <h1 className="text-4xl md:text-6xl font-serif font-bold text-white mb-6">
             Bem-vindo à{' '}

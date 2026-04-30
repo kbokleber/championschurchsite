@@ -103,6 +103,9 @@ function AdminConfiguracoes() {
   const [bannerPreview, setBannerPreview] = useState(null)
   const [newBanner, setNewBanner] = useState(null)
   const [clearBannerRequested, setClearBannerRequested] = useState(false)
+  const [bannerMobilePreview, setBannerMobilePreview] = useState(null)
+  const [newBannerMobile, setNewBannerMobile] = useState(null)
+  const [clearBannerMobileRequested, setClearBannerMobileRequested] = useState(false)
   const [showAccessTokenSandbox, setShowAccessTokenSandbox] = useState(false)
   const [showAccessTokenProduction, setShowAccessTokenProduction] = useState(false)
   const [showEvolutionApiKey, setShowEvolutionApiKey] = useState(false)
@@ -192,6 +195,12 @@ function AdminConfiguracoes() {
       } else {
         setBannerPreview(null)
       }
+      if (data.imagem_banner_mobile) {
+        setBannerMobilePreview(getImageUrl(data.imagem_banner_mobile))
+        setClearBannerMobileRequested(false)
+      } else {
+        setBannerMobilePreview(null)
+      }
 
       const itensHome = Array.isArray(data.destaques_home) ? data.destaques_home : []
       if (itensHome.length > 0) {
@@ -266,6 +275,10 @@ function AdminConfiguracoes() {
       setBannerPreview(null)
       setNewBanner(null)
       setClearBannerRequested(true)
+    } else if (type === 'banner_mobile') {
+      setBannerMobilePreview(null)
+      setNewBannerMobile(null)
+      setClearBannerMobileRequested(true)
     }
   }
 
@@ -277,6 +290,19 @@ function AdminConfiguracoes() {
         setBannerPreview(reader.result)
         setNewBanner(file)
         setClearBannerRequested(false)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleBannerMobileChange = (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setBannerMobilePreview(reader.result)
+        setNewBannerMobile(file)
+        setClearBannerMobileRequested(false)
       }
       reader.readAsDataURL(file)
     }
@@ -418,6 +444,12 @@ function AdminConfiguracoes() {
       if (clearBannerRequested) {
         data.append('clear_imagem_banner', 'true')
       }
+      if (newBannerMobile) {
+        data.append('imagem_banner_mobile', newBannerMobile)
+      }
+      if (clearBannerMobileRequested) {
+        data.append('clear_imagem_banner_mobile', 'true')
+      }
 
       const payloadDestaquesHome = destaquesHome.map((item, index) => ({
         id: item.id || null,
@@ -441,9 +473,11 @@ function AdminConfiguracoes() {
       setNewLogo(null)
       setNewLogoBranco(null)
       setNewBanner(null)
+      setNewBannerMobile(null)
       setClearLogoRequested(false)
       setClearLogoBrancoRequested(false)
       setClearBannerRequested(false)
+      setClearBannerMobileRequested(false)
       
       // Recarrega para atualizar URLs das imagens
       setTimeout(() => {
@@ -1139,6 +1173,61 @@ function AdminConfiguracoes() {
                       <button
                         type="button"
                         onClick={() => handleDownloadImage(bannerPreview, 'banner-home.png')}
+                        className="mt-3 btn-outline inline-flex items-center"
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Baixar imagem
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Imagem do Banner Mobile (página inicial) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Imagem do Banner Mobile (página inicial)
+                </label>
+                <p className="text-xs text-gray-500 mb-3">
+                  Opcional para celulares. Se não configurar, o sistema usa a imagem principal.
+                  Recomendado: retrato (ex.: 900×1600).
+                </p>
+                <div className="flex items-start space-x-4">
+                  {bannerMobilePreview ? (
+                    <div className="relative">
+                      <img
+                        src={bannerMobilePreview}
+                        alt="Banner Mobile"
+                        className="h-32 w-24 object-cover border rounded-lg"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeLogo('banner_mobile')}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="h-32 w-24 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50 text-gray-500 text-sm text-center px-2">
+                      Nenhuma imagem
+                    </div>
+                  )}
+                  <div>
+                    <label className="btn-outline cursor-pointer inline-flex items-center">
+                      <Upload className="h-4 w-4 mr-2" />
+                      Selecionar imagem mobile
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleBannerMobileChange}
+                        className="hidden"
+                      />
+                    </label>
+                    {bannerMobilePreview && (
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadImage(bannerMobilePreview, 'banner-home-mobile.png')}
                         className="mt-3 btn-outline inline-flex items-center"
                       >
                         <Download className="h-4 w-4 mr-2" />

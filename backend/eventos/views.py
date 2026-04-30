@@ -3095,6 +3095,10 @@ def configuracao_admin(request):
             if clear_banner and config.imagem_banner:
                 config.imagem_banner = None
                 config.save(update_fields=['imagem_banner'])
+            clear_banner_mobile = request.data.get('clear_imagem_banner_mobile') in (True, 'true', 'True', '1')
+            if clear_banner_mobile and config.imagem_banner_mobile:
+                config.imagem_banner_mobile = None
+                config.save(update_fields=['imagem_banner_mobile'])
 
             # Atualização dos itens do carrossel da Home
             destaques_home_json = request.data.get('destaques_home_json')

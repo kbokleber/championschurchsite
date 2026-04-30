@@ -778,6 +778,13 @@ class ConfiguracaoSite(models.Model):
         blank=True,
         help_text='Foto que substitui o fundo azul da seção de boas-vindas'
     )
+    imagem_banner_mobile = models.ImageField(
+        upload_to='configuracoes/',
+        verbose_name='Imagem do Banner Mobile (página inicial)',
+        null=True,
+        blank=True,
+        help_text='Imagem opcional específica para celulares na seção de boas-vindas'
+    )
     cor_header = models.CharField(
         max_length=7,
         verbose_name='Cor do header',
@@ -1015,8 +1022,8 @@ class ConfiguracaoSite(models.Model):
         super().save(*args, **kwargs)
     
     def delete(self, *args, **kwargs):
-        """Remove os arquivos de mídia (logo, favicon, banner) do storage ao excluir."""
-        for field in (self.logo, self.logo_branco, self.favicon, self.imagem_banner):
+        """Remove os arquivos de mídia (logo, favicon e banners) do storage ao excluir."""
+        for field in (self.logo, self.logo_branco, self.favicon, self.imagem_banner, self.imagem_banner_mobile):
             if field:
                 field.delete(save=False)
         super().delete(*args, **kwargs)

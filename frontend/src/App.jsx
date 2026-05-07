@@ -9,6 +9,7 @@ import Footer from './components/Footer'
 import ProtectedRoute from './components/ProtectedRoute'
 import AdminLayout from './components/AdminLayout'
 import LoadingSpinner from './components/LoadingSpinner'
+import EnvironmentBadge from './components/EnvironmentBadge'
 
 // Páginas públicas
 import Home from './pages/Home'
@@ -115,6 +116,7 @@ function App() {
     <ConfiguracaoProvider>
     <AuthProvider>
       <ParticipanteProvider>
+      <EnvironmentBadge />
       <ScrollToTop />
       <Routes>
         {/* Rotas Públicas */}

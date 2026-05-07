@@ -87,11 +87,10 @@ function PagamentoPix() {
       });
       
       if (response.data.success) {
-        // Não misturar ambiente: sandbox → sandbox_init_point; produção → init_point (evita erro "uma das partes é de teste")
+        // Mesmo no ambiente de testes atual do MP, o link funcional é o init_point.
+        // sandbox_init_point pode cair no erro "uma das partes é de teste".
         const isSandbox = !!response.data.is_sandbox;
-        const link = isSandbox
-          ? (response.data.sandbox_init_point || response.data.init_point)
-          : (response.data.init_point || response.data.sandbox_init_point);
+        const link = response.data.init_point || response.data.sandbox_init_point;
         setLinkPagamento(link);
         setLinkSandbox(isSandbox);
         iniciarPolling();
@@ -319,6 +318,16 @@ function PagamentoPix() {
                 <p className="text-gray-600 mb-6">
                   Clique no botão abaixo para pagar no Mercado Pago
                 </p>
+
+                {linkSandbox && (
+                  <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-left text-sm text-yellow-800">
+                    <p className="font-semibold">Checkout em Sandbox</p>
+                    <p className="mt-1">
+                      Para concluir o teste, entre no Mercado Pago com um <strong>usuário comprador de teste</strong>.
+                      Não use sua conta real nem a conta vendedora da integração.
+                    </p>
+                  </div>
+                )}
 
                 {/* Botão para abrir pagamento */}
                 <button

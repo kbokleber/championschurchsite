@@ -16,7 +16,7 @@ function EnvironmentBadge() {
 
   const label = hostname.includes('localhost') || hostname === '127.0.0.1'
     ? 'AMBIENTE LOCAL'
-    : 'AMBIENTE DEV'
+    : 'AMBIENTE DESENVOLVIMENTO'
 
   return (
     <div className="pointer-events-none fixed bottom-4 right-4 z-[9999] select-none">

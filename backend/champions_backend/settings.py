@@ -268,6 +268,7 @@ CORS_ALLOW_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
+    'x-participante-token',
 ]
 
 # Métodos permitidos

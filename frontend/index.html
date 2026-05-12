@@ -8,7 +8,17 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
-    <script defer src="https://analytics.kbosolucoes.com.br/script.js" data-website-id="6a9b36af-868a-4036-9a9f-a2da8d6f8870"></script>
+    <script>
+      (function () {
+        var PRODUCTION_HOSTS = ['championschurch.com.br', 'www.championschurch.com.br'];
+        if (PRODUCTION_HOSTS.indexOf(window.location.hostname.toLowerCase()) === -1) return;
+        var s = document.createElement('script');
+        s.defer = true;
+        s.src = 'https://analytics.kbosolucoes.com.br/script.js';
+        s.setAttribute('data-website-id', '6a9b36af-868a-4036-9a9f-a2da8d6f8870');
+        document.head.appendChild(s);
+      })();
+    </script>
     <title>Champions Church</title>
   </head>
   <body>

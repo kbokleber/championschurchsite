@@ -20,7 +20,7 @@ function AdminBackupImport() {
     limparFeedback()
     setExportando(true)
     try {
-      const response = await api.post('/admin/backup/exportar/', {}, { responseType: 'blob' })
+      const response = await api.post('/admin/backup/exportar/', {}, { responseType: 'blob', timeout: 600000 })
       const contentType = response.headers['content-type'] || ''
       if (contentType.includes('application/json')) {
         const text = await response.data.text()
@@ -59,8 +59,14 @@ function AdminBackupImport() {
     try {
       const formData = new FormData()
       formData.append('arquivo', arquivo)
-      const response = await api.post('/admin/backup/importar/', formData)
-      setMensagem(response?.data?.detail || 'Backup importado com sucesso.')
+      const response = await api.post('/admin/backup/importar/', formData, { timeout: 600000 })
+      const detail = response?.data?.detail || 'Backup importado com sucesso.'
+      const media = response?.data?.media
+      setMensagem(
+        media
+          ? `${detail} (confira no admin se as fotos da loja abrem.)`
+          : detail
+      )
       setArquivo(null)
       setShowImportConfirm(false)
     } catch (error) {

@@ -20,10 +20,13 @@ export function getMediaUrl(path) {
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path
   }
-  
-  // Garantir barra no início para ser relativo à origem (evita /admin/eventos/media/...)
-  const pathFromRoot = path.startsWith('/') ? path : `/${path}`
-  return `${BACKEND_URL}${pathFromRoot}`
+
+  let normalized = path.replace(/^\//, '')
+  // Django ImageField pode vir como "loja/produtos/x.jpg" (sem prefixo /media/)
+  if (!normalized.startsWith('media/')) {
+    normalized = `media/${normalized}`
+  }
+  return `${BACKEND_URL}/${normalized}`
 }
 
 /**

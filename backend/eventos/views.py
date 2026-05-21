@@ -4635,6 +4635,37 @@ def _safe_extract_tar(tar, target_dir: Path):
     tar.extractall(path=target_dir)
 
 
+def _restaurar_media_de_backup(media_src_path: Path, media_root: Path, *, prefixo: str | None = None) -> dict:
+    """
+    Mescla arquivos de media/ do backup em MEDIA_ROOT (sem apagar o volume inteiro).
+    prefixo: ex. 'loja/produtos' para copiar só fotos da loja.
+    """
+    media_root = Path(media_root).resolve()
+    media_src_path = Path(media_src_path).resolve()
+    media_root.mkdir(parents=True, exist_ok=True)
+
+    copiados = 0
+    for src in media_src_path.rglob('*'):
+        if not src.is_file():
+            continue
+        rel = src.relative_to(media_src_path)
+        rel_posix = rel.as_posix()
+        if prefixo and not rel_posix.startswith(prefixo.rstrip('/') + '/'):
+            continue
+        dest = media_root / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
+        copiados += 1
+
+    loja_dir = media_root / 'loja' / 'produtos'
+    n_loja = sum(1 for _ in loja_dir.iterdir()) if loja_dir.is_dir() else 0
+    return {
+        'arquivos_copiados': copiados,
+        'loja_produtos_no_disco': n_loja,
+        'media_root': str(media_root),
+    }
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def admin_backup_exportar(request):
@@ -4737,6 +4768,7 @@ def admin_backup_importar(request):
     cfg = _postgres_config()
     engine_kind = _database_engine_kind()
     media_root = Path(settings.MEDIA_ROOT)
+    media_stats = None
 
     with tempfile.TemporaryDirectory(prefix='champions_restore_') as tmpdir:
         tmp_path = Path(tmpdir)
@@ -4822,9 +4854,7 @@ def admin_backup_importar(request):
 
             if media_root.exists():
                 shutil.copytree(media_root, media_backup_path, dirs_exist_ok=True)
-                shutil.rmtree(media_root)
-            media_root.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(media_src_path, media_root)
+            media_stats = _restaurar_media_de_backup(media_src_path, media_root)
         except Exception as exc:
             logger.error('Erro ao importar backup completo: %s', exc, exc_info=True)
             if engine_kind == 'sqlite' and sqlite_backup_path.exists():
@@ -4849,7 +4879,13 @@ def admin_backup_importar(request):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-    return Response({'detail': 'Backup importado com sucesso.'})
+    detail = 'Backup importado com sucesso.'
+    if media_stats:
+        detail += (
+            f" Mídia: {media_stats['arquivos_copiados']} arquivo(s) copiado(s); "
+            f"{media_stats['loja_produtos_no_disco']} foto(s) em loja/produtos."
+        )
+    return Response({'detail': detail, 'media': media_stats})
 
 
 def _export_evento_data_str(evento):

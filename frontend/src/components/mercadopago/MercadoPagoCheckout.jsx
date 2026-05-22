@@ -6,7 +6,8 @@ import { CardPaymentBrick } from './CardPaymentBrick'
 
 /**
  * Checkout transparente: PIX + Cartão.
- * Loja/cantina: pagador da igreja (Configurações → Mercado Pago), sem pedir dados do comprador.
+ * Loja: pagador da igreja (Configurações). Eventos PIX: e-mail inscrição + CPF config.
+ * SDK MP carrega ao abrir o checkout (não só ao clicar em Cartão).
  */
 export function MercadoPagoCheckout({
   contexto = 'eventos',
@@ -18,8 +19,6 @@ export function MercadoPagoCheckout({
   onPixReady,
 }) {
   const [aba, setAba] = useState('pix')
-  const [cardSdkRequested, setCardSdkRequested] = useState(false)
-  /** PIX: config igreja (eventos: + e-mail da inscrição). Cartão loja: só config. */
   const pagadorLoja = contexto === 'loja'
   const pixSemFormulario = true
 
@@ -27,53 +26,48 @@ export function MercadoPagoCheckout({
     onPaymentSuccess?.(data)
   }
 
-  const abrirCartao = () => {
-    setCardSdkRequested(true)
-    setAba('cartao')
-  }
-
   return (
-    <div>
-      <div className="flex border-b border-gray-200 mb-4">
-        <button
-          type="button"
-          onClick={() => setAba('pix')}
-          className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${
-            aba === 'pix'
-              ? 'border-primary-600 text-primary-600'
-              : 'border-transparent text-gray-500 hover:text-gray-800'
-          }`}
-        >
-          <QrCode className="w-4 h-4" /> PIX
-        </button>
-        <button
-          type="button"
-          onClick={abrirCartao}
-          className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${
-            aba === 'cartao'
-              ? 'border-primary-600 text-primary-600'
-              : 'border-transparent text-gray-500 hover:text-gray-800'
-          }`}
-        >
-          <CreditCard className="w-4 h-4" /> Cartão
-        </button>
-      </div>
+    <MercadoPagoProvider forBrick="card">
+      <div>
+        <div className="flex border-b border-gray-200 mb-4">
+          <button
+            type="button"
+            onClick={() => setAba('pix')}
+            className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${
+              aba === 'pix'
+                ? 'border-primary-600 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-800'
+            }`}
+          >
+            <QrCode className="w-4 h-4" /> PIX
+          </button>
+          <button
+            type="button"
+            onClick={() => setAba('cartao')}
+            className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${
+              aba === 'cartao'
+                ? 'border-primary-600 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-800'
+            }`}
+          >
+            <CreditCard className="w-4 h-4" /> Cartão
+          </button>
+        </div>
 
-      {aba === 'pix' && (
-        <PixEmbeddedPanel
-          contexto={contexto}
-          cobrancaId={cobrancaId}
-          cobrancaLojaId={cobrancaLojaId}
-          valor={valor}
-          defaultPayer={defaultPayer}
-          onPixCreated={onPixReady}
-          onAlreadyPaid={handleSuccess}
-          pagadorAnonimo={pixSemFormulario}
-        />
-      )}
+        {aba === 'pix' && (
+          <PixEmbeddedPanel
+            contexto={contexto}
+            cobrancaId={cobrancaId}
+            cobrancaLojaId={cobrancaLojaId}
+            valor={valor}
+            defaultPayer={defaultPayer}
+            onPixCreated={onPixReady}
+            onAlreadyPaid={handleSuccess}
+            pagadorAnonimo={pixSemFormulario}
+          />
+        )}
 
-      {aba === 'cartao' && cardSdkRequested && (
-        <MercadoPagoProvider forBrick="card">
+        {aba === 'cartao' && (
           <CardPaymentBrick
             contexto={contexto}
             cobrancaId={cobrancaId}
@@ -83,9 +77,9 @@ export function MercadoPagoCheckout({
             onSuccess={handleSuccess}
             pagadorAnonimo={pagadorLoja}
           />
-        </MercadoPagoProvider>
-      )}
-    </div>
+        )}
+      </div>
+    </MercadoPagoProvider>
   )
 }
 

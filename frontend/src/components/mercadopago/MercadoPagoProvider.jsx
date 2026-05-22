@@ -38,7 +38,10 @@ export function MercadoPagoProvider({ children, forBrick = 'card' }) {
           if (!cancelled) setError('SDK Mercado Pago indisponível no navegador.')
           return
         }
-        const instance = new MercadoPagoCtor(data.public_key, { locale: 'pt-BR' })
+        const instance = new MercadoPagoCtor(data.public_key, {
+          locale: 'pt-BR',
+          advancedFraudPrevention: false,
+        })
         if (!cancelled) {
           setMpInstance(instance)
           setIsSandbox(!!data.is_sandbox)

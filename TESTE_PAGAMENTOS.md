@@ -72,7 +72,7 @@ Com **Cartão em Sandbox** ativo e ambiente geral em Produção: PIX usa produç
 ## Se algo falhar
 
 - **403 no webhook:** conferir Webhook Secret no admin e no painel MP (iguais).
-- **Brick não carrega:** verificar `mp_public_key` (sandbox se cartão em sandbox) e CSP (`sdk.mercadopago.com`).
+- **Brick não carrega:** `mp_public_key` sandbox; CSP com `unsafe-eval` e iframes MP; no painel MP cadastrar `https://dev.championschurch.com.br` nas URLs da aplicação; rebuild **frontend** e **backend**.
 - **PIX sem QR:** e-mail + CPF obrigatórios; valor mínimo R$ 0,01.
 - **Pagamento aprovado mas site não atualiza:** URL do webhook acessível; logs do backend.
 

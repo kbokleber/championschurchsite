@@ -66,6 +66,7 @@ export function CardPaymentBrick({
       brickReadyRef.current = false
       setBrickReady(false)
       await new Promise((r) => requestAnimationFrame(r))
+      await new Promise((r) => setTimeout(r, 150))
       if (cancelled || mountGeneration !== mountGenRef.current) return
 
       const el = containerRef.current || document.getElementById(containerId)
@@ -79,8 +80,9 @@ export function CardPaymentBrick({
       readyTimeoutId = window.setTimeout(() => {
         if (!cancelled && mountGeneration === mountGenRef.current && !brickReadyRef.current) {
           setError(
-            'O formulário de cartão demorou para carregar. Verifique bloqueadores de anúncio, ' +
-              'confira as credenciais Sandbox no admin e recarregue a página.',
+            'O formulário de cartão não carregou. Confira: (1) credenciais Sandbox no admin, ' +
+              '(2) no painel Mercado Pago cadastre este site em URLs permitidas, ' +
+              '(3) desative bloqueador de anúncios e recarregue (Ctrl+F5).',
           )
         }
       }, 25000)
@@ -90,7 +92,7 @@ export function CardPaymentBrick({
         const bricksBuilder = mpInstance.bricks()
         const init = { amount: valorNum }
         const emailHint = (defaultPayer.email || '').trim()
-        if (emailHint && !pagadorAnonimo) {
+        if (emailHint) {
           init.payer = { email: emailHint }
         }
         const settings = {
@@ -155,9 +157,14 @@ export function CardPaymentBrick({
             },
             onError: (brickErr) => {
               console.error('[MP Brick]', brickErr)
-              if (!cancelled) {
+              if (!cancelled && mountGeneration === mountGenRef.current) {
+                if (readyTimeoutId) window.clearTimeout(readyTimeoutId)
+                const detail =
+                  brickErr?.message ||
+                  (typeof brickErr === 'string' ? brickErr : JSON.stringify(brickErr))
                 setError(
-                  'Erro no formulário de cartão. Confira os dados e tente de novo, ou recarregue a página.',
+                  `Mercado Pago não exibiu o formulário: ${detail || 'erro desconhecido'}. ` +
+                    'Cadastre https://dev.championschurch.com.br (e produção) nas URLs da aplicação no painel MP.',
                 )
               }
             },

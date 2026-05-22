@@ -4178,6 +4178,26 @@ def pagar_cartao(request):
     Espera: cobranca_id, token, payment_method_id, installments, payer (email, identification).
     Opcional: issuer_id.
     """
+    try:
+        return _pagar_cartao_impl(request)
+    except serializers.ValidationError as exc:
+        return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as exc:
+        logger.exception('pagar_cartao inesperado')
+        return Response(
+            {
+                'error': 'Erro interno ao processar cartão. Tente novamente ou use PIX.',
+                'details': str(exc),
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+def _pagar_cartao_impl(request):
+    from .mp_payments import montar_payer_payment_cartao
+
     import uuid
     cobranca_id = request.data.get('cobranca_id')
     token = request.data.get('token')
@@ -4206,7 +4226,7 @@ def pagar_cartao(request):
     config = ConfiguracaoSite.get_config()
     if not config.mp_ativo:
         return Response({'error': 'Mercado Pago não está ativo'}, status=status.HTTP_400_BAD_REQUEST)
-    if not config.mp_cartao_habilitado:
+    if not getattr(config, 'mp_cartao_habilitado', True):
         return Response(
             {'error': 'Pagamento com cartão não está habilitado nas configurações do site.'},
             status=status.HTTP_403_FORBIDDEN,
@@ -4215,12 +4235,22 @@ def pagar_cartao(request):
     if not sdk:
         return Response({'error': 'Mercado Pago não configurado'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    email = payer.get('email') or (cobranca.membro.email if cobranca.membro else '')
+    email = (payer.get('email') or '').strip() or (cobranca.membro.email if cobranca.membro else '')
     if not email:
         email = f"pagador{cobranca.membro.telefone}@email.com" if cobranca.membro else "pagador@email.com"
     identification = payer.get('identification') or {}
-    id_type = identification.get('type') or 'CPF'
-    id_number = identification.get('number') or ''
+    nome_membro = (cobranca.membro.nome if cobranca.membro else '') or ''
+    partes_nome = nome_membro.split(None, 1)
+    pagador_src = {
+        'email': email,
+        'first_name': (payer.get('first_name') or (partes_nome[0] if partes_nome else '')).strip(),
+        'last_name': (payer.get('last_name') or (partes_nome[1] if len(partes_nome) > 1 else '')).strip(),
+        'identification': identification,
+    }
+    try:
+        payer_mp = montar_payer_payment_cartao(pagador_src)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     transaction_amount = float(cobranca.valor)
     # Mercado Pago não aceita cartão para valores muito baixos (ex.: R$ 0,04)
@@ -4235,10 +4265,7 @@ def pagar_cartao(request):
         "token": token,
         "installments": int(installments) if installments else 1,
         "payment_method_id": payment_method_id,
-        "payer": {
-            "email": email,
-            "identification": {"type": id_type, "number": str(id_number).replace('.', '').replace('-', '').replace('/', '')},
-        },
+        "payer": payer_mp,
     }
     aplicar_identificacao_mp(
         payment_data,

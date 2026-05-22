@@ -29,6 +29,8 @@ from eventos.mercadopago_sdk import (
 from eventos.mp_payments import (
     aplicar_identificacao_mp,
     criar_ou_reutilizar_pix_embutido,
+    montar_payer_payment_cartao,
+    resolver_pagador_cartao_loja,
     resolver_pagador_loja,
 )
 from eventos.models import ConfiguracaoSite
@@ -899,6 +901,24 @@ def pagar_cartao_loja(request):
     Pagamento com cartão (token) para CobrancaLoja — mesmo fluxo que inscrições, sem inscrição.
     Body: cobranca_loja_id, token, payment_method_id, installments, payer, issuer_id (opc).
     """
+    try:
+        return _pagar_cartao_loja_impl(request)
+    except serializers.ValidationError as exc:
+        return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as exc:
+        logger.exception('pagar_cartao_loja inesperado')
+        return Response(
+            {
+                'error': 'Erro interno ao processar cartão. Tente novamente ou use PIX.',
+                'details': str(exc),
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+def _pagar_cartao_loja_impl(request):
     cobranca_id = request.data.get('cobranca_loja_id') or request.data.get('cobranca_id')
     token = request.data.get('token')
     payment_method_id = request.data.get('payment_method_id')
@@ -927,7 +947,7 @@ def pagar_cartao_loja(request):
     config = ConfiguracaoSite.get_config()
     if not config.mp_ativo:
         return Response({'error': 'Mercado Pago não está ativo'}, status=status.HTTP_400_BAD_REQUEST)
-    if not config.mp_cartao_habilitado:
+    if not getattr(config, 'mp_cartao_habilitado', True):
         return Response(
             {'error': 'Pagamento com cartão não está habilitado nas configurações do site.'},
             status=status.HTTP_403_FORBIDDEN,
@@ -938,13 +958,10 @@ def pagar_cartao_loja(request):
 
     v = cobranca.venda
     try:
-        pagador_loja = resolver_pagador_loja(config, payer)
+        pagador_loja = resolver_pagador_cartao_loja(config, payer)
+        payer_mp = montar_payer_payment_cartao(pagador_loja)
     except ValueError as exc:
         return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-    email = pagador_loja['email']
-    identification = pagador_loja['identification']
-    id_type = identification.get('type') or 'CPF'
-    id_number = identification.get('number') or ''
 
     transaction_amount = float(cobranca.valor)
     VALOR_MINIMO_CARTAO = 0.50
@@ -960,13 +977,7 @@ def pagar_cartao_loja(request):
         'token': token,
         'installments': int(installments) if installments else 1,
         'payment_method_id': payment_method_id,
-        'payer': {
-            'email': email,
-            'identification': {
-                'type': id_type,
-                'number': str(id_number).replace('.', '').replace('-', '').replace('/', ''),
-            },
-        },
+        'payer': payer_mp,
     }
     aplicar_identificacao_mp(
         payment_data,
@@ -1021,32 +1032,29 @@ def pagar_cartao_loja(request):
     payment_id = payment.get('id')
 
     if status_mp == 'approved':
-        try:
-            with transaction.atomic():
-                c = CobrancaLoja.objects.select_for_update().select_related('venda').get(id=cobranca.id)
-                c.status = 'pago'
-                c.data_pagamento = timezone.now()
-                c.referencia_externa = str(payment_id or '')
-                c.metodo_pagamento = 'Mercado Pago (cartão)'
-                c.save()
-                v = Venda.objects.select_for_update().get(pk=c.venda_id)
-                v.status = 'pago'
-                v.save()
-                baixar_estoque_venda(v)
-                marcar_reservas_venda_paga(v)
-                registrar_log_loja(
-                    tipo_evento='venda_pagamento_mp',
-                    usuario=request.user,
-                    venda=v,
-                    detalhes={
-                        'origem': 'pagar_cartao_loja',
-                        'metodo': 'Mercado Pago (cartão)',
-                        'referencia_externa': str(payment_id or ''),
-                        'total': str(v.total),
-                    },
-                )
-        except serializers.ValidationError as exc:
-            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            c = CobrancaLoja.objects.select_for_update().select_related('venda').get(id=cobranca.id)
+            c.status = 'pago'
+            c.data_pagamento = timezone.now()
+            c.referencia_externa = str(payment_id or '')
+            c.metodo_pagamento = 'Mercado Pago (cartão)'
+            c.save()
+            v = Venda.objects.select_for_update().get(pk=c.venda_id)
+            v.status = 'pago'
+            v.save()
+            baixar_estoque_venda(v)
+            marcar_reservas_venda_paga(v)
+            registrar_log_loja(
+                tipo_evento='venda_pagamento_mp',
+                usuario=request.user,
+                venda=v,
+                detalhes={
+                    'origem': 'pagar_cartao_loja',
+                    'metodo': 'Mercado Pago (cartão)',
+                    'referencia_externa': str(payment_id or ''),
+                    'total': str(v.total),
+                },
+            )
     if payment_id and status_mp in ('approved', 'pending', 'in_process'):
         cobranca.referencia_externa = str(payment_id)
         cobranca.metodo_pagamento = 'Mercado Pago (cartão)'

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { AlertCircle, RefreshCw } from 'lucide-react'
-import api from '../../services/api'
+import api, { formatApiError } from '../../services/api'
 import { useMercadoPago } from './MercadoPagoProvider'
 import {
   MP_CARD_BRICK_CONTAINER_ID,
@@ -16,8 +16,12 @@ function payerFromBrickForm(cardFormData) {
   const p = cardFormData?.payer || {}
   const id = p.identification || {}
   const number = String(id.number ?? id.document ?? '').replace(/\D/g, '')
+  const firstName = (p.first_name || p.name || '').trim()
+  const lastName = (p.last_name || '').trim()
   return {
     email: (p.email || '').trim(),
+    first_name: firstName,
+    last_name: lastName,
     identification: {
       type: id.type || 'CPF',
       number,
@@ -134,9 +138,8 @@ export function CardPaymentBrick({
                       installments: cardFormData.installments || 1,
                       issuer_id: cardFormData.issuer_id,
                     }
-                    if (!pagadorAnonimo) {
-                      payload.payer = payerFromBrickForm(cardFormData)
-                    }
+                    // Cartão: payer do Brick deve ir no POST (MP exige consistência com o token).
+                    payload.payer = payerFromBrickForm(cardFormData)
                     if (contexto === 'loja') {
                       payload.cobranca_loja_id = cobrancaLojaId
                     } else {
@@ -159,9 +162,13 @@ export function CardPaymentBrick({
                     onError?.(msg)
                     reject(new Error(msg))
                   } catch (e) {
-                    const msg = e.response?.data?.error || e.message || 'Erro ao processar cartão.'
-                    const text = typeof msg === 'string' ? msg : JSON.stringify(msg)
-                    setError(text)
+                    const msg = formatApiError(
+                      e,
+                      e.response?.data?.error ||
+                        e.response?.data?.message ||
+                        'Erro ao processar cartão.',
+                    )
+                    setError(msg)
                     onError?.(msg)
                     reject(e)
                   } finally {

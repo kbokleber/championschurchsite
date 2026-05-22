@@ -89,6 +89,53 @@ def resolver_pagador_loja(config=None, payer_input=None) -> dict:
     return resolver_pagador_pix_config(config, payer_input)
 
 
+def resolver_pagador_cartao_loja(config=None, payer_input=None) -> dict:
+    """
+    Cartão na loja: o token do Brick foi gerado com os dados do formulário MP.
+    Se o Brick enviou e-mail + documento, usa esses dados; senão, config da igreja (PIX).
+    """
+    config = config or ConfiguracaoSite.get_config()
+    payer_input = payer_input or {}
+    email_req = (payer_input.get('email') or '').strip()
+    id_req = payer_input.get('identification') or {}
+    doc_req = _normalizar_cpf(id_req.get('number') or '')
+    if email_req and len(doc_req) in (11, 14):
+        id_type = id_req.get('type') or ('CNPJ' if len(doc_req) == 14 else 'CPF')
+        nome = (
+            (payer_input.get('first_name') or payer_input.get('name') or 'Pagador').strip()
+        )
+        partes = nome.split(None, 1)
+        return {
+            'email': email_req,
+            'first_name': partes[0][:255],
+            'last_name': (partes[1] if len(partes) > 1 else partes[0])[:255],
+            'identification': {'type': id_type, 'number': doc_req},
+        }
+    return resolver_pagador_loja(config, payer_input)
+
+
+def montar_payer_payment_cartao(pagador: dict) -> dict:
+    """Monta objeto payer para payment().create (cartão)."""
+    ident = pagador.get('identification') or {}
+    doc = _normalizar_cpf(ident.get('number') or '')
+    id_type = ident.get('type') or ('CNPJ' if len(doc) == 14 else 'CPF')
+    if not (pagador.get('email') or '').strip():
+        raise ValueError('E-mail do pagador é obrigatório para cartão.')
+    if len(doc) not in (11, 14):
+        raise ValueError('CPF ou CNPJ do pagador é obrigatório para cartão.')
+    out = {
+        'email': (pagador.get('email') or '').strip(),
+        'identification': {'type': id_type, 'number': doc},
+    }
+    fn = (pagador.get('first_name') or '').strip()
+    ln = (pagador.get('last_name') or '').strip()
+    if fn:
+        out['first_name'] = fn[:255]
+    if ln:
+        out['last_name'] = ln[:255]
+    return out
+
+
 def montar_payer_pix(payer_input: dict, *, email_fallback: str = '', nome_fallback: str = '') -> dict:
     """Monta payer para PIX MLB (email + CPF obrigatórios)."""
     email = (payer_input.get('email') or email_fallback or '').strip()

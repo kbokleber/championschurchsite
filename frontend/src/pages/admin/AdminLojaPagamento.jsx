@@ -144,14 +144,14 @@ function AdminLojaPagamento() {
       <div className="bg-white rounded-xl border border-gray-200 shadow p-6">
         <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
           <Clock className="w-6 h-6 text-amber-500" />
-          PIX / cartão (loja)
+          Pagamento (loja)
         </h1>
         <p className="text-gray-600 text-sm mt-1">
           Valor: R$ {cob ? Number(cob.valor).toFixed(2).replace('.', ',') : '—'}
         </p>
         <p className="text-gray-500 text-xs mt-1">
-          PIX e cartão usam os dados da igreja em <strong>Configurações → Mercado Pago</strong> (sem
-          pedir e-mail/CPF do comprador).
+          Formas de pagamento conforme <strong>Configurações → Mercado Pago</strong> (dados da igreja;
+          sem pedir e-mail/CPF do comprador no balcão).
         </p>
         {erro && <p className="text-red-600 text-sm mt-2">{erro}</p>}
 

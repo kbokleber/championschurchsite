@@ -2997,7 +2997,26 @@ def configuracao_admin(request):
     
     elif request.method in ['PUT', 'PATCH']:
         partial = request.method == 'PATCH'
-        serializer = ConfiguracaoSiteSerializer(config, data=request.data, partial=partial)
+
+        def _bool_form(val):
+            if isinstance(val, bool):
+                return val
+            if val is None:
+                return False
+            return str(val).strip().lower() in ('true', '1', 'yes', 'on')
+
+        payload = request.data.copy()
+        for bool_field in (
+            'webhook_ativo',
+            'mp_ativo',
+            'mp_cartao_em_sandbox',
+            'mp_pix_habilitado',
+            'mp_cartao_habilitado',
+        ):
+            if bool_field in payload:
+                payload[bool_field] = _bool_form(payload.get(bool_field))
+
+        serializer = ConfiguracaoSiteSerializer(config, data=payload, partial=partial)
         
         if serializer.is_valid():
             instance = serializer.save()

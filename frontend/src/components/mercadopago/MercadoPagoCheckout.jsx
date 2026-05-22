@@ -5,6 +5,11 @@ import { MercadoPagoProvider } from './MercadoPagoProvider'
 import { PixEmbeddedPanel } from './PixEmbeddedPanel'
 import { CardPaymentBrick } from './CardPaymentBrick'
 
+function metodoHabilitadoNaApi(data, key) {
+  if (!data || !(key in data)) return true
+  return data[key] === true
+}
+
 /**
  * Checkout transparente: PIX e/ou cartão conforme Configurações → Mercado Pago.
  */
@@ -29,13 +34,13 @@ export function MercadoPagoCheckout({
       .then(({ data }) => {
         if (cancelled) return
         const ativo = !!data?.ativo
-        const pix = ativo && data.pix_habilitado !== false
-        const cartao = ativo && data.cartao_habilitado !== false
+        const pix = ativo && metodoHabilitadoNaApi(data, 'pix_habilitado')
+        const cartao = ativo && metodoHabilitadoNaApi(data, 'cartao_habilitado')
         setMetodos({ pix, cartao, loading: false })
-        setAba(pix ? 'pix' : 'cartao')
+        setAba(pix ? 'pix' : cartao ? 'cartao' : 'pix')
       })
       .catch(() => {
-        if (!cancelled) setMetodos({ pix: true, cartao: true, loading: false })
+        if (!cancelled) setMetodos({ pix: false, cartao: false, loading: false })
       })
     return () => {
       cancelled = true

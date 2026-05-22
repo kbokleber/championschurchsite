@@ -8,6 +8,28 @@ import { useAuth } from '../../contexts/AuthContext'
 // Abas visíveis apenas para superusuário (admin)
 const TABS_SOMENTE_ADMIN = ['whatsapp', 'mercadopago']
 
+/** Campos booleanos enviados como 'true'/'false' no FormData (evita perder false no PATCH). */
+const CONFIG_BOOLEAN_KEYS = new Set([
+  'webhook_ativo',
+  'mp_ativo',
+  'mp_cartao_em_sandbox',
+  'mp_pix_habilitado',
+  'mp_cartao_habilitado',
+])
+
+function appendConfigFormValue(formData, key, value) {
+  if (CONFIG_BOOLEAN_KEYS.has(key) || typeof value === 'boolean') {
+    const on = value === true || value === 'true' || value === '1' || value === 1
+    formData.append(key, on ? 'true' : 'false')
+    return
+  }
+  if (value === null || value === undefined) {
+    formData.append(key, '')
+    return
+  }
+  formData.append(key, value)
+}
+
 const novoDestaqueHome = () => ({
   id: null,
   titulo: '',
@@ -508,17 +530,12 @@ function AdminConfiguracoes() {
         ? formData.descricao.replace(/\\n/g, '\n')
         : formData.descricao
       
-      // Adiciona todos os campos (nunca null/undefined — vira "null" na string e quebra validação)
+      // Adiciona todos os campos (booleanos sempre como 'true'/'false' no multipart)
       Object.keys(formData).forEach(key => {
         if (key === 'descricao') {
           data.append(key, descricaoProcessada ?? '')
         } else {
-          const v = formData[key]
-          if (v === null || v === undefined) {
-            data.append(key, '')
-          } else {
-            data.append(key, v)
-          }
+          appendConfigFormValue(data, key, formData[key])
         }
       })
 

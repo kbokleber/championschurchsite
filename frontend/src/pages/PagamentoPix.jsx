@@ -3,6 +3,11 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import { useParticipante } from '../contexts/ParticipanteContext';
 import { MercadoPagoCheckout } from '../components/mercadopago/MercadoPagoCheckout';
+import {
+  rotuloMetodosMp,
+  textoIntroPagamento,
+  useMercadoPagoMetodos,
+} from '../components/mercadopago/useMercadoPagoMetodos';
 import { 
   AlertCircle, 
   CheckCircle,
@@ -24,6 +29,7 @@ function PagamentoPix() {
   const [error, setError] = useState(null);
   
   const pollingRef = useRef(null);
+  const metodosMp = useMercadoPagoMetodos();
 
   const defaultPayer = useMemo(
     () => ({
@@ -180,10 +186,13 @@ function PagamentoPix() {
             <ArrowLeft className="w-5 h-5 mr-2" />
             Voltar
           </button>
-          <h1 className="text-2xl font-bold text-gray-900">Pagamento</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Pagamento{!metodosMp.loading ? ` — ${rotuloMetodosMp(metodosMp)}` : ''}
+          </h1>
           <p className="text-gray-600">
-            Pague com <strong>PIX</strong> ou <strong>cartão</strong> nesta página (sem sair do site). O PIX usa
-            seu e-mail de inscrição e o CPF/CNPJ da igreja em Configurações.
+            {metodosMp.loading
+              ? 'Carregando formas de pagamento…'
+              : textoIntroPagamento('eventos', metodosMp)}
           </p>
         </div>
 
@@ -223,6 +232,7 @@ function PagamentoPix() {
               cobrancaId={Number(cobrancaId)}
               valor={Number(cobranca?.valor)}
               defaultPayer={defaultPayer}
+              metodos={metodosMp}
               onPaymentSuccess={handlePaymentSuccess}
               onPixReady={() => iniciarPolling()}
             />

@@ -285,7 +285,7 @@ export function CardPaymentBrick({
     return (
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
         Valor mínimo para cartão: <strong>R$ {VALOR_MINIMO_CARTAO.toFixed(2).replace('.', ',')}</strong>.
-        Para R$ {valorNum.toFixed(2).replace('.', ',')}, use a aba <strong>PIX</strong>.
+        Para R$ {valorNum.toFixed(2).replace('.', ',')}, use o pagamento via <strong>PIX</strong>.
       </div>
     )
   }

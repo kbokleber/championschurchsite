@@ -4,6 +4,11 @@ import { CheckCircle, Clock, AlertCircle, ArrowLeft } from 'lucide-react'
 import api from '../../services/api'
 import { formatApiError } from '../../services/api'
 import { MercadoPagoCheckout } from '../../components/mercadopago/MercadoPagoCheckout'
+import {
+  rotuloMetodosMp,
+  textoIntroPagamento,
+  useMercadoPagoMetodos,
+} from '../../components/mercadopago/useMercadoPagoMetodos'
 import LoadingSpinner from '../../components/LoadingSpinner'
 
 function AdminLojaPagamento() {
@@ -16,6 +21,7 @@ function AdminLojaPagamento() {
   const [erro, setErro] = useState(null)
   const [pago, setPago] = useState(false)
   const [verificando, setVerificando] = useState(false)
+  const metodosMp = useMercadoPagoMetodos()
 
   const st = location.state
   const pdvVoltar =
@@ -144,14 +150,15 @@ function AdminLojaPagamento() {
       <div className="bg-white rounded-xl border border-gray-200 shadow p-6">
         <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
           <Clock className="w-6 h-6 text-amber-500" />
-          Pagamento (loja)
+          Pagamento (loja){!metodosMp.loading ? ` — ${rotuloMetodosMp(metodosMp)}` : ''}
         </h1>
         <p className="text-gray-600 text-sm mt-1">
           Valor: R$ {cob ? Number(cob.valor).toFixed(2).replace('.', ',') : '—'}
         </p>
         <p className="text-gray-500 text-xs mt-1">
-          Formas de pagamento conforme <strong>Configurações → Mercado Pago</strong> (dados da igreja;
-          sem pedir e-mail/CPF do comprador no balcão).
+          {metodosMp.loading
+            ? 'Carregando formas de pagamento…'
+            : textoIntroPagamento('loja', metodosMp)}
         </p>
         {erro && <p className="text-red-600 text-sm mt-2">{erro}</p>}
 
@@ -161,6 +168,7 @@ function AdminLojaPagamento() {
             cobrancaLojaId={Number(cobrancaLojaId)}
             valor={Number(cob?.valor)}
             defaultPayer={{ email: '', cpf: '' }}
+            metodos={metodosMp}
             onPaymentSuccess={handlePaymentSuccess}
             onPixReady={() => iniciarPolling()}
           />

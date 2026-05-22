@@ -7,6 +7,7 @@ import { getMediaUrl } from '../../services/utils'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import AdminLojaSecaoNav from '../../components/AdminLojaSecaoNav'
 import ConfirmModal from '../../components/ConfirmModal'
+import { rotuloMetodosMp, useMercadoPagoMetodos } from '../../components/mercadopago/useMercadoPagoMetodos'
 
 const CATEGORIAS = ['cantina', 'loja']
 
@@ -85,6 +86,9 @@ function AdminLojaPDV() {
   const [rascunhoVendaId, setRascunhoVendaId] = useState(null)
   /** produtoId → quantidade mínima no carrinho (reservas em cobrança nesta venda) */
   const [reservadoMinPorProduto, setReservadoMinPorProduto] = useState({})
+  const metodosMp = useMercadoPagoMetodos()
+  const rotuloMp = metodosMp.loading ? 'Mercado Pago' : rotuloMetodosMp(metodosMp)
+  const mpDisponivel = metodosMp.loading || metodosMp.pix || metodosMp.cartao
 
   const baseTotal = useCallback(() => {
     return lines.reduce((s, l) => s + Number(l.subtotal), 0)
@@ -674,11 +678,12 @@ function AdminLojaPDV() {
             </button>
             <button
               type="button"
-              disabled={!lines.length || processing}
+              disabled={!lines.length || processing || !mpDisponivel}
               onClick={submeterVendaMP}
+              title={!mpDisponivel ? 'Mercado Pago não habilitado nas configurações' : undefined}
               className={`flex-1 min-h-[52px] text-base font-semibold text-white rounded-xl flex items-center justify-center gap-2 ${accent.btn} disabled:opacity-50 touch-manipulation`}
             >
-              <CreditCard className="w-5 h-5" /> PIX / cartão
+              <CreditCard className="w-5 h-5" /> {rotuloMp}
             </button>
           </div>
         </div>
@@ -702,11 +707,12 @@ function AdminLojaPDV() {
             </button>
             <button
               type="button"
-              disabled={!lines.length || processing}
+              disabled={!lines.length || processing || !mpDisponivel}
               onClick={submeterVendaMP}
+              title={!mpDisponivel ? 'Mercado Pago não habilitado nas configurações' : undefined}
               className={`min-h-[52px] text-base font-semibold text-white rounded-xl flex items-center justify-center gap-2 ${accent.btn} disabled:opacity-50 touch-manipulation`}
             >
-              <CreditCard className="w-5 h-5" /> PIX/cartão
+              <CreditCard className="w-5 h-5" /> {rotuloMp}
             </button>
           </div>
         </div>

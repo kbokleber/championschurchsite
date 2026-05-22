@@ -1,17 +1,13 @@
 import { useEffect, useState } from 'react'
 import { CreditCard, QrCode } from 'lucide-react'
-import api from '../../services/api'
 import { MercadoPagoProvider } from './MercadoPagoProvider'
 import { PixEmbeddedPanel } from './PixEmbeddedPanel'
 import { CardPaymentBrick } from './CardPaymentBrick'
-
-function metodoHabilitadoNaApi(data, key) {
-  if (!data || !(key in data)) return true
-  return data[key] === true
-}
+import { useMercadoPagoMetodos } from './useMercadoPagoMetodos'
 
 /**
  * Checkout transparente: PIX e/ou cartão conforme Configurações → Mercado Pago.
+ * Mesma regra em eventos e loja/cantina.
  */
 export function MercadoPagoCheckout({
   contexto = 'eventos',
@@ -21,31 +17,24 @@ export function MercadoPagoCheckout({
   defaultPayer = {},
   onPaymentSuccess,
   onPixReady,
+  /** Opcional: evita segunda chamada a /mercadopago/config/ (ex.: página já usa useMercadoPagoMetodos). */
+  metodos: metodosProp,
 }) {
-  const [metodos, setMetodos] = useState({ pix: true, cartao: true, loading: true })
+  const metodosHook = useMercadoPagoMetodos()
+  const metodos = metodosProp ?? metodosHook
   const [aba, setAba] = useState('pix')
   const pagadorLoja = contexto === 'loja'
   const pixSemFormulario = true
 
   useEffect(() => {
-    let cancelled = false
-    api
-      .get('/mercadopago/config/')
-      .then(({ data }) => {
-        if (cancelled) return
-        const ativo = !!data?.ativo
-        const pix = ativo && metodoHabilitadoNaApi(data, 'pix_habilitado')
-        const cartao = ativo && metodoHabilitadoNaApi(data, 'cartao_habilitado')
-        setMetodos({ pix, cartao, loading: false })
-        setAba(pix ? 'pix' : cartao ? 'cartao' : 'pix')
-      })
-      .catch(() => {
-        if (!cancelled) setMetodos({ pix: false, cartao: false, loading: false })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+    if (metodos.loading) return
+    if (metodos.pix && !metodos.cartao) setAba('pix')
+    else if (!metodos.pix && metodos.cartao) setAba('cartao')
+    else if (metodos.pix) setAba('pix')
+  }, [metodos.loading, metodos.pix, metodos.cartao])
+
+  const abaAtiva =
+    metodos.pix && metodos.cartao ? aba : metodos.pix ? 'pix' : metodos.cartao ? 'cartao' : 'pix'
 
   const handleSuccess = (data) => {
     onPaymentSuccess?.(data)
@@ -64,7 +53,6 @@ export function MercadoPagoCheckout({
   }
 
   const showTabs = metodos.pix && metodos.cartao
-  const abaAtiva = showTabs ? aba : metodos.pix ? 'pix' : 'cartao'
 
   const conteudo = (
     <div>

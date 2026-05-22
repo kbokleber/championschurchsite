@@ -150,7 +150,8 @@ function AdminLojaPagamento() {
           Valor: R$ {cob ? Number(cob.valor).toFixed(2).replace('.', ',') : '—'}
         </p>
         <p className="text-gray-500 text-xs mt-1">
-          Pague com <strong>PIX</strong> ou <strong>cartão</strong> nesta página (mesmo fluxo dos eventos).
+          PIX e cartão usam os dados da igreja em <strong>Configurações → Mercado Pago</strong> (sem
+          pedir e-mail/CPF do comprador).
         </p>
         {erro && <p className="text-red-600 text-sm mt-2">{erro}</p>}
 

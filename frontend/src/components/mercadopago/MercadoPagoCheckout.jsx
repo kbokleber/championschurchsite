@@ -5,7 +5,8 @@ import { PixEmbeddedPanel } from './PixEmbeddedPanel'
 import { CardPaymentBrick } from './CardPaymentBrick'
 
 /**
- * Checkout transparente unificado: abas PIX + Cartão (eventos e loja — mesmo fluxo).
+ * Checkout transparente: PIX + Cartão.
+ * Loja/cantina: pagador da igreja (Configurações → Mercado Pago), sem pedir dados do comprador.
  */
 export function MercadoPagoCheckout({
   contexto = 'eventos',
@@ -18,6 +19,8 @@ export function MercadoPagoCheckout({
 }) {
   const [aba, setAba] = useState('pix')
   const [cardSdkRequested, setCardSdkRequested] = useState(false)
+  /** Loja: e-mail/CPF vêm do admin (mp_loja_pix_*); eventos: formulário do comprador */
+  const pagadorLoja = contexto === 'loja'
 
   const handleSuccess = (data) => {
     onPaymentSuccess?.(data)
@@ -64,7 +67,7 @@ export function MercadoPagoCheckout({
           defaultPayer={defaultPayer}
           onPixCreated={onPixReady}
           onAlreadyPaid={handleSuccess}
-          pagadorAnonimo={false}
+          pagadorAnonimo={pagadorLoja}
         />
       )}
 
@@ -77,7 +80,7 @@ export function MercadoPagoCheckout({
             amount={valor}
             defaultPayer={defaultPayer}
             onSuccess={handleSuccess}
-            pagadorAnonimo={false}
+            pagadorAnonimo={pagadorLoja}
           />
         </MercadoPagoProvider>
       )}

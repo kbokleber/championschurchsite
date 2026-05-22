@@ -247,14 +247,21 @@ export function CardPaymentBrick({
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-600">
-        Preencha os dados do cartão e do titular no formulário do Mercado Pago abaixo.
-        {defaultPayer.email ? (
-          <span className="block mt-1 text-gray-500">
-            E-mail pode vir pré-preenchido quando disponível.
-          </span>
-        ) : null}
-      </p>
+      {pagadorAnonimo ? (
+        <p className="text-sm text-gray-600 rounded-lg bg-gray-50 border border-gray-200 p-3">
+          Pagamento em nome da igreja (dados em Configurações → Mercado Pago). O cliente no
+          balcão não precisa informar e-mail nem CPF.
+        </p>
+      ) : (
+        <p className="text-sm text-gray-600">
+          Preencha os dados do cartão e do titular no formulário do Mercado Pago abaixo.
+          {defaultPayer.email ? (
+            <span className="block mt-1 text-gray-500">
+              E-mail pode vir pré-preenchido quando disponível.
+            </span>
+          ) : null}
+        </p>
+      )}
       {isSandbox && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 space-y-2">
           <p>

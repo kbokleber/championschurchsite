@@ -34,8 +34,9 @@ Use este checklist para validar PIX embutido e cartão na própria página (sem 
 
 ### 4. Loja / cantina (admin)
 
+- [ ] Em **Configurações → Mercado Pago**, preencher **CPF/CNPJ pagador PIX (loja)** (e opcionalmente e-mail).
 - [ ] PDV → venda com **PIX / cartão** → tela `/admin/loja/pagamento/:id`.
-- [ ] Mesmo fluxo dos **eventos**: abas PIX + Cartão; PIX pede e-mail/CPF; cartão usa Brick do MP.
+- [ ] **Sem** formulário de e-mail/CPF do comprador — PIX gera QR automaticamente; cartão usa dados da igreja no backend.
 - [ ] Em sandbox: titular **APRO**, CPF **12345678909**, cartão de teste.
 - [ ] Após pagamento, venda **paga** e estoque baixado.
 

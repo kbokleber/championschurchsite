@@ -111,15 +111,69 @@ def montar_payer_pix(payer_input: dict, *, email_fallback: str = '', nome_fallba
     }
 
 
-def _criar_payment_pix_sdk(sdk, *, valor, codigo, descricao, payer_mp: dict):
+def aplicar_identificacao_mp(
+    payment_data: dict,
+    *,
+    valor,
+    codigo: str,
+    titulo: str,
+    detalhe: str = '',
+    origem: str = '',
+) -> dict:
+    """
+    Preenche description, additional_info.items e metadata para o painel MP
+    identificar loja vs evento (ex.: "Lojinha / Cantina" ou "Evento: Culto Domingo").
+    """
+    titulo = (titulo or 'Pagamento').strip()
+    detalhe = (detalhe or '').strip()
+    linha = titulo if not detalhe else f'{titulo} — {detalhe}'
+    payment_data['description'] = linha[:200]
+    payment_data['external_reference'] = (payment_data.get('external_reference') or codigo or '')[:256]
+    payment_data['metadata'] = {
+        'origem': (origem or 'championschurch')[:30],
+        'codigo': str(codigo)[:60],
+        'titulo': titulo[:100],
+    }
+    payment_data['additional_info'] = {
+        'items': [
+            {
+                'id': str(codigo).replace('-', '')[:40] or 'champions',
+                'title': titulo[:256],
+                'description': (detalhe or linha)[:256],
+                'quantity': 1,
+                'unit_price': round(float(valor), 2),
+            }
+        ],
+    }
+    return payment_data
+
+
+def _criar_payment_pix_sdk(
+    sdk,
+    *,
+    valor,
+    codigo,
+    payer_mp: dict,
+    titulo_mp: str = '',
+    detalhe_mp: str = '',
+    origem_mp: str = '',
+    descricao: str = '',
+):
     """Chama payment().create para PIX."""
+    titulo = (titulo_mp or descricao or 'Pagamento').strip()
     payment_data = {
         'transaction_amount': round(float(valor), 2),
         'payment_method_id': 'pix',
         'payer': payer_mp,
-        'external_reference': codigo,
-        'description': (descricao or 'Pagamento')[:200],
     }
+    aplicar_identificacao_mp(
+        payment_data,
+        valor=valor,
+        codigo=codigo,
+        titulo=titulo,
+        detalhe=detalhe_mp,
+        origem=origem_mp,
+    )
     idempotency_key = str(uuid.uuid4())
     request_options = getattr(mercadopago, 'config', None) and getattr(
         mercadopago.config, 'RequestOptions', None
@@ -135,7 +189,10 @@ def criar_ou_reutilizar_pix_embutido(
     *,
     codigo: str,
     valor: float,
-    descricao: str,
+    descricao: str = '',
+    titulo_mp: str = '',
+    detalhe_mp: str = '',
+    origem_mp: str = '',
     referencia_externa: str,
     payer_input: dict,
     email_fallback: str = '',
@@ -202,7 +259,9 @@ def criar_ou_reutilizar_pix_embutido(
         sdk,
         valor=valor,
         codigo=codigo,
-        descricao=descricao,
+        titulo_mp=titulo_mp or descricao,
+        detalhe_mp=detalhe_mp,
+        origem_mp=origem_mp,
         payer_mp=payer_mp,
     )
     payment = payment_response.get('response', {}) if isinstance(payment_response, dict) else {}

@@ -90,3 +90,13 @@ Com **Cartão em Sandbox** ativo e ambiente geral em Produção: PIX usa produç
 | Verificar | GET | `/api/mercadopago/verificar/:id/` ou `/api/loja/mercadopago/verificar/:id/` |
 
 O endpoint legado `criar-pix` (Checkout Pro / preferência) permanece na API, mas a interface usa apenas checkout transparente.
+
+## Identificação no painel Mercado Pago
+
+Cada pagamento (PIX/cartão) envia ao MP:
+
+- **description:** ex. `Evento: Culto Domingo — Inscrição — ref. ABC` ou `Lojinha / Cantina — Venda #12`
+- **additional_info.items[].title:** `Evento: …` ou `Lojinha / Cantina`
+- **metadata.origem:** `evento` ou `loja`
+
+Pagamentos **novos** passam a aparecer assim no extrato. Transações antigas mantêm o texto genérico.

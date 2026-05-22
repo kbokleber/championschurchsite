@@ -3479,7 +3479,7 @@ from .mercadopago_sdk import (
     mp_buscar_pagamento,
     mp_search_payments_by_reference,
 )
-from .mp_payments import criar_ou_reutilizar_pix_embutido, resolver_pagador_pix_config
+from .mp_payments import aplicar_identificacao_mp, criar_ou_reutilizar_pix_embutido, resolver_pagador_pix_config
 
 
 @api_view(['POST'])
@@ -4215,9 +4215,15 @@ def pagar_cartao(request):
             "email": email,
             "identification": {"type": id_type, "number": str(id_number).replace('.', '').replace('-', '').replace('/', '')},
         },
-        "external_reference": cobranca.codigo,
-        "description": f"Inscrição: {cobranca.evento.titulo}",
     }
+    aplicar_identificacao_mp(
+        payment_data,
+        valor=transaction_amount,
+        codigo=cobranca.codigo,
+        titulo=f"Evento: {cobranca.evento.titulo}",
+        detalhe=f"Inscrição — ref. {cobranca.codigo}",
+        origem="evento",
+    )
     if issuer_id:
         payment_data["issuer_id"] = str(issuer_id)
 
@@ -4374,7 +4380,9 @@ def criar_pagamento_pix_embutido(request):
         result = criar_ou_reutilizar_pix_embutido(
             codigo=cobranca.codigo,
             valor=float(cobranca.valor),
-            descricao=f'Inscrição: {cobranca.evento.titulo}',
+            titulo_mp=f'Evento: {cobranca.evento.titulo}',
+            detalhe_mp=f'Inscrição — ref. {cobranca.codigo}',
+            origem_mp='evento',
             referencia_externa=cobranca.referencia_externa,
             payer_input={},
             email_fallback=email_fb,

@@ -26,7 +26,11 @@ from eventos.mercadopago_sdk import (
     get_mp_env_pix,
     mp_search_payments_by_reference,
 )
-from eventos.mp_payments import criar_ou_reutilizar_pix_embutido, resolver_pagador_loja
+from eventos.mp_payments import (
+    aplicar_identificacao_mp,
+    criar_ou_reutilizar_pix_embutido,
+    resolver_pagador_loja,
+)
 from eventos.models import ConfiguracaoSite
 from .estoque import (
     baixar_estoque_venda,
@@ -946,7 +950,6 @@ def pagar_cartao_loja(request):
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
-    descricao = f'Loja / cantina (venda #{v.id})'
     payment_data = {
         'transaction_amount': round(transaction_amount, 2),
         'token': token,
@@ -959,9 +962,15 @@ def pagar_cartao_loja(request):
                 'number': str(id_number).replace('.', '').replace('-', '').replace('/', ''),
             },
         },
-        'external_reference': cobranca.codigo,
-        'description': descricao[:200],
     }
+    aplicar_identificacao_mp(
+        payment_data,
+        valor=transaction_amount,
+        codigo=cobranca.codigo,
+        titulo='Lojinha / Cantina',
+        detalhe=f'Venda #{v.id}',
+        origem='loja',
+    )
     if issuer_id:
         payment_data['issuer_id'] = str(issuer_id)
 
@@ -1111,7 +1120,9 @@ def criar_pagamento_pix_embutido_loja(request):
         result = criar_ou_reutilizar_pix_embutido(
             codigo=cobranca.codigo,
             valor=float(cobranca.valor),
-            descricao=f'Loja / cantina (venda #{v.id})',
+            titulo_mp='Lojinha / Cantina',
+            detalhe_mp=f'Venda #{v.id}',
+            origem_mp='loja',
             referencia_externa=cobranca.referencia_externa,
             payer_input={},
             email_fallback=payer_mp['email'],

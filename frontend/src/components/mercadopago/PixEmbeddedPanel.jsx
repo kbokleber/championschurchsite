@@ -65,7 +65,11 @@ export function PixEmbeddedPanel({
     }
   }, [payer, pixUrl, bodyKey, bodyId, onPixCreated, onAlreadyPaid, pagadorAnonimo])
 
+  /** Loja/cantina: só gera PIX ao clicar (evita cobranças abandonadas no painel MP). */
+  const gerarPixAutomatico = contexto !== 'loja'
+
   useEffect(() => {
+    if (!gerarPixAutomatico) return
     if (pagadorAnonimo) {
       gerarPix()
       return
@@ -74,7 +78,7 @@ export function PixEmbeddedPanel({
       gerarPix()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pagadorAnonimo])
+  }, [gerarPixAutomatico, pagadorAnonimo])
 
   const copiar = async () => {
     if (!pix?.qr_code) return
@@ -89,20 +93,11 @@ export function PixEmbeddedPanel({
 
   return (
     <div className="space-y-4">
-      {pagadorAnonimo && (
+      {pagadorAnonimo && contexto !== 'loja' && (
         <p className="text-sm text-gray-600 rounded-lg bg-gray-50 border border-gray-200 p-3">
-          {contexto === 'loja' ? (
-            <>
-              O cliente no balcão não precisa informar e-mail nem CPF. O PIX usa os dados em{' '}
-              <strong>Configurações → Mercado Pago</strong>.
-            </>
-          ) : (
-            <>
-              O QR Code PIX é gerado automaticamente com o <strong>e-mail da inscrição</strong> e o{' '}
-              <strong>CPF/CNPJ</strong> configurado em <strong>Configurações → Mercado Pago</strong> (não é
-              necessário preencher dados aqui).
-            </>
-          )}
+          O QR Code PIX é gerado automaticamente com o <strong>e-mail da inscrição</strong> e o{' '}
+          <strong>CPF/CNPJ</strong> configurado em <strong>Configurações → Mercado Pago</strong> (não é
+          necessário preencher dados aqui).
         </p>
       )}
       {!pagadorAnonimo && (
@@ -117,11 +112,11 @@ export function PixEmbeddedPanel({
       )}
 
       {!pix ? (
-        !pagadorAnonimo && (
+        <div className="space-y-2">
           <button
             type="button"
             onClick={gerarPix}
-            disabled={loading}
+            disabled={loading || (!pagadorAnonimo && !isPayerValid(payer))}
             className="btn btn-primary w-full flex items-center justify-center gap-2"
           >
             {loading ? (
@@ -134,7 +129,7 @@ export function PixEmbeddedPanel({
               </>
             )}
           </button>
-        )
+        </div>
       ) : (
         <div className="text-center space-y-4">
           <p className="text-sm text-gray-600">
@@ -161,11 +156,6 @@ export function PixEmbeddedPanel({
             Gerar novo código PIX
           </button>
         </div>
-      )}
-      {pagadorAnonimo && !pix && loading && (
-        <p className="text-sm text-gray-500 flex items-center justify-center gap-2">
-          <RefreshCw className="w-4 h-4 animate-spin" /> Gerando PIX…
-        </p>
       )}
     </div>
   )

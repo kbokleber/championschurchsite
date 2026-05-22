@@ -163,12 +163,11 @@ export function CardPaymentBrick({
                     onError?.(msg)
                     reject(new Error(msg))
                   } catch (e) {
-                    const msg = formatApiError(
-                      e,
-                      e.response?.data?.error ||
-                        e.response?.data?.message ||
-                        'Erro ao processar cartão.',
-                    )
+                    const body = e.response?.data
+                    const msg =
+                      (typeof body?.error === 'string' && body.error) ||
+                      (typeof body?.message === 'string' && body.message) ||
+                      formatApiError(e, 'Erro ao processar cartão.')
                     setError(msg)
                     onError?.(msg)
                     reject(e)
@@ -300,12 +299,7 @@ export function CardPaymentBrick({
 
   return (
     <div className="space-y-4">
-      {pagadorAnonimo ? (
-        <p className="text-sm text-gray-600 rounded-lg bg-gray-50 border border-gray-200 p-3">
-          Pagamento em nome da igreja (dados em Configurações → Mercado Pago). O cliente no
-          balcão não precisa informar e-mail nem CPF.
-        </p>
-      ) : (
+      {!pagadorAnonimo && (
         <p className="text-sm text-gray-600">
           Preencha os dados do cartão e do titular no formulário do Mercado Pago abaixo.
           {defaultPayer.email ? (

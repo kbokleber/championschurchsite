@@ -4,11 +4,8 @@ import { CheckCircle, Clock, AlertCircle, ArrowLeft } from 'lucide-react'
 import api from '../../services/api'
 import { formatApiError } from '../../services/api'
 import { MercadoPagoCheckout } from '../../components/mercadopago/MercadoPagoCheckout'
-import {
-  rotuloMetodosMp,
-  textoIntroPagamento,
-  useMercadoPagoMetodos,
-} from '../../components/mercadopago/useMercadoPagoMetodos'
+import { ResumoCobrancaPagamento } from '../../components/mercadopago/ResumoCobrancaPagamento'
+import { rotuloMetodosMp, useMercadoPagoMetodos } from '../../components/mercadopago/useMercadoPagoMetodos'
 import LoadingSpinner from '../../components/LoadingSpinner'
 
 function AdminLojaPagamento() {
@@ -152,17 +149,14 @@ function AdminLojaPagamento() {
           <Clock className="w-6 h-6 text-amber-500" />
           Pagamento (loja){!metodosMp.loading ? ` — ${rotuloMetodosMp(metodosMp)}` : ''}
         </h1>
-        <p className="text-gray-600 text-sm mt-1">
-          Valor: R$ {cob ? Number(cob.valor).toFixed(2).replace('.', ',') : '—'}
-        </p>
-        <p className="text-gray-500 text-xs mt-1">
-          {metodosMp.loading
-            ? 'Carregando formas de pagamento…'
-            : textoIntroPagamento('loja', metodosMp)}
-        </p>
+        {metodosMp.loading && (
+          <p className="text-gray-500 text-xs mt-2">Carregando formas de pagamento…</p>
+        )}
         {erro && <p className="text-red-600 text-sm mt-2">{erro}</p>}
 
-        <div className="mt-6">
+        <ResumoCobrancaPagamento contexto="loja" dados={cob} />
+
+        <div className="mt-2">
           <MercadoPagoCheckout
             contexto="loja"
             cobrancaLojaId={Number(cobrancaLojaId)}

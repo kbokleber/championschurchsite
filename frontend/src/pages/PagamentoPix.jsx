@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import { useParticipante } from '../contexts/ParticipanteContext';
 import { MercadoPagoCheckout } from '../components/mercadopago/MercadoPagoCheckout';
+import { ResumoCobrancaPagamento } from '../components/mercadopago/ResumoCobrancaPagamento';
 import {
   rotuloMetodosMp,
   textoIntroPagamento,
@@ -197,36 +198,8 @@ function PagamentoPix() {
         </div>
 
         <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
-          <div className="p-6 border-b bg-gray-50">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="text-sm text-gray-500">Evento</p>
-                <p className="font-semibold text-gray-900">{cobranca?.evento_titulo}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-sm text-gray-500">Valor</p>
-                <p className="text-2xl font-bold text-primary-600">
-                  {formatarValor(cobranca?.valor)}
-                </p>
-              </div>
-            </div>
-            
-            {cobranca?.itens && cobranca.itens.length > 0 && (
-              <div className="mt-4 pt-4 border-t">
-                <p className="text-sm text-gray-500 mb-2">Inscrições incluídas:</p>
-                <ul className="text-sm space-y-1">
-                  {cobranca.itens.map((item, index) => (
-                    <li key={index} className="flex justify-between">
-                      <span>{item.membro_nome}</span>
-                      <span className="text-gray-500">{formatarValor(item.valor)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-
           <div className="p-6">
+            <ResumoCobrancaPagamento contexto="eventos" dados={cobranca} />
             <MercadoPagoCheckout
               contexto="eventos"
               cobrancaId={Number(cobrancaId)}

@@ -761,7 +761,9 @@ class CobrancaLojaViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_field = 'id'
 
     def get_queryset(self):
-        return CobrancaLoja.objects.all().select_related('venda')
+        return CobrancaLoja.objects.select_related('venda').prefetch_related(
+            'venda__itens__produto',
+        )
 
 
 class LojaAuditoriaViewSet(viewsets.ReadOnlyModelViewSet):
@@ -1013,6 +1015,13 @@ def _pagar_cartao_loja_impl(request):
     if api_err or http_status not in (200, 201):
         mp_env = get_mp_env_card(config)
         msg = mensagem_erro_payment_http(http_status, payment, env=mp_env)
+        logger.warning(
+            'Cartão MP API erro loja cobrança %s: http=%s env=%s body=%s',
+            cobranca.codigo,
+            http_status,
+            mp_env,
+            payment,
+        )
         return Response(
             {
                 'success': False,

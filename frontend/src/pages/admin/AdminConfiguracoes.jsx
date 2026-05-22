@@ -491,7 +491,14 @@ function AdminConfiguracoes() {
         mp_webhook_secret: formData.mp_webhook_secret
       })
       setMercadoPagoTestResult(response.data)
-      setMessage({ type: 'success', text: 'Teste de conexão do Mercado Pago concluído com sucesso.' })
+      if (response.data?.ok) {
+        setMessage({ type: 'success', text: 'Teste de conexão do Mercado Pago concluído com sucesso.' })
+      } else {
+        setMessage({
+          type: 'error',
+          text: response.data?.detalhe || 'Credenciais autenticam, mas o cartão na página não funcionará com este token.',
+        })
+      }
     } catch (error) {
       const result = error.response?.data
       if (result) {
@@ -1995,9 +2002,39 @@ function AdminConfiguracoes() {
                   }`}>
                     <p><strong>Status:</strong> {mercadoPagoTestResult.ok ? 'Conectado' : 'Falha'}</p>
                     <p><strong>Ambiente:</strong> {mercadoPagoTestResult.ambiente || '-'}</p>
+                    {mercadoPagoTestResult.ambiente_cartao_brick && (
+                      <p><strong>Cartão (Brick) usa:</strong> {mercadoPagoTestResult.ambiente_cartao_brick}</p>
+                    )}
                     <p><strong>Motivo:</strong> {mercadoPagoTestResult.motivo || '-'}</p>
-                    {mercadoPagoTestResult.ambiente === 'sandbox' && (
-                      <p><strong>Pagamento fictício:</strong> {mercadoPagoTestResult.credenciais_teste ? 'Sim, usando credenciais configuradas no Sandbox' : 'Não confirmado'}</p>
+                    {mercadoPagoTestResult.public_key_resumo && (
+                      <p className="text-xs break-all">
+                        <strong>Public Key (teste):</strong> {mercadoPagoTestResult.public_key_resumo}
+                      </p>
+                    )}
+                    {mercadoPagoTestResult.access_token_resumo && (
+                      <p className="text-xs break-all">
+                        <strong>Access Token (teste):</strong> {mercadoPagoTestResult.access_token_resumo}
+                      </p>
+                    )}
+                    {mercadoPagoTestResult.aviso_cartao && (
+                      <p className="text-xs text-amber-800 mt-1">{mercadoPagoTestResult.aviso_cartao}</p>
+                    )}
+                    {mercadoPagoTestResult.conta_teste_mp && (
+                      <p className="text-amber-900 font-medium">
+                        Token de conta de teste (TESTUSER) — não serve para cartão na página.
+                      </p>
+                    )}
+                    {mercadoPagoTestResult.cartao_api_ok != null && (
+                      <p>
+                        <strong>API cartão (Brick):</strong>{' '}
+                        {mercadoPagoTestResult.cartao_api_ok ? 'OK' : 'Falhou'}
+                        {mercadoPagoTestResult.cartao_api_http != null && (
+                          <> (HTTP {mercadoPagoTestResult.cartao_api_http})</>
+                        )}
+                      </p>
+                    )}
+                    {mercadoPagoTestResult.ambiente === 'sandbox' && mercadoPagoTestResult.ok && (
+                      <p><strong>Pagamento fictício:</strong> API de cartão validada com cartão de teste (APRO).</p>
                     )}
                     <p><strong>HTTP:</strong> {String(mercadoPagoTestResult.status_http ?? '-')}</p>
                     <p><strong>Webhook URL:</strong> {mercadoPagoTestResult.webhook_url || '-'}</p>
@@ -2078,6 +2115,12 @@ function AdminConfiguracoes() {
                   <AlertTriangle className="h-4 w-4 text-yellow-600 mr-2" />
                   Credenciais de Teste (Sandbox)
                 </h4>
+                <p className="text-sm text-amber-900 mb-4">
+                  Copie <strong>Public Key</strong> e <strong>Access Token</strong> da mesma tela:{' '}
+                  <em>Suas integrações → sua aplicação → Credenciais de teste</em>.
+                  Não use o token da seção <em>Contas de teste</em> (nickname TESTUSER…) — ele passa no
+                  “Testar conexão” antigo, mas o cartão na página retorna erro 401.
+                </p>
                 <div className="grid grid-cols-1 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">

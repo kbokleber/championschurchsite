@@ -300,6 +300,9 @@ class ReservaLojaLoteSerializer(serializers.Serializer):
 
 class CobrancaLojaSerializer(serializers.ModelSerializer):
     venda = serializers.IntegerField(source='venda_id', read_only=True)
+    itens = serializers.SerializerMethodField()
+    comprador_nome = serializers.SerializerMethodField()
+    venda_categoria = serializers.SerializerMethodField()
 
     class Meta:
         model = CobrancaLoja
@@ -313,6 +316,9 @@ class CobrancaLojaSerializer(serializers.ModelSerializer):
             'data_pagamento',
             'metodo_pagamento',
             'referencia_externa',
+            'itens',
+            'comprador_nome',
+            'venda_categoria',
         )
         read_only_fields = (
             'id',
@@ -324,7 +330,32 @@ class CobrancaLojaSerializer(serializers.ModelSerializer):
             'data_pagamento',
             'metodo_pagamento',
             'referencia_externa',
+            'itens',
+            'comprador_nome',
+            'venda_categoria',
         )
+
+    def get_itens(self, obj):
+        venda = obj.venda
+        if not venda:
+            return []
+        return ItemVendaSerializer(venda.itens.all(), many=True).data
+
+    def get_comprador_nome(self, obj):
+        if not obj.venda:
+            return ''
+        return (obj.venda.comprador_nome or '').strip()
+
+    def get_venda_categoria(self, obj):
+        if not obj.venda:
+            return 'cantina'
+        itens = list(obj.venda.itens.all())
+        if not itens:
+            return 'cantina'
+        produto = getattr(itens[0], 'produto', None)
+        if produto:
+            return produto.categoria or 'cantina'
+        return 'cantina'
 
 
 class LojaAuditoriaSerializer(serializers.ModelSerializer):

@@ -65,7 +65,7 @@ Painel MP → sua aplicação → **Cartões de teste**. Credenciais **Sandbox (
 
 Com **Cartão em Sandbox** ativo e ambiente geral em Produção: PIX usa produção; cartão usa credenciais de teste.
 
-**Erro 401:** Brick (chave pública) e backend (access token) em ambientes ou apps diferentes — corrija o par Sandbox no admin.
+**Erro 401 (credenciais incompatíveis):** quase sempre o **Access Token de Sandbox** foi copiado de **Contas de teste** (conta `TESTUSER…`) em vez de **Credenciais de teste** da aplicação. Public Key e Access Token devem vir da **mesma tela** no painel MP. Use **Testar conexão** no admin — agora também valida a API de cartão.
 
 ---
 

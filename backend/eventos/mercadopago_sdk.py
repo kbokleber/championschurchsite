@@ -1,5 +1,6 @@
 """Instância do SDK Mercado Pago e helpers de ambiente (ConfiguracaoSite)."""
 import logging
+import uuid
 
 import mercadopago
 import requests
@@ -96,6 +97,110 @@ _MP_STATUS_DETAIL_PT = {
 }
 
 
+def mp_probe_pagamento_cartao(access_token: str) -> dict:
+    """
+    Verifica se o Access Token consegue criar pagamento com cartão de teste (API).
+    O teste em /users/me não detecta token de conta de teste vs credencial da aplicação.
+    """
+    token = (access_token or '').strip()
+    if not token:
+        return {
+            'ok': False,
+            'motivo': 'configuracao_incompleta',
+            'detalhe': 'Access Token ausente.',
+            'http_status': None,
+        }
+    card_body = {
+        'card_number': '5031433215406351',
+        'expiration_month': 11,
+        'expiration_year': 2030,
+        'security_code': '123',
+        'cardholder': {
+            'name': 'APRO',
+            'identification': {'type': 'CPF', 'number': '12345678909'},
+        },
+    }
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json',
+        'User-Agent': 'ChampionsChurch-MercadoPago/1.0',
+    }
+    try:
+        tok_resp = requests.post(
+            'https://api.mercadopago.com/v1/card_tokens',
+            json=card_body,
+            headers=headers,
+            timeout=25,
+        )
+        if tok_resp.status_code not in (200, 201):
+            return {
+                'ok': False,
+                'motivo': 'cartao_token_falhou',
+                'detalhe': (tok_resp.text or '')[:400],
+                'http_status': tok_resp.status_code,
+            }
+        card_token = tok_resp.json().get('id')
+        if not card_token:
+            return {
+                'ok': False,
+                'motivo': 'cartao_token_falhou',
+                'detalhe': 'Resposta do MP sem id de card_token.',
+                'http_status': tok_resp.status_code,
+            }
+        pay_body = {
+            'transaction_amount': 1.0,
+            'token': card_token,
+            'installments': 1,
+            'payment_method_id': 'master',
+            'payer': {
+                'email': 'test@example.com',
+                'identification': {'type': 'CPF', 'number': '12345678909'},
+            },
+        }
+        pay_headers = {**headers, 'X-Idempotency-Key': str(uuid.uuid4())}
+        pay_resp = requests.post(
+            'https://api.mercadopago.com/v1/payments',
+            json=pay_body,
+            headers=pay_headers,
+            timeout=30,
+        )
+        if pay_resp.status_code in (200, 201):
+            return {
+                'ok': True,
+                'motivo': 'cartao_api_ok',
+                'detalhe': 'Pagamento de teste aceito pela API (cartão).',
+                'http_status': pay_resp.status_code,
+            }
+        body = pay_resp.json() if pay_resp.content else {}
+        raw = (body.get('message') or body.get('error') or pay_resp.text or '').lower()
+        if pay_resp.status_code == 401 or 'live credentials' in raw:
+            return {
+                'ok': False,
+                'motivo': 'token_nao_serve_cartao',
+                'detalhe': (
+                    'O Access Token autentica em /users/me, mas a API de pagamentos com cartão '
+                    'recusa (401 — credenciais de produção/conta de teste). '
+                    'Use Public Key e Access Token juntos em Suas integrações → sua aplicação → '
+                    'Credenciais de teste. Não use o token da seção Contas de teste.'
+                ),
+                'http_status': pay_resp.status_code,
+            }
+        return {
+            'ok': False,
+            'motivo': 'cartao_api_erro',
+            'detalhe': (pay_resp.text or '')[:400],
+            'http_status': pay_resp.status_code,
+        }
+    except Exception as exc:
+        logger.warning('mp_probe_pagamento_cartao: %s', exc)
+        return {
+            'ok': False,
+            'motivo': 'requisicao_erro',
+            'detalhe': str(exc),
+            'http_status': None,
+        }
+
+
 def interpretar_resposta_payment_create(payment_response):
     """
     SDK MP: { status: HTTP, response: body }.
@@ -124,8 +229,10 @@ def mensagem_erro_payment_http(http_status, payment: dict, *, env: str) -> str:
         return (
             f'Credenciais Mercado Pago incompatíveis (erro {http_status}). '
             f'O Brick e o servidor precisam usar o mesmo par Public Key + Access Token '
-            f'de {env_label}, copiados da mesma aplicação no painel MP (Credenciais de teste). '
-            'Cartões de teste só funcionam com credenciais Sandbox.'
+            f'de {env_label}, copiados juntos em Suas integrações → sua aplicação → '
+            f'{"Credenciais de teste" if env == "sandbox" else "Credenciais de produção"}. '
+            'Não use o Access Token da seção Contas de teste (conta TESTUSER…). '
+            'Em Configurações, clique em Testar conexão após corrigir.'
         )
     if http_status == 403:
         return 'Acesso negado pelo Mercado Pago (403). Verifique se o token tem permissão para criar pagamentos.'

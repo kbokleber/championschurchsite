@@ -3163,6 +3163,8 @@ def admin_testar_conexao_mercadopago(request):
     Endpoint de diagnóstico das credenciais Mercado Pago.
     Valida o Access Token em /users/me sem criar cobrança/pagamento.
     """
+    from .mercadopago_sdk import get_mp_env_card, mp_probe_pagamento_cartao
+
     config = ConfiguracaoSite.get_config()
     ambiente = (request.data.get('mp_ambiente') or config.mp_ambiente or 'sandbox').strip()
     if ambiente not in ('sandbox', 'production'):
@@ -3176,16 +3178,36 @@ def admin_testar_conexao_mercadopago(request):
         access_token = (request.data.get('mp_access_token_sandbox') or config.mp_access_token_sandbox or '').strip()
 
     webhook_secret = (request.data.get('mp_webhook_secret') or config.mp_webhook_secret or '').strip()
+    card_env = get_mp_env_card(config)
+    card_pk = (config.get_mp_public_key_for(card_env) or '').strip()
+    card_tok = (config.get_mp_access_token_for(card_env) or '').strip()
+
+    def _cred_resumo(chave: str) -> str:
+        chave = (chave or '').strip()
+        if len(chave) < 16:
+            return chave or '(vazio)'
+        return f'{chave[:12]}…{chave[-6:]}'
+
     resultado = {
         'ok': False,
         'motivo': 'configuracao_incompleta',
         'ambiente': ambiente,
+        'ambiente_cartao_brick': card_env,
         'status_http': None,
         'url_usada': 'https://api.mercadopago.com/users/me',
         'detalhe': None,
         'conta': None,
         'public_key_configurada': bool(public_key),
         'access_token_configurado': bool(access_token),
+        'public_key_resumo': _cred_resumo(public_key),
+        'access_token_resumo': _cred_resumo(access_token),
+        'cartao_public_key_resumo': _cred_resumo(card_pk),
+        'cartao_access_token_resumo': _cred_resumo(card_tok),
+        'par_cartao_mesmo_campo': (
+            card_env == ambiente
+            and card_pk == public_key
+            and card_tok == access_token
+        ),
         'webhook_secret_configurado': bool(webhook_secret),
         'webhook_url': request.build_absolute_uri('/api/mercadopago/webhook/'),
     }
@@ -3218,16 +3240,53 @@ def admin_testar_conexao_mercadopago(request):
 
         if 200 <= response.status_code < 300:
             data = response.json() if response.content else {}
-            resultado['ok'] = True
-            resultado['motivo'] = 'ok'
-            resultado['detalhe'] = 'Credenciais autenticadas com sucesso.'
-            resultado['credenciais_teste'] = ambiente == 'sandbox'
+            tags = data.get('tags') or []
+            is_test_user = 'test_user' in tags
+            nickname = (data.get('nickname') or '').strip()
             resultado['conta'] = {
                 'id': data.get('id'),
-                'nickname': data.get('nickname'),
+                'nickname': nickname,
                 'email': data.get('email'),
                 'site_id': data.get('site_id'),
+                'tags': tags,
             }
+            resultado['conta_teste_mp'] = is_test_user
+            resultado['credenciais_teste'] = ambiente == 'sandbox'
+
+            if is_test_user:
+                resultado['aviso_cartao'] = (
+                    'Este Access Token é de uma conta de teste do MP (TESTUSER…), não da aplicação. '
+                    'O cartão na página não funcionará. Copie Public Key e Access Token em '
+                    'Suas integrações → sua aplicação → Credenciais de teste (mesma tela).'
+                )
+
+            cartao_habilitado = getattr(config, 'mp_cartao_habilitado', True)
+            if cartao_habilitado:
+                probe = mp_probe_pagamento_cartao(access_token)
+                resultado['cartao_api_ok'] = probe.get('ok')
+                resultado['cartao_api_http'] = probe.get('http_status')
+                if not probe.get('ok'):
+                    resultado['ok'] = False
+                    resultado['motivo'] = probe.get('motivo') or 'cartao_api_erro'
+                    resultado['detalhe'] = probe.get('detalhe')
+                    if is_test_user and resultado['motivo'] == 'token_nao_serve_cartao':
+                        resultado['motivo'] = 'token_conta_teste_mp'
+                    return Response(resultado, status=status.HTTP_400_BAD_REQUEST)
+
+            resultado['ok'] = True
+            resultado['motivo'] = 'ok'
+            resultado['detalhe'] = (
+                'Credenciais autenticadas. API de cartão validada com pagamento de teste.'
+                if cartao_habilitado
+                else 'Credenciais autenticadas com sucesso.'
+            )
+            resultado['cartao_api_ok'] = None
+            if card_env == ambiente and card_pk and card_tok:
+                if card_pk != public_key or card_tok != access_token:
+                    resultado['aviso_cartao'] = (
+                        'O cartão (Brick) usa o mesmo ambiente, mas confira se Public Key e '
+                        'Access Token foram copiados juntos da mesma tela no painel MP.'
+                    )
             return Response(resultado)
 
         resultado['motivo'] = 'nao_autorizado' if response.status_code in (401, 403) else 'http_erro'

@@ -1,12 +1,13 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { loadMercadoPago } from '@mercadopago/sdk-js'
 import api from '../../services/api'
+import { getMercadoPagoInstance } from './mercadoPagoInstance'
 
 const MercadoPagoContext = createContext({
   ready: false,
   error: null,
   isSandbox: false,
   mpInstance: null,
+  payerEmailHint: '',
 })
 
 export function useMercadoPago() {
@@ -21,6 +22,7 @@ export function MercadoPagoProvider({ children, forBrick = 'card' }) {
   const [error, setError] = useState(null)
   const [isSandbox, setIsSandbox] = useState(false)
   const [mpInstance, setMpInstance] = useState(null)
+  const [payerEmailHint, setPayerEmailHint] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -33,18 +35,11 @@ export function MercadoPagoProvider({ children, forBrick = 'card' }) {
           if (!cancelled) setError('Mercado Pago não configurado (chave pública ausente).')
           return
         }
-        const MercadoPagoCtor = await loadMercadoPago()
-        if (!MercadoPagoCtor) {
-          if (!cancelled) setError('SDK Mercado Pago indisponível no navegador.')
-          return
-        }
-        const instance = new MercadoPagoCtor(data.public_key, {
-          locale: 'pt-BR',
-          advancedFraudPrevention: false,
-        })
+        const instance = await getMercadoPagoInstance(data.public_key)
         if (!cancelled) {
           setMpInstance(instance)
           setIsSandbox(!!data.is_sandbox)
+          setPayerEmailHint((data.payer_email_hint || '').trim())
           setReady(true)
           setError(null)
         }
@@ -62,7 +57,9 @@ export function MercadoPagoProvider({ children, forBrick = 'card' }) {
   }, [forBrick])
 
   return (
-    <MercadoPagoContext.Provider value={{ ready, error, isSandbox, mpInstance }}>
+    <MercadoPagoContext.Provider
+      value={{ ready, error, isSandbox, mpInstance, payerEmailHint }}
+    >
       {children}
     </MercadoPagoContext.Provider>
   )

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { AlertCircle, RefreshCw } from 'lucide-react'
 import api from '../../services/api'
 import { useMercadoPago } from './MercadoPagoProvider'
@@ -33,7 +33,7 @@ export function CardPaymentBrick({
   onError,
   pagadorAnonimo = false,
 }) {
-  const { ready, error: mpError, isSandbox, mpInstance } = useMercadoPago()
+  const { ready, error: mpError, isSandbox, mpInstance, payerEmailHint } = useMercadoPago()
   const reactId = useId().replace(/:/g, '')
   const containerId = `mp-card-brick-${reactId}`
   const containerRef = useRef(null)
@@ -54,7 +54,7 @@ export function CardPaymentBrick({
   const valorOk = valorNum >= VALOR_MINIMO_CARTAO
   const canMountBrick = ready && mpInstance && valorOk
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!canMountBrick) return
 
     const mountGeneration = ++mountGenRef.current
@@ -66,7 +66,7 @@ export function CardPaymentBrick({
       brickReadyRef.current = false
       setBrickReady(false)
       await new Promise((r) => requestAnimationFrame(r))
-      await new Promise((r) => setTimeout(r, 150))
+      await new Promise((r) => setTimeout(r, 200))
       if (cancelled || mountGeneration !== mountGenRef.current) return
 
       const el = containerRef.current || document.getElementById(containerId)
@@ -81,31 +81,29 @@ export function CardPaymentBrick({
         if (!cancelled && mountGeneration === mountGenRef.current && !brickReadyRef.current) {
           setError(
             'O formulário de cartão não carregou. Confira: (1) credenciais Sandbox no admin, ' +
-              '(2) no painel Mercado Pago cadastre este site em URLs permitidas, ' +
-              '(3) desative bloqueador de anúncios e recarregue (Ctrl+F5).',
+              '(2) no painel MP → sua aplicação → URLs do site (dev e produção), ' +
+              '(3) Console do navegador (F12) por erros CSP, (4) Ctrl+F5.',
           )
         }
-      }, 25000)
+      }, 20000)
 
-      try {
-        el.innerHTML = ''
-        const bricksBuilder = mpInstance.bricks()
-        const init = { amount: valorNum }
-        const emailHint = (defaultPayer.email || '').trim()
-        if (emailHint) {
-          init.payer = { email: emailHint }
-        }
-        const settings = {
-          initialization: init,
-          callbacks: {
-            onReady: () => {
-              if (!cancelled && mountGeneration === mountGenRef.current) {
-                if (readyTimeoutId) window.clearTimeout(readyTimeoutId)
-                brickReadyRef.current = true
-                setBrickReady(true)
-                setError(null)
-              }
-            },
+      const emailHint = (defaultPayer.email || payerEmailHint || '').trim()
+      const init = { amount: valorNum }
+      if (emailHint) {
+        init.payer = { email: emailHint }
+      }
+
+      const settings = {
+        initialization: init,
+        callbacks: {
+          onReady: () => {
+            if (!cancelled && mountGeneration === mountGenRef.current) {
+              if (readyTimeoutId) window.clearTimeout(readyTimeoutId)
+              brickReadyRef.current = true
+              setBrickReady(true)
+              setError(null)
+            }
+          },
             onSubmit: (cardFormData) => {
               return new Promise((resolve, reject) => {
                 setSubmitting(true)
@@ -170,23 +168,37 @@ export function CardPaymentBrick({
             },
           },
         }
-        const controller = await bricksBuilder.create('cardPayment', containerId, settings)
-        if (!cancelled && mountGeneration === mountGenRef.current) {
-          brickRef.current = controller
-          brickMountedRef.current = true
-        } else if (controller?.unmount) {
-          try {
-            controller.unmount()
-          } catch {
-            /* ignore */
+
+      let lastErr = null
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (cancelled || mountGeneration !== mountGenRef.current) return
+        try {
+          el.innerHTML = ''
+          const bricksBuilder = mpInstance.bricks()
+          const controller = await bricksBuilder.create('cardPayment', containerId, settings)
+          if (!cancelled && mountGeneration === mountGenRef.current) {
+            brickRef.current = controller
+            brickMountedRef.current = true
+            lastErr = null
+            break
           }
+          if (controller?.unmount) {
+            try {
+              controller.unmount()
+            } catch {
+              /* ignore */
+            }
+          }
+        } catch (e) {
+          lastErr = e
+          console.error('[MP Brick] tentativa', attempt + 1, e)
+          await new Promise((r) => setTimeout(r, 400 * (attempt + 1)))
         }
-      } catch (e) {
-        if (!cancelled && mountGeneration === mountGenRef.current) {
-          if (readyTimeoutId) window.clearTimeout(readyTimeoutId)
-          setError(e.message || 'Não foi possível carregar o formulário de cartão.')
-          brickMountedRef.current = false
-        }
+      }
+      if (lastErr && !cancelled && mountGeneration === mountGenRef.current) {
+        if (readyTimeoutId) window.clearTimeout(readyTimeoutId)
+        setError(lastErr.message || 'Não foi possível carregar o formulário de cartão.')
+        brickMountedRef.current = false
       }
     }
 
@@ -216,6 +228,7 @@ export function CardPaymentBrick({
     cardUrl,
     containerId,
     defaultPayer.email,
+    payerEmailHint,
     mountKey,
   ])
 

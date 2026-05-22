@@ -4434,11 +4434,16 @@ def mercadopago_config_publica(request):
     if config.mp_ativo and for_param == 'card':
         env = get_mp_env_card(config)
         public_key = config.get_mp_public_key_for(env)
+        payer_hint = (
+            (getattr(config, 'mp_loja_pix_email', None) or '').strip()
+            or (config.email or '').strip()
+        )
         return Response({
             'ativo': bool(public_key),
             'public_key': public_key or None,
             'ambiente': env,
             'is_sandbox': env == 'sandbox',
+            'payer_email_hint': payer_hint or None,
         })
     if config.mp_ativo and for_param == 'pix':
         env = get_mp_env_pix(config)

@@ -89,7 +89,10 @@ _MP_STATUS_DETAIL_PT = {
     'cc_rejected_call_for_authorize': 'É necessário autorizar o pagamento com o banco.',
     'cc_rejected_card_disabled': 'Cartão desativado. Use outro cartão.',
     'cc_rejected_duplicated_payment': 'Pagamento duplicado. Verifique se já foi cobrado.',
-    'cc_rejected_high_risk': 'Pagamento recusado por segurança. Tente outro meio.',
+    'cc_rejected_high_risk': (
+        'Pagamento recusado pelo antifraude do Mercado Pago (alto risco). '
+        'Tente outro cartão ou PIX. Em testes com cartão de teste, use titular APRO e CPF 12345678909.'
+    ),
     'cc_rejected_insufficient_amount': 'Saldo ou limite insuficiente.',
     'cc_rejected_invalid_installments': 'Parcelamento não disponível para este cartão.',
     'cc_rejected_max_attempts': 'Limite de tentativas atingido. Aguarde e tente mais tarde.',

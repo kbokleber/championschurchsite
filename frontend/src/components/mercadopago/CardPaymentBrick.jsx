@@ -11,17 +11,29 @@ import {
 
 const VALOR_MINIMO_CARTAO = 0.5
 
-/** Extrai payer enviado pelo Card Payment Brick no onSubmit. */
-function payerFromBrickForm(cardFormData) {
+/** Extrai payer do Brick (nome do titular vem em additionalData.cardholderName). */
+function payerFromBrickForm(cardFormData, additionalData) {
   const p = cardFormData?.payer || {}
   const id = p.identification || {}
   const number = String(id.number ?? id.document ?? '').replace(/\D/g, '')
-  const firstName = (p.first_name || p.name || '').trim()
-  const lastName = (p.last_name || '').trim()
+  let firstName = (p.first_name || '').trim()
+  let lastName = (p.last_name || '').trim()
+  const holderRaw = (
+    additionalData?.cardholderName ||
+    cardFormData?.cardholderName ||
+    p.name ||
+    ''
+  ).trim()
+  if ((!firstName && !lastName) && holderRaw) {
+    const parts = holderRaw.split(/\s+/).filter(Boolean)
+    firstName = parts[0] || ''
+    lastName = parts.slice(1).join(' ') || parts[0] || ''
+  }
   return {
     email: (p.email || '').trim(),
     first_name: firstName,
     last_name: lastName,
+    cardholder_name: holderRaw || `${firstName} ${lastName}`.trim(),
     identification: {
       type: id.type || 'CPF',
       number,
@@ -125,7 +137,7 @@ export function CardPaymentBrick({
               setError(null)
             }
           },
-            onSubmit: (cardFormData) => {
+            onSubmit: (cardFormData, additionalData) => {
               return new Promise((resolve, reject) => {
                 setSubmitting(true)
                 setError(null)
@@ -138,8 +150,8 @@ export function CardPaymentBrick({
                       installments: cardFormData.installments || 1,
                       issuer_id: cardFormData.issuer_id,
                     }
-                    // Cartão: payer do Brick deve ir no POST (MP exige consistência com o token).
-                    payload.payer = payerFromBrickForm(cardFormData)
+                    // Cartão: payer + nome do titular (additionalData) para o MP antifraude.
+                    payload.payer = payerFromBrickForm(cardFormData, additionalData)
                     if (contexto === 'loja') {
                       payload.cobranca_loja_id = cobrancaLojaId
                     } else {

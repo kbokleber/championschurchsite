@@ -4304,6 +4304,7 @@ def _pagar_cartao_impl(request):
         'email': email,
         'first_name': (payer.get('first_name') or (partes_nome[0] if partes_nome else '')).strip(),
         'last_name': (payer.get('last_name') or (partes_nome[1] if len(partes_nome) > 1 else '')).strip(),
+        'cardholder_name': (payer.get('cardholder_name') or '').strip(),
         'identification': identification,
     }
     try:

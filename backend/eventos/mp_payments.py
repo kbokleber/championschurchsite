@@ -101,9 +101,14 @@ def resolver_pagador_cartao_loja(config=None, payer_input=None) -> dict:
     doc_req = _normalizar_cpf(id_req.get('number') or '')
     if email_req and len(doc_req) in (11, 14):
         id_type = id_req.get('type') or ('CNPJ' if len(doc_req) == 14 else 'CPF')
-        nome = (
-            (payer_input.get('first_name') or payer_input.get('name') or 'Pagador').strip()
-        )
+        nome_completo = (payer_input.get('cardholder_name') or '').strip()
+        if not nome_completo:
+            fn = (payer_input.get('first_name') or '').strip()
+            ln = (payer_input.get('last_name') or '').strip()
+            nome_completo = f'{fn} {ln}'.strip()
+        if not nome_completo:
+            nome_completo = (payer_input.get('name') or 'Pagador').strip()
+        nome = nome_completo or 'Pagador'
         partes = nome.split(None, 1)
         return {
             'email': email_req,
@@ -129,10 +134,16 @@ def montar_payer_payment_cartao(pagador: dict) -> dict:
     }
     fn = (pagador.get('first_name') or '').strip()
     ln = (pagador.get('last_name') or '').strip()
-    if fn:
-        out['first_name'] = fn[:255]
-    if ln:
-        out['last_name'] = ln[:255]
+    if not fn and not ln:
+        holder = (pagador.get('cardholder_name') or '').strip()
+        if holder:
+            partes = holder.split(None, 1)
+            fn = partes[0]
+            ln = partes[1] if len(partes) > 1 else partes[0]
+    fn = fn or 'Pagador'
+    ln = ln or fn
+    out['first_name'] = fn[:255]
+    out['last_name'] = ln[:255]
     return out
 
 

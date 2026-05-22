@@ -5,7 +5,7 @@ import { PixEmbeddedPanel } from './PixEmbeddedPanel'
 import { CardPaymentBrick } from './CardPaymentBrick'
 
 /**
- * Checkout transparente unificado: abas PIX + Cartão.
+ * Checkout transparente unificado: abas PIX + Cartão (eventos e loja — mesmo fluxo).
  */
 export function MercadoPagoCheckout({
   contexto = 'eventos',
@@ -17,10 +17,15 @@ export function MercadoPagoCheckout({
   onPixReady,
 }) {
   const [aba, setAba] = useState('pix')
-  const pagadorAnonimo = contexto === 'loja'
+  const [cardSdkRequested, setCardSdkRequested] = useState(false)
 
   const handleSuccess = (data) => {
     onPaymentSuccess?.(data)
+  }
+
+  const abrirCartao = () => {
+    setCardSdkRequested(true)
+    setAba('cartao')
   }
 
   return (
@@ -39,7 +44,7 @@ export function MercadoPagoCheckout({
         </button>
         <button
           type="button"
-          onClick={() => setAba('cartao')}
+          onClick={abrirCartao}
           className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${
             aba === 'cartao'
               ? 'border-primary-600 text-primary-600'
@@ -59,11 +64,11 @@ export function MercadoPagoCheckout({
           defaultPayer={defaultPayer}
           onPixCreated={onPixReady}
           onAlreadyPaid={handleSuccess}
-          pagadorAnonimo={pagadorAnonimo}
+          pagadorAnonimo={false}
         />
       )}
 
-      {aba === 'cartao' && (
+      {aba === 'cartao' && cardSdkRequested && (
         <MercadoPagoProvider forBrick="card">
           <CardPaymentBrick
             contexto={contexto}
@@ -72,7 +77,7 @@ export function MercadoPagoCheckout({
             amount={valor}
             defaultPayer={defaultPayer}
             onSuccess={handleSuccess}
-            pagadorAnonimo={pagadorAnonimo}
+            pagadorAnonimo={false}
           />
         </MercadoPagoProvider>
       )}

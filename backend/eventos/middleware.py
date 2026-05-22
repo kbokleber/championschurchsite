@@ -112,14 +112,21 @@ class SecurityHeadersMiddleware:
         
         # Content Security Policy
         if not settings.DEBUG:
+            # Mercado Pago Bricks: iframes (PCI) + SDK em *.mercadopago.com / *.mlstatic.com
             response['Content-Security-Policy'] = (
                 "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline' https://sdk.mercadopago.com https://*.googleapis.com https://*.gstatic.com https://analytics.kbosolucoes.com.br; "
-                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                "script-src 'self' 'unsafe-inline' https://sdk.mercadopago.com "
+                "https://*.mercadopago.com https://*.mlstatic.com "
+                "https://*.googleapis.com https://*.gstatic.com https://analytics.kbosolucoes.com.br; "
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com "
+                "https://*.mercadopago.com https://*.mlstatic.com; "
                 "img-src 'self' data: blob: https:; "
-                "font-src 'self' data: https://fonts.gstatic.com; "
-                "connect-src 'self' https://api.mercadopago.com https://analytics.kbosolucoes.com.br; "
-                "frame-src 'self' https://www.google.com https://maps.google.com https://*.google.com; "
+                "font-src 'self' data: https://fonts.gstatic.com https://*.mlstatic.com; "
+                "connect-src 'self' https://api.mercadopago.com https://*.mercadopago.com "
+                "https://*.mercadolibre.com https://analytics.kbosolucoes.com.br; "
+                "frame-src 'self' https://www.google.com https://maps.google.com https://*.google.com "
+                "https://*.mercadopago.com https://www.mercadopago.com https://www.mercadopago.com.br "
+                "https://*.mercadolibre.com https://*.mlstatic.com; "
                 "frame-ancestors 'none';"
             )
         

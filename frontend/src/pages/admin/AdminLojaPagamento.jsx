@@ -71,7 +71,17 @@ function AdminLojaPagamento() {
     }
   }
 
-  const handlePaymentSuccess = async () => {
+  const handlePaymentSuccess = async (data) => {
+    if (data?.status === 'approved') {
+      setPago(true)
+      if (pollingRef.current) clearInterval(pollingRef.current)
+      await carregar()
+      return
+    }
+    if (data?.status === 'pending' || data?.status === 'in_process') {
+      iniciarPolling()
+      return
+    }
     setPago(true)
     if (pollingRef.current) clearInterval(pollingRef.current)
     await carregar()
@@ -139,7 +149,9 @@ function AdminLojaPagamento() {
         <p className="text-gray-600 text-sm mt-1">
           Valor: R$ {cob ? Number(cob.valor).toFixed(2).replace('.', ',') : '—'}
         </p>
-        <p className="text-gray-500 text-xs mt-1">Pagamento no site — checkout transparente Mercado Pago.</p>
+        <p className="text-gray-500 text-xs mt-1">
+          Pague com <strong>PIX</strong> ou <strong>cartão</strong> nesta página (mesmo fluxo dos eventos).
+        </p>
         {erro && <p className="text-red-600 text-sm mt-2">{erro}</p>}
 
         <div className="mt-6">
@@ -151,6 +163,11 @@ function AdminLojaPagamento() {
             onPaymentSuccess={handlePaymentSuccess}
             onPixReady={() => iniciarPolling()}
           />
+
+          <p className="flex items-center justify-center gap-2 mt-4 text-amber-600 text-sm">
+            <Clock className="w-4 h-4 animate-pulse" />
+            Aguardando confirmação após o pagamento…
+          </p>
 
           <button
             type="button"

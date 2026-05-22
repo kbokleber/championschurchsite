@@ -39,10 +39,13 @@ export function CardPaymentBrick({
   const containerRef = useRef(null)
   const brickRef = useRef(null)
   const brickMountedRef = useRef(false)
+  const brickReadyRef = useRef(false)
+  const mountGenRef = useRef(0)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [info, setInfo] = useState(null)
   const [brickReady, setBrickReady] = useState(false)
+  const [mountKey, setMountKey] = useState(0)
 
   const cardUrl =
     contexto === 'loja' ? '/loja/mercadopago/pagar-cartao/' : '/mercadopago/pagar-cartao/'
@@ -52,13 +55,35 @@ export function CardPaymentBrick({
   const canMountBrick = ready && mpInstance && valorOk
 
   useEffect(() => {
-    if (!canMountBrick || brickMountedRef.current) return
+    if (!canMountBrick) return
 
+    const mountGeneration = ++mountGenRef.current
     let cancelled = false
+    let readyTimeoutId = null
+
     const mount = async () => {
+      brickMountedRef.current = false
+      brickReadyRef.current = false
+      setBrickReady(false)
       await new Promise((r) => requestAnimationFrame(r))
+      if (cancelled || mountGeneration !== mountGenRef.current) return
+
       const el = containerRef.current || document.getElementById(containerId)
-      if (!el) return
+      if (!el) {
+        if (!cancelled) {
+          setError('Não foi possível montar o formulário de cartão. Recarregue a página.')
+        }
+        return
+      }
+
+      readyTimeoutId = window.setTimeout(() => {
+        if (!cancelled && mountGeneration === mountGenRef.current && !brickReadyRef.current) {
+          setError(
+            'O formulário de cartão demorou para carregar. Verifique bloqueadores de anúncio, ' +
+              'confira as credenciais Sandbox no admin e recarregue a página.',
+          )
+        }
+      }, 25000)
 
       try {
         el.innerHTML = ''
@@ -72,7 +97,12 @@ export function CardPaymentBrick({
           initialization: init,
           callbacks: {
             onReady: () => {
-              if (!cancelled) setBrickReady(true)
+              if (!cancelled && mountGeneration === mountGenRef.current) {
+                if (readyTimeoutId) window.clearTimeout(readyTimeoutId)
+                brickReadyRef.current = true
+                setBrickReady(true)
+                setError(null)
+              }
             },
             onSubmit: (cardFormData) => {
               return new Promise((resolve, reject) => {
@@ -134,12 +164,19 @@ export function CardPaymentBrick({
           },
         }
         const controller = await bricksBuilder.create('cardPayment', containerId, settings)
-        if (!cancelled) {
+        if (!cancelled && mountGeneration === mountGenRef.current) {
           brickRef.current = controller
           brickMountedRef.current = true
+        } else if (controller?.unmount) {
+          try {
+            controller.unmount()
+          } catch {
+            /* ignore */
+          }
         }
       } catch (e) {
-        if (!cancelled) {
+        if (!cancelled && mountGeneration === mountGenRef.current) {
+          if (readyTimeoutId) window.clearTimeout(readyTimeoutId)
           setError(e.message || 'Não foi possível carregar o formulário de cartão.')
           brickMountedRef.current = false
         }
@@ -149,6 +186,7 @@ export function CardPaymentBrick({
     mount()
     return () => {
       cancelled = true
+      if (readyTimeoutId) window.clearTimeout(readyTimeoutId)
       if (brickRef.current?.unmount) {
         try {
           brickRef.current.unmount()
@@ -160,7 +198,26 @@ export function CardPaymentBrick({
       brickMountedRef.current = false
       setBrickReady(false)
     }
-  }, [canMountBrick, mpInstance, valorNum, cobrancaId, cobrancaLojaId, contexto, pagadorAnonimo, cardUrl, containerId, defaultPayer.email])
+  }, [
+    canMountBrick,
+    mpInstance,
+    valorNum,
+    cobrancaId,
+    cobrancaLojaId,
+    contexto,
+    pagadorAnonimo,
+    cardUrl,
+    containerId,
+    defaultPayer.email,
+    mountKey,
+  ])
+
+  const tentarNovamenteBrick = () => {
+    setError(null)
+    setBrickReady(false)
+    brickMountedRef.current = false
+    setMountKey((k) => k + 1)
+  }
 
   if (mpError) {
     return (
@@ -190,20 +247,14 @@ export function CardPaymentBrick({
 
   return (
     <div className="space-y-4">
-      {pagadorAnonimo ? (
-        <p className="text-sm text-gray-600 rounded-lg bg-gray-50 border border-gray-200 p-3">
-          Pagamento em nome da igreja (cliente não precisa se identificar).
-        </p>
-      ) : (
-        <p className="text-sm text-gray-600">
-          Preencha os dados do cartão e do titular no formulário do Mercado Pago abaixo.
-          {defaultPayer.email ? (
-            <span className="block mt-1 text-gray-500">
-              E-mail da inscrição pode vir pré-preenchido quando disponível.
-            </span>
-          ) : null}
-        </p>
-      )}
+      <p className="text-sm text-gray-600">
+        Preencha os dados do cartão e do titular no formulário do Mercado Pago abaixo.
+        {defaultPayer.email ? (
+          <span className="block mt-1 text-gray-500">
+            E-mail pode vir pré-preenchido quando disponível.
+          </span>
+        ) : null}
+      </p>
       {isSandbox && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 space-y-2">
           <p>
@@ -259,9 +310,18 @@ export function CardPaymentBrick({
         </div>
       )}
       {error && (
-        <div className="text-sm text-red-600 flex items-start gap-2">
-          <AlertCircle className="w-5 h-5 shrink-0" />
-          {error}
+        <div className="text-sm text-red-600 space-y-2">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-5 h-5 shrink-0" />
+            {error}
+          </div>
+          <button
+            type="button"
+            onClick={tentarNovamenteBrick}
+            className="text-sm text-primary-600 hover:underline"
+          >
+            Tentar carregar formulário novamente
+          </button>
         </div>
       )}
       <div

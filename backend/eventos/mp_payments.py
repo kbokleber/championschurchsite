@@ -39,10 +39,17 @@ def extrair_dados_pix(payment: dict) -> dict:
     }
 
 
-def resolver_pagador_loja(config=None, payer_input=None) -> dict:
+def resolver_pagador_pix_config(
+    config=None,
+    payer_input=None,
+    *,
+    email_fallback: str = '',
+    nome_fallback: str = '',
+) -> dict:
     """
-    Pagador para loja/cantina: cliente anônimo no balcão.
-    Usa mp_loja_pix_* ou e-mail de contato + CPF/CNPJ da igreja (obrigatório no admin).
+    Pagador PIX via configuração da igreja (mp_loja_pix_*).
+    Loja: só config. Eventos: e-mail da inscrição (email_fallback) + CPF/CNPJ do admin.
+    payer_input opcional sobrescreve e-mail/documento.
     """
     config = config or ConfiguracaoSite.get_config()
     payer_input = payer_input or {}
@@ -52,21 +59,22 @@ def resolver_pagador_loja(config=None, payer_input=None) -> dict:
 
     email = (
         email_req
+        or (email_fallback or '').strip()
         or (getattr(config, 'mp_loja_pix_email', None) or '').strip()
         or (config.email or '').strip()
     )
     doc = doc_req or _normalizar_cpf(getattr(config, 'mp_loja_pix_cpf_cnpj', None) or '')
     if not email:
         raise ValueError(
-            'Configure o e-mail de contato da igreja ou "E-mail pagador PIX (loja)" em Configurações → Mercado Pago.'
+            'Configure o e-mail de contato da igreja, o e-mail da inscrição ou '
+            '"E-mail pagador PIX (loja)" em Configurações → Mercado Pago.'
         )
     if len(doc) not in (11, 14):
         raise ValueError(
-            'Configure CPF ou CNPJ em Configurações → Mercado Pago → "CPF/CNPJ pagador PIX (loja)" '
-            '(vendas sem identificar o comprador).'
+            'Configure CPF ou CNPJ em Configurações → Mercado Pago → "CPF/CNPJ pagador PIX (loja)".'
         )
     id_type = 'CNPJ' if len(doc) == 14 else 'CPF'
-    nome = (config.nome_igreja or 'Loja').strip()
+    nome = (nome_fallback or config.nome_igreja or 'Pagador').strip()
     partes = nome.split(None, 1)
     return {
         'email': email,
@@ -74,6 +82,11 @@ def resolver_pagador_loja(config=None, payer_input=None) -> dict:
         'last_name': (partes[1] if len(partes) > 1 else partes[0])[:255],
         'identification': {'type': id_type, 'number': doc},
     }
+
+
+def resolver_pagador_loja(config=None, payer_input=None) -> dict:
+    """Alias: loja/cantina sem comprador identificado."""
+    return resolver_pagador_pix_config(config, payer_input)
 
 
 def montar_payer_pix(payer_input: dict, *, email_fallback: str = '', nome_fallback: str = '') -> dict:

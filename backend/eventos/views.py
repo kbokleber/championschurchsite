@@ -3479,7 +3479,7 @@ from .mercadopago_sdk import (
     mp_buscar_pagamento,
     mp_search_payments_by_reference,
 )
-from .mp_payments import criar_ou_reutilizar_pix_embutido
+from .mp_payments import criar_ou_reutilizar_pix_embutido, resolver_pagador_pix_config
 
 
 @api_view(['POST'])
@@ -4354,10 +4354,17 @@ def criar_pagamento_pix_embutido(request):
     if not credenciais_ok:
         return Response({'error': detalhe_credenciais}, status=status.HTTP_400_BAD_REQUEST)
 
-    payer = request.data.get('payer') or {}
+    payer_req = request.data.get('payer') or {}
     membro = cobranca.membro
     email_fb = (membro.email if membro else '') or ''
     nome_fb = (membro.nome if membro else '') or 'Pagador'
+
+    try:
+        payer_mp = resolver_pagador_pix_config(
+            config, payer_req, email_fallback=email_fb, nome_fallback=nome_fb
+        )
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     def limpar_ref():
         cobranca.referencia_externa = ''
@@ -4369,10 +4376,11 @@ def criar_pagamento_pix_embutido(request):
             valor=float(cobranca.valor),
             descricao=f'Inscrição: {cobranca.evento.titulo}',
             referencia_externa=cobranca.referencia_externa,
-            payer_input=payer,
+            payer_input={},
             email_fallback=email_fb,
             nome_fallback=nome_fb,
             limpar_referencia_invalida=limpar_ref,
+            payer_mp_override=payer_mp,
         )
     except ValueError as exc:
         return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)

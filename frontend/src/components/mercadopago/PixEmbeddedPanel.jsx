@@ -91,7 +91,18 @@ export function PixEmbeddedPanel({
     <div className="space-y-4">
       {pagadorAnonimo && (
         <p className="text-sm text-gray-600 rounded-lg bg-gray-50 border border-gray-200 p-3">
-          O cliente não precisa se identificar. O PIX é gerado em nome da igreja (configuração em Mercado Pago).
+          {contexto === 'loja' ? (
+            <>
+              O cliente no balcão não precisa informar e-mail nem CPF. O PIX usa os dados em{' '}
+              <strong>Configurações → Mercado Pago</strong>.
+            </>
+          ) : (
+            <>
+              O QR Code PIX é gerado automaticamente com o <strong>e-mail da inscrição</strong> e o{' '}
+              <strong>CPF/CNPJ</strong> configurado em <strong>Configurações → Mercado Pago</strong> (não é
+              necessário preencher dados aqui).
+            </>
+          )}
         </p>
       )}
       {!pagadorAnonimo && (

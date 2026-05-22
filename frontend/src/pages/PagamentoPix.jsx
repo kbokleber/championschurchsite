@@ -182,7 +182,8 @@ function PagamentoPix() {
           </button>
           <h1 className="text-2xl font-bold text-gray-900">Pagamento</h1>
           <p className="text-gray-600">
-            Pague com <strong>PIX</strong> ou <strong>cartão</strong> nesta página (sem sair do site).
+            Pague com <strong>PIX</strong> ou <strong>cartão</strong> nesta página (sem sair do site). O PIX usa
+            seu e-mail de inscrição e o CPF/CNPJ da igreja em Configurações.
           </p>
         </div>
 

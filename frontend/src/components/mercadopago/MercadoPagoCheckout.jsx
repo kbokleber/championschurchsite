@@ -19,8 +19,9 @@ export function MercadoPagoCheckout({
 }) {
   const [aba, setAba] = useState('pix')
   const [cardSdkRequested, setCardSdkRequested] = useState(false)
-  /** Loja: e-mail/CPF vêm do admin (mp_loja_pix_*); eventos: formulário do comprador */
+  /** PIX: config igreja (eventos: + e-mail da inscrição). Cartão loja: só config. */
   const pagadorLoja = contexto === 'loja'
+  const pixSemFormulario = true
 
   const handleSuccess = (data) => {
     onPaymentSuccess?.(data)
@@ -67,7 +68,7 @@ export function MercadoPagoCheckout({
           defaultPayer={defaultPayer}
           onPixCreated={onPixReady}
           onAlreadyPaid={handleSuccess}
-          pagadorAnonimo={pagadorLoja}
+          pagadorAnonimo={pixSemFormulario}
         />
       )}
 

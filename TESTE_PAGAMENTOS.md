@@ -18,10 +18,11 @@ Use este checklist para validar PIX embutido e cartão na própria página (sem 
 - [ ] Ver abas **PIX** e **Cartão** na mesma página (sem botão “Ir ao Mercado Pago”).
 - [ ] Texto: pagamento no site, checkout transparente.
 
-### 2. PIX embutido
+### 2. PIX embutido (eventos)
 
-- [ ] Aba **PIX**: preencher e-mail e CPF do pagador.
-- [ ] Clicar **Gerar QR Code PIX** → aparece QR e botão **Copiar código PIX**.
+- [ ] Aba **PIX**: QR gerado automaticamente (sem formulário de e-mail/CPF).
+- [ ] Usa e-mail da inscrição + **CPF/CNPJ pagador PIX (loja)** em Configurações → Mercado Pago.
+- [ ] Aparece QR e botão **Copiar código PIX**.
 - [ ] Pagar via app do banco; em até ~5 s a página mostra **Pagamento Confirmado** (polling + webhook).
 - [ ] Status da cobrança no admin: **Pago**, método **Mercado Pago (PIX)**.
 

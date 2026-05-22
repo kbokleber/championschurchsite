@@ -88,6 +88,7 @@ class VendaListSerializer(serializers.ModelSerializer):
     itens = ItemVendaSerializer(many=True, read_only=True)
     tem_cobranca_mp = serializers.SerializerMethodField()
     cobranca_loja_id = serializers.SerializerMethodField()
+    cobranca_loja_codigo = serializers.SerializerMethodField()
 
     class Meta:
         model = Venda
@@ -104,6 +105,7 @@ class VendaListSerializer(serializers.ModelSerializer):
             'itens',
             'tem_cobranca_mp',
             'cobranca_loja_id',
+            'cobranca_loja_codigo',
         )
 
     def get_criado_por_nome(self, obj):
@@ -121,6 +123,11 @@ class VendaListSerializer(serializers.ModelSerializer):
     def get_cobranca_loja_id(self, obj):
         if hasattr(obj, 'cobranca_mp') and obj.cobranca_mp is not None:
             return obj.cobranca_mp.id
+        return None
+
+    def get_cobranca_loja_codigo(self, obj):
+        if hasattr(obj, 'cobranca_mp') and obj.cobranca_mp is not None:
+            return obj.cobranca_mp.codigo
         return None
 
 

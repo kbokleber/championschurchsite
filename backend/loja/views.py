@@ -74,18 +74,37 @@ def _montar_items_order_loja(venda):
         produto = item.produto
         nome = (getattr(produto, 'nome', '') or 'Produto').strip()
         categoria = (getattr(produto, 'categoria', '') or 'loja').strip()
+        tipo_item = 'cantina' if categoria == 'cantina' else 'retail'
         items.append(
             {
                 'title': nome[:256],
                 'description': (getattr(produto, 'descricao', '') or nome)[:256],
                 'external_code': str(getattr(produto, 'id', '') or item.id)[:64],
                 'category_id': categoria[:64],
-                'type': 'retail',
+                'type': tipo_item,
                 'quantity': int(item.quantidade or 1),
                 'unit_price': _mp_valor_str(item.preco_unitario),
             }
         )
     return items
+
+
+def _categoria_principal_venda(venda):
+    """Define se a venda é de cantina, loja ou mista (Loja/Cantina)."""
+    categorias = set()
+    for item in venda.itens.select_related('produto').all():
+        if item.produto and item.produto.categoria:
+            categorias.add(item.produto.categoria)
+    if categorias == {'cantina'}:
+        return 'cantina'
+    if categorias == {'loja'}:
+        return 'loja'
+    return 'mista'
+
+
+def _titulo_venda_mp(venda):
+    cat = _categoria_principal_venda(venda)
+    return {'cantina': 'Cantina', 'loja': 'Loja'}.get(cat, 'Loja / Cantina')
 
 
 def _descricao_order_loja(venda):
@@ -95,7 +114,26 @@ def _descricao_order_loja(venda):
         if item.produto
     ]
     detalhe = ', '.join(nomes[:5]) if nomes else f'Venda #{venda.id}'
-    return f'Loja / Cantina - {detalhe}'[:255]
+    titulo = _titulo_venda_mp(venda)
+    return f'{titulo} - {detalhe}'[:255]
+
+
+def _items_pix_loja(venda):
+    items = []
+    for item in venda.itens.select_related('produto').all():
+        produto = item.produto
+        nome = (getattr(produto, 'nome', '') or 'Produto').strip()
+        items.append(
+            {
+                'id': str(getattr(produto, 'id', '') or item.id),
+                'nome': nome,
+                'descricao': (getattr(produto, 'descricao', '') or nome).strip(),
+                'categoria': (getattr(produto, 'categoria', '') or 'loja').strip(),
+                'quantidade': int(item.quantidade or 1),
+                'preco_unitario': float(item.preco_unitario or 0),
+            }
+        )
+    return items
 
 
 class IsSuperUser(BasePermission):
@@ -1178,15 +1216,16 @@ def criar_pagamento_pix_embutido_loja(request):
         result = criar_ou_reutilizar_pix_embutido(
             codigo=cobranca.codigo,
             valor=float(cobranca.valor),
-            titulo_mp='Lojinha / Cantina',
+            titulo_mp=_titulo_venda_mp(v),
             detalhe_mp=f'Venda #{v.id}',
-            origem_mp='loja',
+            origem_mp=_categoria_principal_venda(v),
             referencia_externa=cobranca.referencia_externa,
             payer_input={},
             email_fallback=payer_mp['email'],
             nome_fallback=nome_fb,
             limpar_referencia_invalida=limpar_ref,
             payer_mp_override=payer_mp,
+            items=_items_pix_loja(v),
         )
     except ValueError as exc:
         return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)

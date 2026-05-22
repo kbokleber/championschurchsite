@@ -6,6 +6,7 @@ import { formatApiError } from '../../services/api'
 import { MercadoPagoCheckout } from '../../components/mercadopago/MercadoPagoCheckout'
 import { ResumoCobrancaPagamento } from '../../components/mercadopago/ResumoCobrancaPagamento'
 import { rotuloMetodosMp, useMercadoPagoMetodos } from '../../components/mercadopago/useMercadoPagoMetodos'
+import VendaPagaResumo from '../../components/loja/VendaPagaResumo'
 import LoadingSpinner from '../../components/LoadingSpinner'
 
 function AdminLojaPagamento() {
@@ -122,20 +123,20 @@ function AdminLojaPagamento() {
 
   if (pago || cob?.status === 'pago') {
     return (
-      <div className="p-6 max-w-lg mx-auto text-center">
-        <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Pagamento confirmado</h1>
-        <p className="text-gray-600 mb-4">A venda foi finalizada.</p>
-        <p className="text-lg font-semibold text-gray-800 mb-6">
-          R$ {Number(cob?.valor).toFixed(2).replace('.', ',')}
-        </p>
-        <div className="space-y-2">
-          <Link to="/admin/loja/vendas" className="block btn btn-primary">Ver vendas</Link>
-          <button type="button" onClick={() => navigate(pdvVoltar)} className="w-full btn btn-secondary">
+      <VendaPagaResumo codigo={cob?.codigo}>
+        <div className="grid gap-2">
+          <button
+            type="button"
+            onClick={() => navigate(pdvVoltar)}
+            className="btn btn-primary w-full"
+          >
             Nova venda
           </button>
+          <Link to="/admin/loja/vendas" className="btn btn-secondary w-full text-center">
+            Ver vendas
+          </Link>
         </div>
-      </div>
+      </VendaPagaResumo>
     )
   }
 

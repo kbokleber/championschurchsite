@@ -38,6 +38,11 @@ from loja.views import (
     criar_pagamento_pix_embutido_loja,
     dashboard_financeiro_loja,
 )
+from loja.recibo import (
+    recibo_loja_publico,
+    enviar_recibo_whatsapp,
+    enviar_lembrete_reserva_whatsapp,
+)
 
 # Router que inclui Mercado Pago e outras rotas no Api Root
 class ChampionsRouter(DefaultRouter):
@@ -132,6 +137,13 @@ urlpatterns = [
     path('loja/mercadopago/pagar-cartao/', pagar_cartao_loja, name='mp_pagar_cartao_loja'),
     path('loja/mercadopago/criar-pix-embutido/', criar_pagamento_pix_embutido_loja, name='mp_criar_pix_embutido_loja'),
     path('loja/dashboard-financeiro/', dashboard_financeiro_loja, name='loja_dashboard_financeiro'),
+    path('loja/recibo/<str:codigo>/', recibo_loja_publico, name='loja_recibo_publico'),
+    path('loja/recibo/<str:codigo>/enviar-whatsapp/', enviar_recibo_whatsapp, name='loja_recibo_enviar_whatsapp'),
+    path(
+        'loja/reservas/<int:reserva_id>/enviar-whatsapp/',
+        enviar_lembrete_reserva_whatsapp,
+        name='loja_reserva_enviar_whatsapp',
+    ),
     path('mercadopago/config/', mercadopago_config_publica, name='mp_config'),
     
     # Router URLs

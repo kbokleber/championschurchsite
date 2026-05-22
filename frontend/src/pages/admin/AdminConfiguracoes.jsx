@@ -17,6 +17,48 @@ const CONFIG_BOOLEAN_KEYS = new Set([
   'mp_cartao_habilitado',
 ])
 
+function WhatsAppTestResultBox({ resultado, labelStatus, getQrImage }) {
+  if (!resultado) return null
+  return (
+    <div className={`mt-4 rounded-lg border p-3 text-sm ${
+      resultado.ok
+        ? 'border-green-200 bg-green-50 text-green-800'
+        : resultado.motivo === 'whatsapp_desconectado'
+          ? 'border-amber-200 bg-amber-50 text-amber-800'
+          : 'border-red-200 bg-red-50 text-red-800'
+    }`}>
+      <p><strong>Status:</strong> {labelStatus(resultado)}</p>
+      <p><strong>Motivo:</strong> {resultado.motivo || '-'}</p>
+      <p><strong>HTTP:</strong> {String(resultado.status_http ?? '-')}</p>
+      <p><strong>URL testada:</strong> {resultado.url_usada || '-'}</p>
+      {resultado.detalhe && (
+        <p className="mt-1 break-all"><strong>Detalhe:</strong> {resultado.detalhe}</p>
+      )}
+      {resultado.motivo === 'whatsapp_desconectado' && (
+        <div className="mt-4 rounded-lg border border-amber-300 bg-white p-4 text-gray-800">
+          <h5 className="font-semibold text-gray-900">Conectar telefone</h5>
+          <p className="mt-1 text-xs text-gray-600">
+            Abra o WhatsApp no celular, toque em Aparelhos conectados e leia o QR Code abaixo.
+            Depois clique em Testar conexão novamente.
+          </p>
+          {getQrImage(resultado) ? (
+            <img
+              src={getQrImage(resultado)}
+              alt="QR Code para conectar WhatsApp"
+              className="mt-4 h-56 w-56 rounded-lg border border-gray-200 bg-white object-contain p-2"
+            />
+          ) : (
+            <p className="mt-3 text-xs text-amber-700">
+              A instância está desconectada, mas a Evolution Go não retornou um QR Code nesta tentativa.
+              Clique em Testar conexão novamente em alguns segundos.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function appendConfigFormValue(formData, key, value) {
   if (CONFIG_BOOLEAN_KEYS.has(key) || typeof value === 'boolean') {
     const on = value === true || value === 'true' || value === '1' || value === 1
@@ -113,11 +155,15 @@ function AdminConfiguracoes() {
     evolution_api_url: '',
     evolution_api_key: '',
     evolution_api_instance: '',
+    evolution_api_instance_loja: '',
+    evolution_api_key_loja: '',
     // Templates WhatsApp
     wa_msg_reset_senha: '',
     wa_msg_inscricao_gratis: '',
     wa_msg_inscricao_paga_pendente: '',
-    wa_msg_inscricao_paga_confirmada: ''
+    wa_msg_inscricao_paga_confirmada: '',
+    wa_msg_recibo_loja: '',
+    wa_msg_reserva_loja: ''
   })
 
   const [logoPreview, setLogoPreview] = useState(null)
@@ -136,9 +182,12 @@ function AdminConfiguracoes() {
   const [showAccessTokenProduction, setShowAccessTokenProduction] = useState(false)
   const [showMpWebhookSecret, setShowMpWebhookSecret] = useState(false)
   const [showEvolutionApiKey, setShowEvolutionApiKey] = useState(false)
+  const [showEvolutionLojaApiKey, setShowEvolutionLojaApiKey] = useState(false)
   const [destaquesHome, setDestaquesHome] = useState([novoDestaqueHome()])
   const [testingWhatsApp, setTestingWhatsApp] = useState(false)
   const [whatsAppTestResult, setWhatsAppTestResult] = useState(null)
+  const [testingWhatsAppLoja, setTestingWhatsAppLoja] = useState(false)
+  const [whatsAppTestResultLoja, setWhatsAppTestResultLoja] = useState(null)
   const [testingMercadoPago, setTestingMercadoPago] = useState(false)
   const [mercadoPagoTestResult, setMercadoPagoTestResult] = useState(null)
 
@@ -205,11 +254,15 @@ function AdminConfiguracoes() {
         evolution_api_url: data.evolution_api_url || '',
         evolution_api_key: data.evolution_api_key || '',
         evolution_api_instance: data.evolution_api_instance || '',
+        evolution_api_instance_loja: data.evolution_api_instance_loja || '',
+        evolution_api_key_loja: data.evolution_api_key_loja || '',
         // Templates WhatsApp
         wa_msg_reset_senha: data.wa_msg_reset_senha || '',
         wa_msg_inscricao_gratis: data.wa_msg_inscricao_gratis || '',
         wa_msg_inscricao_paga_pendente: data.wa_msg_inscricao_paga_pendente || '',
-        wa_msg_inscricao_paga_confirmada: data.wa_msg_inscricao_paga_confirmada || ''
+        wa_msg_inscricao_paga_confirmada: data.wa_msg_inscricao_paga_confirmada || '',
+        wa_msg_recibo_loja: data.wa_msg_recibo_loja || '',
+        wa_msg_reserva_loja: data.wa_msg_reserva_loja || ''
       })
 
       if (data.logo) {
@@ -432,28 +485,50 @@ function AdminConfiguracoes() {
     })
   }
 
-  const handleTestarConexaoWhatsApp = async () => {
-    setTestingWhatsApp(true)
-    setWhatsAppTestResult(null)
+  const _executarTesteWhatsApp = async ({ rotulo, instance, apiKey, setLoading, setResult }) => {
+    setLoading(true)
+    setResult(null)
     setMessage({ type: '', text: '' })
     try {
       const response = await api.post('/admin/whatsapp/testar-conexao/', {
         evolution_api_url: formData.evolution_api_url,
-        evolution_api_key: formData.evolution_api_key,
-        evolution_api_instance: formData.evolution_api_instance
+        evolution_api_key: apiKey,
+        evolution_api_instance: instance,
       })
-      setWhatsAppTestResult(response.data)
-      setMessage({ type: 'success', text: 'Teste de conexão concluído com sucesso.' })
+      setResult(response.data)
+      setMessage({ type: 'success', text: `Teste de conexão (${rotulo}) concluído com sucesso.` })
     } catch (error) {
       const result = error.response?.data
-      if (result) {
-        setWhatsAppTestResult(result)
-      }
+      if (result) setResult(result)
       const detalhe = result?.detalhe || error.message || 'Falha ao testar conexão WhatsApp.'
-      setMessage({ type: 'error', text: `Falha no teste da Evolution Go: ${detalhe}` })
+      setMessage({ type: 'error', text: `Falha no teste (${rotulo}): ${detalhe}` })
     } finally {
-      setTestingWhatsApp(false)
+      setLoading(false)
     }
+  }
+
+  const handleTestarConexaoWhatsApp = () =>
+    _executarTesteWhatsApp({
+      rotulo: 'Eventos',
+      instance: formData.evolution_api_instance,
+      apiKey: formData.evolution_api_key,
+      setLoading: setTestingWhatsApp,
+      setResult: setWhatsAppTestResult,
+    })
+
+  const handleTestarConexaoWhatsAppLoja = () => {
+    const instance = (formData.evolution_api_instance_loja || '').trim()
+    if (!instance) {
+      setMessage({ type: 'error', text: 'Informe a instância da Loja / Cantina antes de testar.' })
+      return
+    }
+    return _executarTesteWhatsApp({
+      rotulo: 'Loja / Cantina',
+      instance,
+      apiKey: formData.evolution_api_key_loja || formData.evolution_api_key,
+      setLoading: setTestingWhatsAppLoja,
+      setResult: setWhatsAppTestResultLoja,
+    })
   }
 
   const getWhatsAppQrImage = (result) => {
@@ -1573,73 +1648,64 @@ function AdminConfiguracoes() {
                       placeholder="https://sua-evolutiongo.com"
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      URL base da Evolution Go (sem barra no final)
+                      URL base da Evolution Go (sem barra no final). Mesma URL para as duas instâncias.
                     </p>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      API Key / Token da Instância *
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showEvolutionApiKey ? 'text' : 'password'}
-                        name="evolution_api_key"
-                        value={formData.evolution_api_key}
-                        onChange={handleChange}
-                        className="input-field font-mono text-sm pr-10"
-                        placeholder="Sua chave de API da Evolution Go"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowEvolutionApiKey((s) => !s)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 rounded"
-                        title={showEvolutionApiKey ? 'Ocultar chave' : 'Mostrar chave'}
-                      >
-                        {showEvolutionApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Nesta instalação, use o Token da Instância para envio/status. A GLOBAL_API_KEY serve para rotas administrativas.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Instância (opcional)
-                    </label>
-                    <input
-                      type="text"
-                      name="evolution_api_instance"
-                      value={formData.evolution_api_instance}
-                      onChange={handleChange}
-                      className="input-field"
-                      placeholder="nome-da-instancia"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Use quando sua instalação exigir identificação de instância.
-                    </p>
-                  </div>
-
-                  {/* Instruções */}
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                    <h4 className="font-medium text-gray-800 mb-2">Como configurar a Evolution Go</h4>
-                    <ol className="text-sm text-gray-700 list-decimal list-inside space-y-1">
-                      <li>Abra sua instalação Evolution Go e confirme que a licença está ativa</li>
-                      <li>Copie a URL base da API (ex.: https://seu-dominio)</li>
-                      <li>Para envio/status, copie o Token da Instância no painel da instância</li>
-                      <li>Se necessário, informe a instância utilizada para envio</li>
-                    </ol>
-                  </div>
-
+                  {/* Instância dos Eventos */}
                   <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <h4 className="font-semibold text-gray-800 mb-1">Instância dos Eventos</h4>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Usada para mensagens transacionais de inscrições e eventos.
+                    </p>
+
+                    <div className="grid grid-cols-1 gap-4">
                       <div>
-                        <h4 className="font-medium text-gray-800">Teste de conexão</h4>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Token da Instância (Eventos) *
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={showEvolutionApiKey ? 'text' : 'password'}
+                            name="evolution_api_key"
+                            value={formData.evolution_api_key}
+                            onChange={handleChange}
+                            className="input-field font-mono text-sm pr-10"
+                            placeholder="Token da instância de eventos"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowEvolutionApiKey((s) => !s)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 rounded"
+                            title={showEvolutionApiKey ? 'Ocultar chave' : 'Mostrar chave'}
+                          >
+                            {showEvolutionApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
                         <p className="text-xs text-gray-500 mt-1">
-                          Verifica autenticação e status da instância na Evolution Go.
+                          Token da instância de eventos. A GLOBAL_API_KEY é só para rotas administrativas.
                         </p>
                       </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Instância dos Eventos
+                        </label>
+                        <input
+                          type="text"
+                          name="evolution_api_instance"
+                          value={formData.evolution_api_instance}
+                          onChange={handleChange}
+                          className="input-field"
+                          placeholder="ex.: eventos_principal"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
+                      <p className="text-xs text-gray-500">
+                        Verifica autenticação e status da instância de eventos.
+                      </p>
                       <button
                         type="button"
                         onClick={handleTestarConexaoWhatsApp}
@@ -1654,51 +1720,118 @@ function AdminConfiguracoes() {
                         ) : (
                           <>
                             <RefreshCw className="h-4 w-4 mr-2" />
-                            Testar conexão
+                            Testar conexão (Eventos)
                           </>
                         )}
                       </button>
                     </div>
 
                     {whatsAppTestResult && (
-                      <div className={`mt-4 rounded-lg border p-3 text-sm ${
-                        whatsAppTestResult.ok
-                          ? 'border-green-200 bg-green-50 text-green-800'
-                          : whatsAppTestResult.motivo === 'whatsapp_desconectado'
-                            ? 'border-amber-200 bg-amber-50 text-amber-800'
-                          : 'border-red-200 bg-red-50 text-red-800'
-                      }`}>
-                        <p><strong>Status:</strong> {getWhatsAppStatusLabel(whatsAppTestResult)}</p>
-                        <p><strong>Motivo:</strong> {whatsAppTestResult.motivo || '-'}</p>
-                        <p><strong>HTTP:</strong> {String(whatsAppTestResult.status_http ?? '-')}</p>
-                        <p><strong>URL testada:</strong> {whatsAppTestResult.url_usada || '-'}</p>
-                        {whatsAppTestResult.detalhe && (
-                          <p className="mt-1 break-all"><strong>Detalhe:</strong> {whatsAppTestResult.detalhe}</p>
-                        )}
-                        {whatsAppTestResult.motivo === 'whatsapp_desconectado' && (
-                          <div className="mt-4 rounded-lg border border-amber-300 bg-white p-4 text-gray-800">
-                            <h5 className="font-semibold text-gray-900">Conectar telefone</h5>
-                            <p className="mt-1 text-xs text-gray-600">
-                              Abra o WhatsApp no celular, toque em Aparelhos conectados e leia o QR Code abaixo.
-                              Depois clique em Testar conexão novamente.
-                            </p>
-                            {getWhatsAppQrImage(whatsAppTestResult) ? (
-                              <img
-                                src={getWhatsAppQrImage(whatsAppTestResult)}
-                                alt="QR Code para conectar WhatsApp"
-                                className="mt-4 h-56 w-56 rounded-lg border border-gray-200 bg-white object-contain p-2"
-                              />
-                            ) : (
-                              <p className="mt-3 text-xs text-amber-700">
-                                A instância está desconectada, mas a Evolution Go não retornou um QR Code nesta tentativa.
-                                Clique em Testar conexão novamente em alguns segundos.
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                      <WhatsAppTestResultBox
+                        resultado={whatsAppTestResult}
+                        labelStatus={getWhatsAppStatusLabel}
+                        getQrImage={getWhatsAppQrImage}
+                      />
                     )}
                   </div>
+
+                  {/* Instância da Loja/Cantina */}
+                  <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                    <h4 className="font-semibold text-gray-800 mb-1">
+                      Instância da Loja / Cantina
+                    </h4>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Reaproveita a URL acima. Usada para enviar recibos de venda.
+                      Se ficar vazia, o envio de recibos é desativado.
+                    </p>
+
+                    <div className="grid grid-cols-1 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Token da Instância (Loja/Cantina)
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={showEvolutionLojaApiKey ? 'text' : 'password'}
+                            name="evolution_api_key_loja"
+                            value={formData.evolution_api_key_loja}
+                            onChange={handleChange}
+                            className="input-field font-mono text-sm pr-10"
+                            placeholder="Token da instância da loja/cantina"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowEvolutionLojaApiKey((s) => !s)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 rounded"
+                            title={showEvolutionLojaApiKey ? 'Ocultar chave' : 'Mostrar chave'}
+                          >
+                            {showEvolutionLojaApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Cada instância tem seu próprio token. Se vazio, usa o token da instância de eventos.
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Instância da Loja / Cantina
+                        </label>
+                        <input
+                          type="text"
+                          name="evolution_api_instance_loja"
+                          value={formData.evolution_api_instance_loja}
+                          onChange={handleChange}
+                          className="input-field"
+                          placeholder="ex.: loja_principal"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
+                      <p className="text-xs text-gray-500">
+                        Verifica autenticação e status da instância da loja/cantina.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleTestarConexaoWhatsAppLoja}
+                        disabled={testingWhatsAppLoja || !formData.evolution_api_instance_loja}
+                        className="btn-outline inline-flex items-center"
+                      >
+                        {testingWhatsAppLoja ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                            Testando...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                            Testar conexão (Loja)
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {whatsAppTestResultLoja && (
+                      <WhatsAppTestResultBox
+                        resultado={whatsAppTestResultLoja}
+                        labelStatus={getWhatsAppStatusLabel}
+                        getQrImage={getWhatsAppQrImage}
+                      />
+                    )}
+                  </div>
+
+                  {/* Instruções */}
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <h4 className="font-medium text-gray-800 mb-2">Como configurar a Evolution Go</h4>
+                    <ol className="text-sm text-gray-700 list-decimal list-inside space-y-1">
+                      <li>Abra sua instalação Evolution Go e confirme que a licença está ativa</li>
+                      <li>Copie a URL base da API (ex.: https://seu-dominio)</li>
+                      <li>Para envio/status, copie o Token da Instância no painel da instância</li>
+                      <li>Se necessário, informe a instância utilizada para envio</li>
+                    </ol>
+                  </div>
+
                 </div>
               )}
 
@@ -1765,6 +1898,66 @@ function AdminConfiguracoes() {
                       className="input-field"
                       placeholder="Olá {{nome}}, pagamento confirmado para o evento {{evento}}..."
                     />
+                  </div>
+
+                  {/* Mensagens da Loja / Cantina (templates; credenciais ficam na aba Credenciais) */}
+                  <div className="border-t border-gray-200 pt-4 mt-4 space-y-5">
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-800 mb-1">
+                        Loja / Cantina
+                      </h3>
+                      <p className="text-xs text-gray-500">
+                        Templates usados pelos botões de envio na loja/cantina. A instância e o token
+                        ficam na aba <strong>Credenciais → Instância da Loja / Cantina</strong>.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Recibo (após pagamento)
+                      </label>
+                      <textarea
+                        name="wa_msg_recibo_loja"
+                        value={formData.wa_msg_recibo_loja}
+                        onChange={handleChange}
+                        rows={5}
+                        className="input-field"
+                        placeholder={
+                          'Olá{nome_saudacao}! Obrigado pela sua compra em {nome_igreja}.\n\n' +
+                          'Pedido: {codigo}\n' +
+                          'Total: R$ {total}\n' +
+                          'Itens: {itens}\n\n' +
+                          'Recibo (link): {link_recibo}\n\n' +
+                          'Documento não fiscal.'
+                        }
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Placeholders: {'{nome_saudacao}'}, {'{nome_igreja}'}, {'{codigo}'},{' '}
+                        {'{total}'}, {'{itens}'}, {'{link_recibo}'}.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Lembrete de reserva (pendente de retirada/pagamento)
+                      </label>
+                      <textarea
+                        name="wa_msg_reserva_loja"
+                        value={formData.wa_msg_reserva_loja}
+                        onChange={handleChange}
+                        rows={5}
+                        className="input-field"
+                        placeholder={
+                          'Olá{nome_saudacao}! Aqui é da {nome_igreja}.\n\n' +
+                          'Existe uma reserva em nome de {nome} para o dia {data}: {itens}.\n' +
+                          'Passe na cantina para retirar e pagar quando puder. Obrigado!'
+                        }
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Placeholders: {'{nome_saudacao}'}, {'{nome_igreja}'}, {'{nome}'},{' '}
+                        {'{itens}'}, {'{data}'}.
+                      </p>
+                    </div>
                   </div>
                 </div>
               )}

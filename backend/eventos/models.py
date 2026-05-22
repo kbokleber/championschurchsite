@@ -1007,6 +1007,32 @@ class ConfiguracaoSite(models.Model):
         blank=True,
         help_text='Nome da instância configurada na Evolution API'
     )
+    evolution_api_instance_loja = models.CharField(
+        max_length=100,
+        verbose_name='Instância Evolution (Loja/Cantina)',
+        blank=True,
+        help_text='Nome da instância usada para enviar recibos da loja/cantina. '
+                  'Reaproveita a URL base da Evolution acima.',
+    )
+    evolution_api_key_loja = models.CharField(
+        max_length=200,
+        verbose_name='Token da Instância Evolution (Loja/Cantina)',
+        blank=True,
+        help_text='Token da instância da loja/cantina (opcional). '
+                  'Se vazio, usa o Token da instância principal.',
+    )
+    wa_msg_recibo_loja = models.TextField(
+        verbose_name='Template WhatsApp - Recibo da Loja',
+        blank=True,
+        help_text='Mensagem enviada com o link do recibo. Placeholders: '
+                  '{nome_saudacao}, {nome_igreja}, {codigo}, {total}, {itens}, {link_recibo}.',
+    )
+    wa_msg_reserva_loja = models.TextField(
+        verbose_name='Template WhatsApp - Lembrete de Reserva',
+        blank=True,
+        help_text='Mensagem enviada para lembrar de reserva ainda não retirada/paga. '
+                  'Placeholders: {nome_saudacao}, {nome_igreja}, {nome}, {itens}, {data}.',
+    )
     wa_msg_reset_senha = models.TextField(
         verbose_name='Template WhatsApp - Reset de senha',
         blank=True,

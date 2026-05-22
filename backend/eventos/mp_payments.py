@@ -179,14 +179,23 @@ def aplicar_identificacao_mp(
     titulo: str,
     detalhe: str = '',
     origem: str = '',
+    items: list | None = None,
 ) -> dict:
     """
     Preenche description, additional_info.items e metadata para o painel MP
-    identificar loja vs evento (ex.: "Lojinha / Cantina" ou "Evento: Culto Domingo").
+    identificar loja vs evento (ex.: "Cantina", "Loja" ou "Evento: Culto Domingo").
+
+    items: lista opcional de dicts com {nome, quantidade, preco_unitario, descricao, categoria}
+    para descrever os produtos no painel MP. Quando ausente, usa o título/detalhe.
     """
     titulo = (titulo or 'Pagamento').strip()
     detalhe = (detalhe or '').strip()
     linha = titulo if not detalhe else f'{titulo} — {detalhe}'
+    if items:
+        partes = [f"{(i.get('nome') or 'Item').strip()} x{int(i.get('quantidade') or 1)}" for i in items]
+        resumo = ', '.join(partes)
+        if resumo:
+            linha = f'{titulo} — {resumo}' if titulo else resumo
     payment_data['description'] = linha[:200]
     payment_data['statement_descriptor'] = MP_STATEMENT_DESCRIPTOR
     payment_data['external_reference'] = (payment_data.get('external_reference') or codigo or '')[:256]
@@ -195,8 +204,23 @@ def aplicar_identificacao_mp(
         'codigo': str(codigo)[:60],
         'titulo': titulo[:100],
     }
-    payment_data['additional_info'] = {
-        'items': [
+
+    if items:
+        mp_items = []
+        for i, raw in enumerate(items):
+            nome = (raw.get('nome') or 'Item').strip()[:256]
+            mp_items.append(
+                {
+                    'id': str(raw.get('id') or f"{codigo}-{i+1}")[:40],
+                    'title': nome,
+                    'description': (raw.get('descricao') or nome)[:256],
+                    'category_id': (raw.get('categoria') or origem or 'others')[:64],
+                    'quantity': int(raw.get('quantidade') or 1),
+                    'unit_price': round(float(raw.get('preco_unitario') or 0), 2),
+                }
+            )
+    else:
+        mp_items = [
             {
                 'id': str(codigo).replace('-', '')[:40] or 'champions',
                 'title': titulo[:256],
@@ -204,8 +228,8 @@ def aplicar_identificacao_mp(
                 'quantity': 1,
                 'unit_price': round(float(valor), 2),
             }
-        ],
-    }
+        ]
+    payment_data['additional_info'] = {'items': mp_items}
     return payment_data
 
 
@@ -219,6 +243,7 @@ def _criar_payment_pix_sdk(
     detalhe_mp: str = '',
     origem_mp: str = '',
     descricao: str = '',
+    items: list | None = None,
 ):
     """Chama payment().create para PIX."""
     titulo = (titulo_mp or descricao or 'Pagamento').strip()
@@ -234,6 +259,7 @@ def _criar_payment_pix_sdk(
         titulo=titulo,
         detalhe=detalhe_mp,
         origem=origem_mp,
+        items=items,
     )
     idempotency_key = str(uuid.uuid4())
     request_options = getattr(mercadopago, 'config', None) and getattr(
@@ -260,6 +286,7 @@ def criar_ou_reutilizar_pix_embutido(
     nome_fallback: str = '',
     limpar_referencia_invalida: callable = None,
     payer_mp_override=None,
+    items: list | None = None,
 ):
     """
     Cria pagamento PIX ou reutiliza pending existente.
@@ -324,6 +351,7 @@ def criar_ou_reutilizar_pix_embutido(
         detalhe_mp=detalhe_mp,
         origem_mp=origem_mp,
         payer_mp=payer_mp,
+        items=items,
     )
     payment = payment_response.get('response', {}) if isinstance(payment_response, dict) else {}
     if payment_response.get('status') not in (200, 201):

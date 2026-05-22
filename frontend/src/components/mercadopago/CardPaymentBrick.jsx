@@ -157,7 +157,8 @@ export function CardPaymentBrick({
                       resolve()
                       return
                     }
-                    const msg = data.error || data.message || 'Pagamento não aprovado.'
+                    const rawErr = data.error || data.message || 'Pagamento não aprovado.'
+                    const msg = typeof rawErr === 'string' ? rawErr : JSON.stringify(rawErr)
                     setError(msg)
                     onError?.(msg)
                     reject(new Error(msg))

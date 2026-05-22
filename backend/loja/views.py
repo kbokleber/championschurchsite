@@ -24,6 +24,9 @@ from eventos.mercadopago_sdk import (
     get_mercadopago_sdk,
     get_mp_env_card,
     get_mp_env_pix,
+    interpretar_resposta_payment_create,
+    mensagem_erro_payment_http,
+    mensagem_resposta_cartao_mp,
     mp_search_payments_by_reference,
 )
 from eventos.mp_payments import (
@@ -1005,13 +1008,6 @@ def _pagar_cartao_loja_impl(request):
             {'error': 'Erro ao processar cartão', 'details': str(e)},
             status=status.HTTP_400_BAD_REQUEST,
         )
-
-    from eventos.mercadopago_sdk import (
-        get_mp_env_card,
-        interpretar_resposta_payment_create,
-        mensagem_erro_payment_http,
-        mensagem_resposta_cartao_mp,
-    )
 
     payment, http_status, api_err = interpretar_resposta_payment_create(payment_response)
     if api_err or http_status not in (200, 201):

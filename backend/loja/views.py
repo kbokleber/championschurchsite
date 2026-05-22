@@ -21,13 +21,17 @@ from rest_framework.response import Response
 from django.utils import timezone
 
 from eventos.mercadopago_sdk import (
+    criar_order_cartao_mp,
     get_mercadopago_sdk,
     get_mp_env_card,
     get_mp_env_pix,
     interpretar_resposta_payment_create,
     mensagem_erro_payment_http,
     mensagem_resposta_cartao_mp,
+    mp_buscar_order,
+    mp_search_orders_by_reference,
     mp_search_payments_by_reference,
+    normalizar_order_cartao_response,
 )
 from eventos.mp_payments import (
     aplicar_identificacao_mp,
@@ -58,6 +62,40 @@ from .serializers import (
     ReservaLojaLoteSerializer,
 )
 logger = logging.getLogger(__name__)
+
+
+def _mp_valor_str(valor):
+    return f'{round(float(valor), 2):.2f}'
+
+
+def _montar_items_order_loja(venda):
+    items = []
+    for item in venda.itens.select_related('produto').all():
+        produto = item.produto
+        nome = (getattr(produto, 'nome', '') or 'Produto').strip()
+        categoria = (getattr(produto, 'categoria', '') or 'loja').strip()
+        items.append(
+            {
+                'title': nome[:256],
+                'description': (getattr(produto, 'descricao', '') or nome)[:256],
+                'external_code': str(getattr(produto, 'id', '') or item.id)[:64],
+                'category_id': categoria[:64],
+                'type': 'retail',
+                'quantity': int(item.quantidade or 1),
+                'unit_price': _mp_valor_str(item.preco_unitario),
+            }
+        )
+    return items
+
+
+def _descricao_order_loja(venda):
+    nomes = [
+        f'{item.produto.nome} x{item.quantidade}'
+        for item in venda.itens.select_related('produto').all()
+        if item.produto
+    ]
+    detalhe = ', '.join(nomes[:5]) if nomes else f'Venda #{venda.id}'
+    return f'Loja / Cantina - {detalhe}'[:255]
 
 
 class IsSuperUser(BasePermission):
@@ -835,14 +873,28 @@ def verificar_pagamento_loja(request, cobranca_loja_id: int):
             }
         )
     try:
-        results = mp_search_payments_by_reference(cobranca.codigo, config)
         mp_status = 'pending'
-        for pay in results:
-            if pay.get('status') == 'approved':
-                mp_status = 'approved'
-                break
-            if pay.get('status') in ('pending', 'in_process'):
-                mp_status = pay.get('status', 'pending')
+        ref = (cobranca.referencia_externa or '').strip()
+        if ref.startswith('ORD'):
+            order, _env = mp_buscar_order(ref, config)
+            if order:
+                mp_status = normalizar_order_cartao_response(order).get('status', 'pending')
+        else:
+            results = mp_search_payments_by_reference(cobranca.codigo, config)
+            for pay in results:
+                if pay.get('status') == 'approved':
+                    mp_status = 'approved'
+                    break
+                if pay.get('status') in ('pending', 'in_process'):
+                    mp_status = pay.get('status', 'pending')
+        if mp_status != 'approved' and not ref.startswith('ORD'):
+            for order in mp_search_orders_by_reference(cobranca.codigo, config):
+                order_payment = normalizar_order_cartao_response(order)
+                if order_payment.get('status') == 'approved':
+                    mp_status = 'approved'
+                    break
+                if order_payment.get('status') in ('pending', 'in_process'):
+                    mp_status = order_payment.get('status', 'pending')
 
         if mp_status == 'approved' and cobranca.status != 'pago':
             try:
@@ -977,47 +1029,24 @@ def _pagar_cartao_loja_impl(request):
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
-    payment_data = {
-        'transaction_amount': round(transaction_amount, 2),
-        'token': token,
-        'installments': int(installments) if installments else 1,
-        'payment_method_id': payment_method_id,
-        'payer': payer_mp,
-        'binary_mode': True,
-    }
-    aplicar_identificacao_mp(
-        payment_data,
+    mp_env = get_mp_env_card(config)
+    payment_type_id = request.data.get('payment_type_id') or 'credit_card'
+    payment, http_status, api_err = criar_order_cartao_mp(
+        env=mp_env,
         valor=transaction_amount,
         codigo=cobranca.codigo,
-        titulo='Lojinha / Cantina',
-        detalhe=f'Venda #{v.id}',
-        origem='loja',
+        token=token,
+        payment_method_id=payment_method_id,
+        installments=installments,
+        payer=payer_mp,
+        payment_type_id=payment_type_id,
+        description=_descricao_order_loja(v),
+        items=_montar_items_order_loja(v),
     )
-    if issuer_id:
-        payment_data['issuer_id'] = str(issuer_id)
-
-    idem = str(uuid.uuid4())
-    try:
-        ro = getattr(mercadopago, 'config', None) and getattr(mercadopago.config, 'RequestOptions', None)
-        if ro:
-            opts = ro()
-            opts.custom_headers = {'x-idempotency-key': idem}
-            payment_response = sdk.payment().create(payment_data, opts)
-        else:
-            payment_response = sdk.payment().create(payment_data)
-    except Exception as e:
-        logger.exception('pagar_cartao_loja')
-        return Response(
-            {'error': 'Erro ao processar cartão', 'details': str(e)},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    payment, http_status, api_err = interpretar_resposta_payment_create(payment_response)
     if api_err or http_status not in (200, 201):
-        mp_env = get_mp_env_card(config)
         msg = mensagem_erro_payment_http(http_status, payment, env=mp_env)
         logger.warning(
-            'Cartão MP API erro loja cobrança %s: http=%s env=%s body=%s',
+            'Cartão MP Orders erro loja cobrança %s: http=%s env=%s body=%s',
             cobranca.codigo,
             http_status,
             mp_env,
@@ -1036,13 +1065,15 @@ def _pagar_cartao_loja_impl(request):
 
     status_mp = payment.get('status')
     payment_id = payment.get('id')
+    order_id = payment.get('order_id')
+    referencia_mp = str(order_id or payment_id or '')
 
     if status_mp == 'approved':
         with transaction.atomic():
             c = CobrancaLoja.objects.select_for_update().select_related('venda').get(id=cobranca.id)
             c.status = 'pago'
             c.data_pagamento = timezone.now()
-            c.referencia_externa = str(payment_id or '')
+            c.referencia_externa = referencia_mp
             c.metodo_pagamento = 'Mercado Pago (cartão)'
             c.save()
             v = Venda.objects.select_for_update().get(pk=c.venda_id)
@@ -1061,8 +1092,8 @@ def _pagar_cartao_loja_impl(request):
                     'total': str(v.total),
                 },
             )
-    if payment_id and status_mp in ('approved', 'pending', 'in_process'):
-        cobranca.referencia_externa = str(payment_id)
+    if referencia_mp and status_mp in ('approved', 'pending', 'in_process'):
+        cobranca.referencia_externa = referencia_mp
         cobranca.metodo_pagamento = 'Mercado Pago (cartão)'
         cobranca.save(update_fields=['referencia_externa', 'metodo_pagamento'])
 
@@ -1076,6 +1107,7 @@ def _pagar_cartao_loja_impl(request):
             'status': status_mp,
             'status_detail': payment.get('status_detail'),
             'payment_id': payment_id,
+            'order_id': order_id,
             'message': resp_msg['message'],
         }
     )

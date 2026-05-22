@@ -167,6 +167,7 @@ export function CardPaymentBrick({
                     const payload = {
                       token: cardFormData.token,
                       payment_method_id: cardFormData.payment_method_id,
+                      payment_type_id: additionalData?.paymentTypeId || cardFormData.payment_type_id,
                       installments: cardFormData.installments || 1,
                       issuer_id: cardFormData.issuer_id,
                     }
@@ -356,6 +357,9 @@ export function CardPaymentBrick({
           <p>
             <strong>Nome do titular:</strong> digite <strong>APRO</strong> (aprovado), não use nome
             real. CPF: <strong>12345678909</strong>.
+          </p>
+          <p className="text-amber-800">
+            No Sandbox, o e-mail do formulário deve terminar com <strong>@testuser.com</strong>.
           </p>
           <table className="w-full text-left border-collapse">
             <thead>

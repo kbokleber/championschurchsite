@@ -1,6 +1,7 @@
 """Instância do SDK Mercado Pago e helpers de ambiente (ConfiguracaoSite)."""
 import logging
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import mercadopago
 import requests
@@ -8,6 +9,154 @@ import requests
 from .models import ConfiguracaoSite
 
 logger = logging.getLogger(__name__)
+
+
+def _valor_mp(valor) -> str:
+    return f'{round(float(valor), 2):.2f}'
+
+
+def _email_payer_orders(env: str, access_token: str, email: str) -> str:
+    """
+    Orders em Sandbox exige e-mail @testuser.com. Em produção, usa o e-mail do Brick.
+    """
+    email = (email or '').strip()
+    if env != 'sandbox' or email.endswith('@testuser.com'):
+        return email
+    try:
+        response = requests.get(
+            'https://api.mercadopago.com/users/me',
+            headers={'Authorization': f'Bearer {access_token}'},
+            timeout=20,
+        )
+        if response.status_code == 200:
+            test_email = (response.json().get('email') or '').strip()
+            if test_email.endswith('@testuser.com'):
+                return test_email
+    except Exception as exc:
+        logger.warning('Falha ao obter e-mail testuser MP: %s', exc)
+    return email
+
+
+def normalizar_order_cartao_response(order: dict) -> dict:
+    """Converte resposta de /v1/orders para o formato usado pelo fluxo atual."""
+    order = order or {}
+    payments = ((order.get('transactions') or {}).get('payments') or [])
+    payment = payments[0] if payments else {}
+    raw_status = payment.get('status') or order.get('status') or ''
+    status_detail = payment.get('status_detail') or order.get('status_detail') or ''
+
+    if raw_status in ('processed', 'approved'):
+        status_mp = 'approved'
+    elif raw_status in ('pending', 'in_process', 'action_required'):
+        status_mp = 'pending'
+    elif raw_status in ('rejected', 'cancelled', 'canceled', 'expired'):
+        status_mp = 'rejected'
+    else:
+        status_mp = raw_status or 'pending'
+
+    return {
+        'id': payment.get('id') or order.get('id'),
+        'order_id': order.get('id'),
+        'status': status_mp,
+        'status_detail': status_detail,
+        'external_reference': order.get('external_reference'),
+        'payment_method_id': (payment.get('payment_method') or {}).get('id'),
+        'payment_type_id': (payment.get('payment_method') or {}).get('type'),
+        'raw_order_status': order.get('status'),
+        'raw_payment_status': payment.get('status'),
+        'order': order,
+    }
+
+
+def criar_order_cartao_mp(
+    *,
+    env: str,
+    valor,
+    codigo: str,
+    token: str,
+    payment_method_id: str,
+    installments,
+    payer: dict,
+    payment_type_id: str = 'credit_card',
+    description: str = '',
+    items: list | None = None,
+) -> tuple[dict, int, str | None]:
+    """Cria pagamento de cartão pela Checkout API Orders (/v1/orders)."""
+    config = ConfiguracaoSite.get_config()
+    access_token = config.get_mp_access_token_for(env)
+    if not access_token:
+        return {}, 500, f'Access Token Mercado Pago ausente para {env}.'
+
+    amount = _valor_mp(valor)
+    idem = str(uuid.uuid4())
+    payer_data = {
+        'email': _email_payer_orders(env, access_token, payer.get('email') or ''),
+        'entity_type': 'individual',
+        'identification': payer.get('identification') or {},
+    }
+    first_name = (payer.get('first_name') or '').strip()
+    last_name = (payer.get('last_name') or '').strip()
+    if first_name:
+        payer_data['first_name'] = first_name[:100]
+    if last_name:
+        payer_data['last_name'] = last_name[:100]
+    if payer.get('phone'):
+        payer_data['phone'] = payer['phone']
+    if payer.get('address'):
+        payer_data['address'] = payer['address']
+
+    order_data = {
+        'type': 'online',
+        'processing_mode': 'automatic',
+        'total_amount': amount,
+        'external_reference': str(codigo)[:256],
+        'description': (description or 'Pagamento Champions Church')[:255],
+        'payer': payer_data,
+        'transactions': {
+            'payments': [
+                {
+                    'amount': amount,
+                    'payment_method': {
+                        'id': payment_method_id,
+                        'type': payment_type_id or 'credit_card',
+                        'token': token,
+                        'installments': int(installments) if installments else 1,
+                        'statement_descriptor': 'CHAMPIONSCHURCH',
+                    },
+                },
+            ],
+        },
+    }
+    if items:
+        order_data['items'] = items[:50]
+    try:
+        response = requests.post(
+            'https://api.mercadopago.com/v1/orders',
+            json=order_data,
+            headers={
+                'Authorization': f'Bearer {access_token}',
+                'X-Idempotency-Key': idem,
+                'Content-Type': 'application/json',
+                'User-Agent': 'ChampionsChurch-MercadoPago/1.0',
+            },
+            timeout=30,
+        )
+        data = response.json() if response.content else {}
+    except Exception as exc:
+        logger.exception('Erro ao criar order de cartão MP')
+        return {}, 500, str(exc)
+
+    if response.status_code not in (200, 201):
+        detail = data.get('message') or data.get('error')
+        if not detail and data.get('errors'):
+            detail = '; '.join(
+                f"{err.get('code')}: {err.get('message')}" for err in data.get('errors', [])
+            )
+        if detail and isinstance(data, dict):
+            data.setdefault('message', detail)
+        return data, response.status_code, detail or f'Erro HTTP {response.status_code}'
+
+    return normalizar_order_cartao_response(data), response.status_code, None
 
 
 def get_mp_env_pix(config=None, *, pagamento_embutido=False):
@@ -102,7 +251,7 @@ _MP_STATUS_DETAIL_PT = {
 
 def mp_probe_pagamento_cartao(access_token: str) -> dict:
     """
-    Verifica se o Access Token consegue criar pagamento com cartão de teste (API).
+    Verifica se o Access Token consegue criar cartão via Checkout API Orders.
     O teste em /users/me não detecta token de conta de teste vs credencial da aplicação.
     """
     token = (access_token or '').strip()
@@ -129,6 +278,20 @@ def mp_probe_pagamento_cartao(access_token: str) -> dict:
         'User-Agent': 'ChampionsChurch-MercadoPago/1.0',
     }
     try:
+        user_email = 'diagnostico@championschurch.com.br'
+        try:
+            me_resp = requests.get(
+                'https://api.mercadopago.com/users/me',
+                headers={'Authorization': f'Bearer {token}'},
+                timeout=20,
+            )
+            if me_resp.status_code == 200:
+                me = me_resp.json() if me_resp.content else {}
+                email = (me.get('email') or '').strip()
+                if email.endswith('@testuser.com'):
+                    user_email = email
+        except Exception:
+            pass
         tok_resp = requests.post(
             'https://api.mercadopago.com/v1/card_tokens',
             json=card_body,
@@ -151,18 +314,31 @@ def mp_probe_pagamento_cartao(access_token: str) -> dict:
                 'http_status': tok_resp.status_code,
             }
         pay_body = {
-            'transaction_amount': 1.0,
-            'token': card_token,
-            'installments': 1,
-            'payment_method_id': 'master',
+            'type': 'online',
+            'processing_mode': 'automatic',
+            'total_amount': '10.00',
+            'external_reference': 'diagnostico-' + str(uuid.uuid4())[:8],
             'payer': {
-                'email': 'test@example.com',
+                'email': user_email,
                 'identification': {'type': 'CPF', 'number': '12345678909'},
+            },
+            'transactions': {
+                'payments': [
+                    {
+                        'amount': '10.00',
+                        'payment_method': {
+                            'id': 'master',
+                            'type': 'credit_card',
+                            'token': card_token,
+                            'installments': 1,
+                        },
+                    },
+                ],
             },
         }
         pay_headers = {**headers, 'X-Idempotency-Key': str(uuid.uuid4())}
         pay_resp = requests.post(
-            'https://api.mercadopago.com/v1/payments',
+            'https://api.mercadopago.com/v1/orders',
             json=pay_body,
             headers=pay_headers,
             timeout=30,
@@ -171,17 +347,38 @@ def mp_probe_pagamento_cartao(access_token: str) -> dict:
             return {
                 'ok': True,
                 'motivo': 'cartao_api_ok',
-                'detalhe': 'Pagamento de teste aceito pela API (cartão).',
+                'detalhe': 'Pagamento de teste aceito pela API Orders (cartão).',
                 'http_status': pay_resp.status_code,
             }
         body = pay_resp.json() if pay_resp.content else {}
+        if pay_resp.status_code == 402 and isinstance(body, dict):
+            errors = body.get('errors') or []
+            order_payload = errors[0].get('data') if errors and isinstance(errors[0], dict) else None
+            order_status_detail = (order_payload or {}).get('status_detail')
+            details_text = ' '.join(
+                str(detail) for err in errors if isinstance(err, dict) for detail in (err.get('details') or [])
+            ).lower()
+            if order_status_detail == 'failed' or 'high_risk' in details_text:
+                payment = (((order_payload or {}).get('transactions') or {}).get('payments') or [{}])[0]
+                if payment.get('status_detail') == 'high_risk' or 'high_risk' in details_text:
+                    return {
+                        'ok': True,
+                        'motivo': 'cartao_api_ok_antifraude',
+                        'detalhe': (
+                            'API Orders respondeu corretamente, mas o pagamento de teste em produção '
+                            'foi recusado pelo antifraude (high_risk). A integração está funcional.'
+                        ),
+                        'http_status': pay_resp.status_code,
+                    }
         raw = (body.get('message') or body.get('error') or pay_resp.text or '').lower()
+        if body.get('errors'):
+            raw = (pay_resp.text or '').lower()
         if pay_resp.status_code == 401 or 'live credentials' in raw:
             return {
                 'ok': False,
                 'motivo': 'token_nao_serve_cartao',
                 'detalhe': (
-                    'O Access Token autentica em /users/me, mas a API de pagamentos com cartão '
+                    'O Access Token autentica em /users/me, mas a API Orders de cartão '
                     'recusa (401 — credenciais de produção/conta de teste). '
                     'Use Public Key e Access Token juntos em Suas integrações → sua aplicação → '
                     'Credenciais de teste. Não use o token da seção Contas de teste.'
@@ -309,3 +506,62 @@ def mp_search_payments_by_reference(codigo: str, config=None):
         except Exception as exc:
             logger.warning('mp_search_payments_by_reference %s: %s', env, exc)
     return results
+
+
+def mp_search_orders_by_reference(codigo: str, config=None):
+    """Lista orders por external_reference (Checkout API Orders)."""
+    config = config or ConfiguracaoSite.get_config()
+    end = datetime.now(timezone.utc) + timedelta(days=1)
+    begin = end - timedelta(days=45)
+    params = {
+        'external_reference': codigo,
+        'begin_date': begin.isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
+        'end_date': end.isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
+    }
+    for env in ('production', 'sandbox'):
+        token = config.get_mp_access_token_for(env)
+        if not token:
+            continue
+        try:
+            r = requests.get(
+                'https://api.mercadopago.com/v1/orders',
+                params=params,
+                headers={
+                    'Authorization': f'Bearer {token}',
+                    'User-Agent': 'ChampionsChurch-MercadoPago/1.0',
+                },
+                timeout=30,
+            )
+            if r.status_code == 200:
+                data = r.json().get('data', [])
+                if data:
+                    return data
+        except Exception as exc:
+            logger.warning('mp_search_orders_by_reference %s: %s', env, exc)
+    return []
+
+
+def mp_buscar_order(order_id: str, config=None):
+    """Busca uma order da Checkout API pelo ID."""
+    order_id = (order_id or '').strip()
+    if not order_id:
+        return None, None
+    config = config or ConfiguracaoSite.get_config()
+    for env in ('production', 'sandbox'):
+        token = config.get_mp_access_token_for(env)
+        if not token:
+            continue
+        try:
+            r = requests.get(
+                f'https://api.mercadopago.com/v1/orders/{order_id}',
+                headers={
+                    'Authorization': f'Bearer {token}',
+                    'User-Agent': 'ChampionsChurch-MercadoPago/1.0',
+                },
+                timeout=30,
+            )
+            if r.status_code == 200:
+                return r.json(), env
+        except Exception as exc:
+            logger.warning('mp_buscar_order %s env=%s: %s', order_id, env, exc)
+    return None, None

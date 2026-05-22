@@ -983,6 +983,7 @@ def _pagar_cartao_loja_impl(request):
         'installments': int(installments) if installments else 1,
         'payment_method_id': payment_method_id,
         'payer': payer_mp,
+        'binary_mode': True,
     }
     aplicar_identificacao_mp(
         payment_data,

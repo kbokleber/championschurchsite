@@ -357,10 +357,6 @@ export function CardPaymentBrick({
             <strong>Nome do titular:</strong> digite <strong>APRO</strong> (aprovado), não use nome
             real. CPF: <strong>12345678909</strong>.
           </p>
-          <p className="text-amber-800">
-            O admin está em Sandbox: o cartão usa a API de Produção do MP (credenciais de teste da
-            app não aceitam pagamento). Use os cartões de teste abaixo.
-          </p>
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-amber-300">

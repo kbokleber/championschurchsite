@@ -39,11 +39,6 @@ export function MercadoPagoProvider({ children, forBrick = 'card' }) {
         if (!cancelled) {
           setMpInstance(instance)
           setIsSandbox(!!data.is_sandbox)
-          if (data.cartao_usa_credencial_producao && data.is_sandbox) {
-            console.info(
-              '[MP] Modo Sandbox no admin: cartão usa credenciais de Produção na API (limitação MP).',
-            )
-          }
           setPayerEmailHint((data.payer_email_hint || '').trim())
           setReady(true)
           setError(null)

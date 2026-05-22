@@ -3163,11 +3163,7 @@ def admin_testar_conexao_mercadopago(request):
     Endpoint de diagnóstico das credenciais Mercado Pago.
     Valida o Access Token em /users/me sem criar cobrança/pagamento.
     """
-    from .mercadopago_sdk import (
-        get_mp_env_card,
-        mp_probe_pagamento_cartao,
-        sandbox_credencial_suporta_pagamento_cartao,
-    )
+    from .mercadopago_sdk import get_mp_env_card, mp_probe_pagamento_cartao
 
     config = ConfiguracaoSite.get_config()
     ambiente = (request.data.get('mp_ambiente') or config.mp_ambiente or 'sandbox').strip()
@@ -3269,31 +3265,7 @@ def admin_testar_conexao_mercadopago(request):
                 probe = mp_probe_pagamento_cartao(access_token)
                 resultado['cartao_api_ok'] = probe.get('ok')
                 resultado['cartao_api_http'] = probe.get('http_status')
-                if ambiente == 'sandbox' and not probe.get('ok'):
-                    prod_at = (
-                        request.data.get('mp_access_token_production')
-                        or config.mp_access_token_production
-                        or ''
-                    ).strip()
-                    probe_prod = (
-                        mp_probe_pagamento_cartao(prod_at) if prod_at else {'ok': False}
-                    )
-                    if probe_prod.get('ok'):
-                        resultado['cartao_api_ok'] = True
-                        resultado['cartao_api_http'] = probe_prod.get('http_status')
-                        resultado['aviso_cartao'] = (
-                            'Credenciais de teste desta aplicacao nao criam pagamento com cartao (401 no MP). '
-                            'O checkout em modo Sandbox usara credenciais de Producao na API do cartao; '
-                            'use titular APRO e CPF 12345678909 com os cartoes de teste do painel MP.'
-                        )
-                    else:
-                        resultado['ok'] = False
-                        resultado['motivo'] = probe.get('motivo') or 'cartao_api_erro'
-                        resultado['detalhe'] = probe.get('detalhe')
-                        if is_test_user and resultado['motivo'] == 'token_nao_serve_cartao':
-                            resultado['motivo'] = 'token_conta_teste_mp'
-                        return Response(resultado, status=status.HTTP_400_BAD_REQUEST)
-                elif not probe.get('ok'):
+                if not probe.get('ok'):
                     resultado['ok'] = False
                     resultado['motivo'] = probe.get('motivo') or 'cartao_api_erro'
                     resultado['detalhe'] = probe.get('detalhe')
@@ -3735,7 +3707,7 @@ def criar_pagamento_pix(request):
     preference_data = {
         "items": items,
         "external_reference": cobranca.codigo,
-        "statement_descriptor": "IGREJA",
+        "statement_descriptor": "CHAMPIONSCHURCH",
         "payment_methods": {
             "excluded_payment_methods": [],
             # Excluir boleto: apenas PIX e cartão de crédito/débito
@@ -4354,6 +4326,7 @@ def _pagar_cartao_impl(request):
         "installments": int(installments) if installments else 1,
         "payment_method_id": payment_method_id,
         "payer": payer_mp,
+        "binary_mode": True,
     }
     aplicar_identificacao_mp(
         payment_data,
@@ -4598,20 +4571,17 @@ def mercadopago_config_publica(request):
                 'payer_email_hint': None,
                 **metodos,
             })
-        env_cred = get_mp_env_card(config)
-        public_key = config.get_mp_public_key_for(env_cred)
+        env = get_mp_env_card(config)
+        public_key = config.get_mp_public_key_for(env)
         payer_hint = (
             (getattr(config, 'mp_loja_pix_email', None) or '').strip()
             or (config.email or '').strip()
         )
-        ui_sandbox = (config.mp_ambiente or 'sandbox') == 'sandbox'
         return Response({
             'ativo': bool(public_key),
             'public_key': public_key or None,
-            'ambiente': config.mp_ambiente,
-            'ambiente_credencial_cartao': env_cred,
-            'is_sandbox': ui_sandbox,
-            'cartao_usa_credencial_producao': ui_sandbox and env_cred == 'production',
+            'ambiente': env,
+            'is_sandbox': env == 'sandbox',
             'payer_email_hint': payer_hint or None,
             **metodos,
         })

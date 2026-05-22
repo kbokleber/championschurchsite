@@ -18,6 +18,8 @@ from .models import ConfiguracaoSite
 
 logger = logging.getLogger(__name__)
 
+MP_STATEMENT_DESCRIPTOR = 'CHAMPIONSCHURCH'
+
 VALOR_MINIMO_PIX = 0.01
 
 
@@ -186,6 +188,7 @@ def aplicar_identificacao_mp(
     detalhe = (detalhe or '').strip()
     linha = titulo if not detalhe else f'{titulo} — {detalhe}'
     payment_data['description'] = linha[:200]
+    payment_data['statement_descriptor'] = MP_STATEMENT_DESCRIPTOR
     payment_data['external_reference'] = (payment_data.get('external_reference') or codigo or '')[:256]
     payment_data['metadata'] = {
         'origem': (origem or 'championschurch')[:30],

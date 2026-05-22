@@ -2108,6 +2108,11 @@ function AdminConfiguracoes() {
                   <li>Vá em "Credenciais" no menu lateral</li>
                   <li>Copie a Public Key e o Access Token</li>
                   <li>Para testes, use as credenciais da seção "Credenciais de teste"</li>
+                  <li>
+                    Em <strong>Checkout Bricks</strong> / configuração da aplicação, cadastre as URLs do site
+                    (ex.: <code className="text-xs">https://dev.championschurch.com.br</code> e produção) — sem isso
+                    o formulário de cartão não abre no navegador.
+                  </li>
                 </ol>
               </div>
             </div>

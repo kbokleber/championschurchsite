@@ -1,7 +1,13 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { AlertCircle, RefreshCw } from 'lucide-react'
 import api from '../../services/api'
 import { useMercadoPago } from './MercadoPagoProvider'
+import {
+  MP_CARD_BRICK_CONTAINER_ID,
+  brickContainerHasFields,
+  formatBrickError,
+  unmountGlobalCardBrick,
+} from './cardBrickHelpers'
 
 const VALOR_MINIMO_CARTAO = 0.5
 
@@ -34,8 +40,6 @@ export function CardPaymentBrick({
   pagadorAnonimo = false,
 }) {
   const { ready, error: mpError, isSandbox, mpInstance, payerEmailHint } = useMercadoPago()
-  const reactId = useId().replace(/:/g, '')
-  const containerId = `mp-card-brick-${reactId}`
   const containerRef = useRef(null)
   const brickRef = useRef(null)
   const brickMountedRef = useRef(false)
@@ -69,7 +73,7 @@ export function CardPaymentBrick({
       await new Promise((r) => setTimeout(r, 200))
       if (cancelled || mountGeneration !== mountGenRef.current) return
 
-      const el = containerRef.current || document.getElementById(containerId)
+      const el = containerRef.current || document.getElementById(MP_CARD_BRICK_CONTAINER_ID)
       if (!el) {
         if (!cancelled) {
           setError('Não foi possível montar o formulário de cartão. Recarregue a página.')
@@ -77,15 +81,27 @@ export function CardPaymentBrick({
         return
       }
 
+      const failLoad = (msg) => {
+        if (!cancelled && mountGeneration === mountGenRef.current) {
+          if (readyTimeoutId) window.clearTimeout(readyTimeoutId)
+          setError(msg)
+        }
+      }
+
       readyTimeoutId = window.setTimeout(() => {
         if (!cancelled && mountGeneration === mountGenRef.current && !brickReadyRef.current) {
-          setError(
-            'O formulário de cartão não carregou. Confira: (1) credenciais Sandbox no admin, ' +
-              '(2) no painel MP → sua aplicação → URLs do site (dev e produção), ' +
-              '(3) Console do navegador (F12) por erros CSP, (4) Ctrl+F5.',
-          )
+          const hasFields = brickContainerHasFields(el)
+          if (!hasFields) {
+            failLoad(
+              'Secure Fields do Mercado Pago não carregou (fields_setup_failed). ' +
+                'No painel developers.mercadopago.com → sua aplicação → Checkout Bricks, ' +
+                'cadastre a URL https://dev.championschurch.com.br. Confira credenciais Sandbox no admin e o Console (F12).',
+            )
+          }
         }
-      }, 20000)
+      }, 15000)
+
+      unmountGlobalCardBrick()
 
       const emailHint = (defaultPayer.email || payerEmailHint || '').trim()
       const init = { amount: valorNum }
@@ -94,6 +110,7 @@ export function CardPaymentBrick({
       }
 
       const settings = {
+        locale: 'pt-BR',
         initialization: init,
         callbacks: {
           onReady: () => {
@@ -156,13 +173,9 @@ export function CardPaymentBrick({
             onError: (brickErr) => {
               console.error('[MP Brick]', brickErr)
               if (!cancelled && mountGeneration === mountGenRef.current) {
-                if (readyTimeoutId) window.clearTimeout(readyTimeoutId)
-                const detail =
-                  brickErr?.message ||
-                  (typeof brickErr === 'string' ? brickErr : JSON.stringify(brickErr))
-                setError(
-                  `Mercado Pago não exibiu o formulário: ${detail || 'erro desconhecido'}. ` +
-                    'Cadastre https://dev.championschurch.com.br (e produção) nas URLs da aplicação no painel MP.',
+                failLoad(
+                  `Mercado Pago: ${formatBrickError(brickErr)}. ` +
+                    'Verifique URLs do site no Checkout Bricks e credenciais Sandbox.',
                 )
               }
             },
@@ -175,11 +188,24 @@ export function CardPaymentBrick({
         try {
           el.innerHTML = ''
           const bricksBuilder = mpInstance.bricks()
-          const controller = await bricksBuilder.create('cardPayment', containerId, settings)
+          const controller = await bricksBuilder.create(
+            'cardPayment',
+            MP_CARD_BRICK_CONTAINER_ID,
+            settings,
+          )
           if (!cancelled && mountGeneration === mountGenRef.current) {
             brickRef.current = controller
+            window.__championsCardBrick = controller
             brickMountedRef.current = true
             lastErr = null
+            window.setTimeout(() => {
+              if (!brickReadyRef.current && brickContainerHasFields(el)) {
+                brickReadyRef.current = true
+                setBrickReady(true)
+                setError(null)
+                if (readyTimeoutId) window.clearTimeout(readyTimeoutId)
+              }
+            }, 800)
             break
           }
           if (controller?.unmount) {
@@ -192,12 +218,11 @@ export function CardPaymentBrick({
         } catch (e) {
           lastErr = e
           console.error('[MP Brick] tentativa', attempt + 1, e)
-          await new Promise((r) => setTimeout(r, 400 * (attempt + 1)))
+          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)))
         }
       }
       if (lastErr && !cancelled && mountGeneration === mountGenRef.current) {
-        if (readyTimeoutId) window.clearTimeout(readyTimeoutId)
-        setError(lastErr.message || 'Não foi possível carregar o formulário de cartão.')
+        failLoad(lastErr.message || 'Não foi possível carregar o formulário de cartão.')
         brickMountedRef.current = false
       }
     }
@@ -226,13 +251,13 @@ export function CardPaymentBrick({
     contexto,
     pagadorAnonimo,
     cardUrl,
-    containerId,
     defaultPayer.email,
     payerEmailHint,
     mountKey,
   ])
 
   const tentarNovamenteBrick = () => {
+    unmountGlobalCardBrick()
     setError(null)
     setBrickReady(false)
     brickMountedRef.current = false
@@ -352,9 +377,9 @@ export function CardPaymentBrick({
         </div>
       )}
       <div
-        id={containerId}
+        id={MP_CARD_BRICK_CONTAINER_ID}
         ref={containerRef}
-        className="min-h-[280px] w-full"
+        className="min-h-[320px] w-full"
         aria-busy={!brickReady}
       />
       {!brickReady && !error && (

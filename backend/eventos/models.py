@@ -978,6 +978,16 @@ class ConfiguracaoSite(models.Model):
         verbose_name='Cartão em Sandbox (testes)',
         help_text='Quando ativo: PIX usa sempre Produção (obrigatório para PIX). Cartão usa Sandbox para testar com cartões de teste, sem cobrança real. Deixe o ambiente geral em Produção.'
     )
+    mp_pix_habilitado = models.BooleanField(
+        default=True,
+        verbose_name='Aceitar PIX',
+        help_text='Exibe PIX no checkout de eventos e da loja/cantina.',
+    )
+    mp_cartao_habilitado = models.BooleanField(
+        default=True,
+        verbose_name='Aceitar cartão',
+        help_text='Exibe pagamento com cartão (Brick) em eventos e na loja/cantina.',
+    )
 
     # WhatsApp Evolution API
     evolution_api_url = models.URLField(

@@ -14,6 +14,17 @@ export async function getMercadoPagoInstance(publicKey) {
     return cachedInstance
   }
 
+  if (cachedInstance?.bricks) {
+    try {
+      const prev = window.__championsCardBrick
+      if (prev?.unmount) prev.unmount()
+    } catch {
+      /* ignore */
+    }
+    cachedInstance = null
+    cachedPublicKey = null
+  }
+
   const MercadoPagoCtor = await loadMercadoPago()
   if (!MercadoPagoCtor) {
     throw new Error('SDK Mercado Pago indisponível no navegador.')

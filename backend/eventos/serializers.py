@@ -904,6 +904,7 @@ class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
             'webhook_inscricao', 'webhook_ativo', 'webhook_reset_senha', 'webhook_eventos',
             # Mercado Pago
             'mp_ambiente', 'mp_ativo', 'mp_cartao_em_sandbox',
+            'mp_pix_habilitado', 'mp_cartao_habilitado',
             'mp_loja_pix_email', 'mp_loja_pix_cpf_cnpj',
             'mp_public_key_sandbox', 'mp_access_token_sandbox',
             'mp_public_key_production', 'mp_access_token_production',
@@ -921,6 +922,17 @@ class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
                            'mp_access_token_sandbox_masked', 'mp_access_token_production_masked']
         # Tokens retornados na leitura para o admin poder ver/copiar (endpoint já é restrito)
     
+    def validate(self, attrs):
+        instance = getattr(self, 'instance', None)
+        mp_ativo = attrs.get('mp_ativo', instance.mp_ativo if instance else False)
+        mp_pix = attrs.get('mp_pix_habilitado', instance.mp_pix_habilitado if instance else True)
+        mp_cartao = attrs.get('mp_cartao_habilitado', instance.mp_cartao_habilitado if instance else True)
+        if mp_ativo and not mp_pix and not mp_cartao:
+            raise serializers.ValidationError(
+                'Com o Mercado Pago ativo, habilite pelo menos PIX ou cartão.'
+            )
+        return attrs
+
     def get_mp_access_token_sandbox_masked(self, obj):
         """Retorna token de sandbox mascarado."""
         if obj.mp_access_token_sandbox:

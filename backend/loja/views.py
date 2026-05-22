@@ -927,6 +927,11 @@ def pagar_cartao_loja(request):
     config = ConfiguracaoSite.get_config()
     if not config.mp_ativo:
         return Response({'error': 'Mercado Pago não está ativo'}, status=status.HTTP_400_BAD_REQUEST)
+    if not config.mp_cartao_habilitado:
+        return Response(
+            {'error': 'Pagamento com cartão não está habilitado nas configurações do site.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
     sdk = get_mercadopago_sdk(get_mp_env_card(config))
     if not sdk:
         return Response({'error': 'Mercado Pago não configurado'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -1086,6 +1091,11 @@ def criar_pagamento_pix_embutido_loja(request):
     config = ConfiguracaoSite.get_config()
     if not config.mp_ativo:
         return Response({'error': 'Mercado Pago não está ativo'}, status=status.HTTP_400_BAD_REQUEST)
+    if not config.mp_pix_habilitado:
+        return Response(
+            {'error': 'Pagamento via PIX não está habilitado nas configurações do site.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
 
     try:
         mp_env = get_mp_env_pix(config, pagamento_embutido=True)

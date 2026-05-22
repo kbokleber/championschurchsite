@@ -4187,6 +4187,11 @@ def pagar_cartao(request):
     config = ConfiguracaoSite.get_config()
     if not config.mp_ativo:
         return Response({'error': 'Mercado Pago não está ativo'}, status=status.HTTP_400_BAD_REQUEST)
+    if not config.mp_cartao_habilitado:
+        return Response(
+            {'error': 'Pagamento com cartão não está habilitado nas configurações do site.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
     sdk = get_mercadopago_sdk(get_mp_env_card(config))
     if not sdk:
         return Response({'error': 'Mercado Pago não configurado'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -4347,6 +4352,11 @@ def criar_pagamento_pix_embutido(request):
     config = ConfiguracaoSite.get_config()
     if not config.mp_ativo:
         return Response({'error': 'Mercado Pago não está ativo'}, status=status.HTTP_400_BAD_REQUEST)
+    if not config.mp_pix_habilitado:
+        return Response(
+            {'error': 'Pagamento via PIX não está habilitado nas configurações do site.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
 
     try:
         mp_env = get_mp_env_pix(config, pagamento_embutido=True)
@@ -4421,6 +4431,16 @@ def criar_pagamento_pix_embutido(request):
     })
 
 
+def _mp_metodos_publicos(config):
+    """Flags de PIX/cartão para o checkout (eventos e loja)."""
+    if not config.mp_ativo:
+        return {'pix_habilitado': False, 'cartao_habilitado': False}
+    return {
+        'pix_habilitado': bool(config.mp_pix_habilitado),
+        'cartao_habilitado': bool(config.mp_cartao_habilitado),
+    }
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def mercadopago_config_publica(request):
@@ -4430,8 +4450,18 @@ def mercadopago_config_publica(request):
     Query for=pix — chave do ambiente PIX (produção se split ativo).
     """
     config = ConfiguracaoSite.get_config()
+    metodos = _mp_metodos_publicos(config)
     for_param = request.query_params.get('for')
     if config.mp_ativo and for_param == 'card':
+        if not config.mp_cartao_habilitado:
+            return Response({
+                'ativo': False,
+                'public_key': None,
+                'ambiente': None,
+                'is_sandbox': None,
+                'payer_email_hint': None,
+                **metodos,
+            })
         env = get_mp_env_card(config)
         public_key = config.get_mp_public_key_for(env)
         payer_hint = (
@@ -4444,8 +4474,17 @@ def mercadopago_config_publica(request):
             'ambiente': env,
             'is_sandbox': env == 'sandbox',
             'payer_email_hint': payer_hint or None,
+            **metodos,
         })
     if config.mp_ativo and for_param == 'pix':
+        if not config.mp_pix_habilitado:
+            return Response({
+                'ativo': False,
+                'public_key': None,
+                'ambiente': None,
+                'is_sandbox': None,
+                **metodos,
+            })
         env = get_mp_env_pix(config)
         public_key = config.get_mp_public_key_for(env)
         return Response({
@@ -4453,6 +4492,7 @@ def mercadopago_config_publica(request):
             'public_key': public_key or None,
             'ambiente': env,
             'is_sandbox': env == 'sandbox',
+            **metodos,
         })
     env = config.mp_ambiente if config.mp_ativo else None
     return Response({
@@ -4460,6 +4500,7 @@ def mercadopago_config_publica(request):
         'public_key': config.mp_public_key if config.mp_ativo else None,
         'ambiente': env,
         'is_sandbox': config.mp_is_sandbox if config.mp_ativo else None,
+        **metodos,
     })
 
 

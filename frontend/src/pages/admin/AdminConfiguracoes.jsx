@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Save, Upload, X, Church, Mail, Phone, MapPin, Facebook, Instagram, Youtube, Twitter, Globe, Webhook, ToggleLeft, ToggleRight, CreditCard, AlertTriangle, CheckCircle, Eye, EyeOff, MessageSquare, Download, Plus, Trash2, ChevronUp, ChevronDown, RefreshCw } from 'lucide-react'
+import { Save, Upload, X, Church, Mail, Phone, MapPin, Facebook, Instagram, Youtube, Twitter, Globe, Webhook, ToggleLeft, ToggleRight, CreditCard, QrCode, AlertTriangle, CheckCircle, Eye, EyeOff, MessageSquare, Download, Plus, Trash2, ChevronUp, ChevronDown, RefreshCw } from 'lucide-react'
 import api from '../../services/api'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import { useConfiguracao } from '../../contexts/ConfiguracaoContext'
@@ -78,6 +78,8 @@ function AdminConfiguracoes() {
     mp_ambiente: 'sandbox',
     mp_ativo: false,
     mp_cartao_em_sandbox: false,
+    mp_pix_habilitado: true,
+    mp_cartao_habilitado: true,
     mp_public_key_sandbox: '',
     mp_access_token_sandbox: '',
     mp_public_key_production: '',
@@ -168,6 +170,8 @@ function AdminConfiguracoes() {
         mp_ambiente: data.mp_ambiente || 'sandbox',
         mp_ativo: data.mp_ativo || false,
         mp_cartao_em_sandbox: data.mp_cartao_em_sandbox || false,
+        mp_pix_habilitado: data.mp_pix_habilitado !== false,
+        mp_cartao_habilitado: data.mp_cartao_habilitado !== false,
         mp_public_key_sandbox: data.mp_public_key_sandbox || '',
         mp_access_token_sandbox: data.mp_access_token_sandbox || '',
         mp_public_key_production: data.mp_public_key_production || '',
@@ -482,6 +486,19 @@ function AdminConfiguracoes() {
     e.preventDefault()
     setSaving(true)
     setMessage({ type: '', text: '' })
+
+    if (
+      formData.mp_ativo &&
+      !formData.mp_pix_habilitado &&
+      !formData.mp_cartao_habilitado
+    ) {
+      setMessage({
+        type: 'error',
+        text: 'Com o Mercado Pago ativo, habilite pelo menos PIX ou cartão.',
+      })
+      setSaving(false)
+      return
+    }
 
     try {
       const data = new FormData()
@@ -1787,7 +1804,7 @@ function AdminConfiguracoes() {
                   <label className="font-medium text-gray-700">Mercado Pago Ativo</label>
                   <p className="text-sm text-gray-500">
                     {formData.mp_ativo 
-                      ? 'Checkout transparente: PIX (QR na página) e cartão (Brick) em eventos e loja' 
+                      ? 'Checkout em eventos e loja conforme as formas de pagamento abaixo' 
                       : 'Pagamentos via Mercado Pago estão desativados'}
                   </p>
                 </div>
@@ -1805,6 +1822,70 @@ function AdminConfiguracoes() {
                   />
                 </button>
               </div>
+
+              {formData.mp_ativo && (
+                <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
+                  <div>
+                    <h4 className="font-medium text-gray-800">Formas de pagamento</h4>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Vale para inscrições em eventos e para a loja/cantina. Desative o cartão enquanto o Brick não estiver liberado no domínio do site.
+                    </p>
+                  </div>
+                  <label className="flex items-center justify-between gap-4 cursor-pointer">
+                    <span className="text-sm text-gray-700 flex items-center gap-2">
+                      <QrCode className="w-4 h-4 text-primary-600" />
+                      Aceitar PIX (QR na página)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          mp_pix_habilitado: !prev.mp_pix_habilitado,
+                        }))
+                      }
+                      className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition-colors ${
+                        formData.mp_pix_habilitado ? 'bg-green-500' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-md transition-transform ${
+                          formData.mp_pix_habilitado ? 'translate-x-7' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </label>
+                  <label className="flex items-center justify-between gap-4 cursor-pointer">
+                    <span className="text-sm text-gray-700 flex items-center gap-2">
+                      <CreditCard className="w-4 h-4 text-primary-600" />
+                      Aceitar cartão (Brick)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          mp_cartao_habilitado: !prev.mp_cartao_habilitado,
+                        }))
+                      }
+                      className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition-colors ${
+                        formData.mp_cartao_habilitado ? 'bg-green-500' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-md transition-transform ${
+                          formData.mp_cartao_habilitado ? 'translate-x-7' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </label>
+                  {!formData.mp_pix_habilitado && !formData.mp_cartao_habilitado && (
+                    <p className="text-sm text-red-600">
+                      Habilite pelo menos PIX ou cartão para salvar com o Mercado Pago ativo.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Seleção de Ambiente */}
               <div>

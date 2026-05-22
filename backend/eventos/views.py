@@ -3472,7 +3472,14 @@ class CobrancaViewSet(viewsets.ModelViewSet):
 # ============================================
 
 import mercadopago
-from .mercadopago_sdk import get_mercadopago_sdk
+from .mercadopago_sdk import (
+    get_mercadopago_sdk,
+    get_mp_env_card,
+    get_mp_env_pix,
+    mp_buscar_pagamento,
+    mp_search_payments_by_reference,
+)
+from .mp_payments import criar_ou_reutilizar_pix_embutido
 
 
 @api_view(['POST'])
@@ -3794,16 +3801,11 @@ def _verificar_assinatura_webhook_mp(request):
 
 def _processar_webhook_mp_pagamento(resource_id):
     """Processa um pagamento MP em background (chamado em thread)."""
-    sdk = get_mercadopago_sdk()
-    if not sdk:
-        logger.error("MP não configurado para webhook")
+    payment, _env = mp_buscar_pagamento(resource_id)
+    if not payment:
+        logger.error("MP não configurado ou pagamento %s não encontrado", resource_id)
         return
     try:
-        payment_response = sdk.payment().get(resource_id)
-        payment = payment_response.get("response", {})
-        if payment_response.get("status") != 200:
-            logger.error(f"Erro ao buscar pagamento: {payment_response}")
-            return
         payment_status = payment.get("status")
         external_reference = payment.get("external_reference")
         logger.info(f"Pagamento {resource_id}: status={payment_status}, ref={external_reference}")
@@ -3819,6 +3821,11 @@ def _processar_webhook_mp_pagamento(resource_id):
                     cobranca.status = 'pago'
                     cobranca.data_pagamento = timezone.now()
                     cobranca.referencia_externa = str(resource_id)
+                    pm = payment.get('payment_method_id') or ''
+                    if pm == 'pix':
+                        cobranca.metodo_pagamento = 'Mercado Pago (PIX)'
+                    elif payment.get('payment_type_id') in ('credit_card', 'debit_card', 'prepaid_card'):
+                        cobranca.metodo_pagamento = 'Mercado Pago (cartão)'
                     cobranca.save()
                     for item in cobranca.itens.all():
                         inscricao = item.inscricao
@@ -3856,7 +3863,11 @@ def _processar_webhook_mp_pagamento(resource_id):
                         c2.status = 'pago'
                         c2.data_pagamento = timezone.now()
                         c2.referencia_externa = str(resource_id)
-                        c2.metodo_pagamento = c2.metodo_pagamento or 'Mercado Pago'
+                        pm = payment.get('payment_method_id') or ''
+                        c2.metodo_pagamento = (
+                            'Mercado Pago (PIX)' if pm == 'pix'
+                            else (c2.metodo_pagamento or 'Mercado Pago')
+                        )
                         c2.save()
                         v2 = Venda.objects.select_for_update().get(pk=c2.venda_id)
                         v2.status = 'pago'
@@ -4080,34 +4091,17 @@ def verificar_pagamento(request, cobranca_id):
             'cobranca_status': cobranca.status,
         })
     
-    # Consultar no Mercado Pago (mesmo ambiente do PIX = produção quando cartão em sandbox)
     config = ConfiguracaoSite.get_config()
-    sdk = get_mercadopago_sdk('production') if getattr(config, 'mp_cartao_em_sandbox', False) else get_mercadopago_sdk()
-    if not sdk:
+    if not config.mp_ativo:
         return Response({
             'status': cobranca.status,
             'cobranca_status': cobranca.status,
-            'mp_error': 'MP não configurado'
+            'mp_error': 'MP não configurado',
         })
-    
+
     try:
-        # Buscar pagamentos pelo external_reference (código da cobrança)
-        import requests
-        env = 'production' if getattr(config, 'mp_cartao_em_sandbox', False) else config.mp_ambiente
-        access_token = config.get_mp_access_token_for(env)
-        
-        # Buscar pagamentos com o external_reference igual ao código da cobrança
-        search_url = f"https://api.mercadopago.com/v1/payments/search?external_reference={cobranca.codigo}"
-        headers = {
-            "Authorization": f"Bearer {access_token}"
-        }
-        
-        response = requests.get(search_url, headers=headers)
-        data = response.json()
-        
-        print(f"[MP] Verificando pagamento para cobrança {cobranca.codigo}: {data}")
-        
-        results = data.get("results", [])
+        results = mp_search_payments_by_reference(cobranca.codigo, config)
+        print(f"[MP] Verificando pagamento para cobrança {cobranca.codigo}: {len(results)} resultado(s)")
         mp_status = "pending"
         
         # Verificar se algum pagamento foi aprovado
@@ -4193,8 +4187,7 @@ def pagar_cartao(request):
     config = ConfiguracaoSite.get_config()
     if not config.mp_ativo:
         return Response({'error': 'Mercado Pago não está ativo'}, status=status.HTTP_400_BAD_REQUEST)
-    # Cartão: se "cartão em sandbox" ativo, usar sandbox para testar sem cobrança real
-    sdk = get_mercadopago_sdk('sandbox') if getattr(config, 'mp_cartao_em_sandbox', False) else get_mercadopago_sdk()
+    sdk = get_mercadopago_sdk(get_mp_env_card(config))
     if not sdk:
         return Response({'error': 'Mercado Pago não configurado'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -4256,16 +4249,45 @@ def pagar_cartao(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    payment = payment_response.get("response", {}) if isinstance(payment_response, dict) else {}
+    from .mercadopago_sdk import (
+        interpretar_resposta_payment_create,
+        mensagem_erro_payment_http,
+        mensagem_resposta_cartao_mp,
+    )
+
+    payment, http_status, api_err = interpretar_resposta_payment_create(payment_response)
+    if api_err or http_status not in (200, 201):
+        mp_env = get_mp_env_card(config)
+        msg = mensagem_erro_payment_http(http_status, payment, env=mp_env)
+        logger.warning(
+            "Cartão MP API erro cobrança %s: http=%s body=%s",
+            cobranca.codigo,
+            http_status,
+            payment,
+        )
+        return Response(
+            {
+                'success': False,
+                'status': 'api_error',
+                'message': msg,
+                'error': msg,
+                'mp_http_status': http_status,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     status_mp = payment.get("status")
     payment_id = payment.get("id")
+
+    if payment_id and status_mp in ('approved', 'pending', 'in_process'):
+        cobranca.referencia_externa = str(payment_id)
+        cobranca.metodo_pagamento = 'Mercado Pago (cartão)'
+        cobranca.save(update_fields=['referencia_externa', 'metodo_pagamento'])
 
     if status_mp == 'approved':
         cobranca.status = 'pago'
         cobranca.data_pagamento = timezone.now()
-        cobranca.referencia_externa = str(payment_id or '')
-        cobranca.metodo_pagamento = 'Mercado Pago (cartão)'
-        cobranca.save()
+        cobranca.save(update_fields=['status', 'data_pagamento'])
         for item in cobranca.itens.all():
             inscricao = item.inscricao
             inscricao.status_pagamento = 'pago'
@@ -4275,11 +4297,111 @@ def pagar_cartao(request):
         _disparar_webhook_cobranca_confirmada(cobranca)
         logger.info(f"Cobrança {cobranca.codigo} paga com cartão (payment_id={payment_id})")
 
+    mp_env = get_mp_env_card(config)
+    resp_msg = mensagem_resposta_cartao_mp(payment, sandbox=(mp_env == 'sandbox'))
+    logger.info(
+        "Cartão MP cobrança %s: status=%s detail=%s payment_id=%s",
+        cobranca.codigo,
+        status_mp,
+        payment.get('status_detail'),
+        payment_id,
+    )
+
     return Response({
-        'success': status_mp in ('approved', 'pending', 'in_process'),
+        'success': resp_msg['success'],
         'status': status_mp,
+        'status_detail': payment.get('status_detail'),
         'payment_id': payment_id,
-        'message': 'Pagamento aprovado!' if status_mp == 'approved' else 'Pagamento em processamento.',
+        'message': resp_msg['message'],
+    })
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def criar_pagamento_pix_embutido(request):
+    """
+    Checkout transparente: cria pagamento PIX (QR/copia-e-cola) via Payments API.
+    Body: cobranca_id, payer opcional { email, identification: { type, number } }.
+    """
+    cobranca_id = request.data.get('cobranca_id')
+    if not cobranca_id:
+        return Response({'error': 'cobranca_id é obrigatório'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        cobranca = Cobranca.objects.select_related('membro', 'evento').get(id=cobranca_id)
+    except Cobranca.DoesNotExist:
+        return Response({'error': 'Cobrança não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+
+    if cobranca.status != 'pendente':
+        return Response(
+            {'error': f'Cobrança já está com status: {cobranca.get_status_display()}'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    config = ConfiguracaoSite.get_config()
+    if not config.mp_ativo:
+        return Response({'error': 'Mercado Pago não está ativo'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        mp_env = get_mp_env_pix(config, pagamento_embutido=True)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    credenciais_ok, detalhe_credenciais = _validar_credenciais_mp_ambiente(
+        mp_env,
+        config.get_mp_public_key_for(mp_env),
+        config.get_mp_access_token_for(mp_env),
+    )
+    if not credenciais_ok:
+        return Response({'error': detalhe_credenciais}, status=status.HTTP_400_BAD_REQUEST)
+
+    payer = request.data.get('payer') or {}
+    membro = cobranca.membro
+    email_fb = (membro.email if membro else '') or ''
+    nome_fb = (membro.nome if membro else '') or 'Pagador'
+
+    def limpar_ref():
+        cobranca.referencia_externa = ''
+        cobranca.save(update_fields=['referencia_externa'])
+
+    try:
+        result = criar_ou_reutilizar_pix_embutido(
+            codigo=cobranca.codigo,
+            valor=float(cobranca.valor),
+            descricao=f'Inscrição: {cobranca.evento.titulo}',
+            referencia_externa=cobranca.referencia_externa,
+            payer_input=payer,
+            email_fallback=email_fb,
+            nome_fallback=nome_fb,
+            limpar_referencia_invalida=limpar_ref,
+        )
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    if result.get('already_approved'):
+        if cobranca.status != 'pago':
+            cobranca.status = 'pago'
+            cobranca.data_pagamento = timezone.now()
+            cobranca.referencia_externa = str(result.get('payment_id') or cobranca.referencia_externa or '')
+            cobranca.metodo_pagamento = 'Mercado Pago (PIX)'
+            cobranca.save()
+            for item in cobranca.itens.all():
+                ins = item.inscricao
+                ins.status_pagamento = 'pago'
+                ins.status = 'confirmada'
+                ins.data_pagamento = timezone.now()
+                ins.save()
+            _disparar_webhook_cobranca_confirmada(cobranca)
+        return Response({**result, 'cobranca': {'id': cobranca.id, 'codigo': cobranca.codigo}})
+
+    pid = result.get('payment_id')
+    if pid:
+        cobranca.referencia_externa = str(pid)
+        cobranca.metodo_pagamento = 'Mercado Pago (PIX)'
+        cobranca.save(update_fields=['referencia_externa', 'metodo_pagamento'])
+
+    return Response({
+        **result,
+        'cobranca': {'id': cobranca.id, 'codigo': cobranca.codigo},
     })
 
 
@@ -4287,27 +4409,35 @@ def pagar_cartao(request):
 @permission_classes([AllowAny])
 def mercadopago_config_publica(request):
     """
-    Retorna configurações públicas do Mercado Pago (para o frontend).
-    Query param: for=card — quando mp_cartao_em_sandbox está ativo, retorna public_key e is_sandbox do sandbox (para o Brick de cartão).
+    Retorna configurações públicas do Mercado Pago (para o frontend / Bricks).
+    Query for=card — chave sandbox do cartão quando mp_cartao_em_sandbox.
+    Query for=pix — chave do ambiente PIX (produção se split ativo).
     """
     config = ConfiguracaoSite.get_config()
-    use_card_sandbox = (
-        config.mp_ativo
-        and getattr(config, 'mp_cartao_em_sandbox', False)
-        and request.query_params.get('for') == 'card'
-    )
-    if use_card_sandbox:
-        public_key = config.get_mp_public_key_for('sandbox')
+    for_param = request.query_params.get('for')
+    if config.mp_ativo and for_param == 'card':
+        env = get_mp_env_card(config)
+        public_key = config.get_mp_public_key_for(env)
         return Response({
             'ativo': bool(public_key),
             'public_key': public_key or None,
-            'ambiente': 'sandbox',
-            'is_sandbox': True,
+            'ambiente': env,
+            'is_sandbox': env == 'sandbox',
         })
+    if config.mp_ativo and for_param == 'pix':
+        env = get_mp_env_pix(config)
+        public_key = config.get_mp_public_key_for(env)
+        return Response({
+            'ativo': bool(public_key),
+            'public_key': public_key or None,
+            'ambiente': env,
+            'is_sandbox': env == 'sandbox',
+        })
+    env = config.mp_ambiente if config.mp_ativo else None
     return Response({
         'ativo': config.mp_ativo,
         'public_key': config.mp_public_key if config.mp_ativo else None,
-        'ambiente': config.mp_ambiente if config.mp_ativo else None,
+        'ambiente': env,
         'is_sandbox': config.mp_is_sandbox if config.mp_ativo else None,
     })
 

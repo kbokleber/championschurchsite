@@ -11,6 +11,7 @@
     "version:next": "npm version minor --no-git-tag-version"
   },
   "dependencies": {
+    "@mercadopago/sdk-js": "^0.0.3",
     "axios": "^1.6.7",
     "date-fns": "^4.1.0",
     "html5-qrcode": "^2.3.8",

@@ -20,7 +20,13 @@ from rest_framework.response import Response
 
 from django.utils import timezone
 
-from eventos.mercadopago_sdk import get_mercadopago_sdk
+from eventos.mercadopago_sdk import (
+    get_mercadopago_sdk,
+    get_mp_env_card,
+    get_mp_env_pix,
+    mp_search_payments_by_reference,
+)
+from eventos.mp_payments import criar_ou_reutilizar_pix_embutido, resolver_pagador_loja
 from eventos.models import ConfiguracaoSite
 from .estoque import (
     baixar_estoque_venda,
@@ -29,7 +35,6 @@ from .estoque import (
     validar_estoque_disponivel,
 )
 from .models import Produto, Venda, ItemVenda, CobrancaLoja, ReservaLoja, LojaAuditoria
-from .mp_preference import criar_preferencia_pagamento_loja
 from .reservas import liberar_reservas_ao_cancelar_venda, marcar_reservas_venda_paga
 from .serializers import (
     ProdutoSerializer,
@@ -437,7 +442,14 @@ class VendaViewSet(viewsets.ModelViewSet):
         c.valor = v.total
         c.status = 'pendente'
         c.save()
-        return criar_preferencia_pagamento_loja(request, c)
+        return Response(
+            {
+                'success': True,
+                'valor': float(c.valor),
+                'venda_id': v.id,
+                'cobranca_loja': {'id': c.id, 'codigo': c.codigo},
+            }
+        )
 
     @action(detail=True, methods=['post'], url_path='cancelar')
     def cancelar(self, request, pk=None):
@@ -803,8 +815,7 @@ def verificar_pagamento_loja(request, cobranca_loja_id: int):
         )
 
     config = ConfiguracaoSite.get_config()
-    sdk = get_mercadopago_sdk('production') if getattr(config, 'mp_cartao_em_sandbox', False) else get_mercadopago_sdk()
-    if not sdk:
+    if not config.mp_ativo:
         return Response(
             {
                 'status': cobranca.status,
@@ -813,14 +824,7 @@ def verificar_pagamento_loja(request, cobranca_loja_id: int):
             }
         )
     try:
-        env = 'production' if getattr(config, 'mp_cartao_em_sandbox', False) else config.mp_ambiente
-        access_token = config.get_mp_access_token_for(env)
-        search_url = f'https://api.mercadopago.com/v1/payments/search?external_reference={cobranca.codigo}'
-        r = requests.get(
-            search_url, headers={'Authorization': f'Bearer {access_token}'}, timeout=30
-        )
-        data = r.json()
-        results = data.get('results', [])
+        results = mp_search_payments_by_reference(cobranca.codigo, config)
         mp_status = 'pending'
         for pay in results:
             if pay.get('status') == 'approved':
@@ -919,18 +923,17 @@ def pagar_cartao_loja(request):
     config = ConfiguracaoSite.get_config()
     if not config.mp_ativo:
         return Response({'error': 'Mercado Pago não está ativo'}, status=status.HTTP_400_BAD_REQUEST)
-    sdk = get_mercadopago_sdk('sandbox') if getattr(config, 'mp_cartao_em_sandbox', False) else get_mercadopago_sdk()
+    sdk = get_mercadopago_sdk(get_mp_env_card(config))
     if not sdk:
         return Response({'error': 'Mercado Pago não configurado'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     v = cobranca.venda
-    u = v.criado_por
-    email = payer.get('email') or (getattr(u, 'email', None) or '')
-    if not email and u:
-        email = f"lojau{u.id}@loja.interna"
-    if not email:
-        email = 'pagador@loja.interna'
-    identification = payer.get('identification') or {}
+    try:
+        pagador_loja = resolver_pagador_loja(config, payer)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    email = pagador_loja['email']
+    identification = pagador_loja['identification']
     id_type = identification.get('type') or 'CPF'
     id_number = identification.get('number') or ''
 
@@ -978,7 +981,28 @@ def pagar_cartao_loja(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    payment = payment_response.get('response', {}) if isinstance(payment_response, dict) else {}
+    from eventos.mercadopago_sdk import (
+        get_mp_env_card,
+        interpretar_resposta_payment_create,
+        mensagem_erro_payment_http,
+        mensagem_resposta_cartao_mp,
+    )
+
+    payment, http_status, api_err = interpretar_resposta_payment_create(payment_response)
+    if api_err or http_status not in (200, 201):
+        mp_env = get_mp_env_card(config)
+        msg = mensagem_erro_payment_http(http_status, payment, env=mp_env)
+        return Response(
+            {
+                'success': False,
+                'status': 'api_error',
+                'message': msg,
+                'error': msg,
+                'mp_http_status': http_status,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     status_mp = payment.get('status')
     payment_id = payment.get('id')
 
@@ -1009,14 +1033,124 @@ def pagar_cartao_loja(request):
                 )
         except serializers.ValidationError as exc:
             return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+    if payment_id and status_mp in ('approved', 'pending', 'in_process'):
+        cobranca.referencia_externa = str(payment_id)
+        cobranca.metodo_pagamento = 'Mercado Pago (cartão)'
+        cobranca.save(update_fields=['referencia_externa', 'metodo_pagamento'])
+
+    mp_env = get_mp_env_card(config)
+    resp_msg = mensagem_resposta_cartao_mp(payment, sandbox=(mp_env == 'sandbox'))
     return Response(
         {
-            'success': status_mp in ('approved', 'pending', 'in_process'),
+            'success': resp_msg['success'],
             'status': status_mp,
+            'status_detail': payment.get('status_detail'),
             'payment_id': payment_id,
-            'message': 'Pagamento aprovado!' if status_mp == 'approved' else 'Pagamento em processamento.',
+            'message': resp_msg['message'],
         }
     )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def criar_pagamento_pix_embutido_loja(request):
+    """PIX embutido (QR) para CobrancaLoja."""
+    from eventos.views import _validar_credenciais_mp_ambiente
+
+    cobranca_id = request.data.get('cobranca_loja_id') or request.data.get('cobranca_id')
+    if not cobranca_id:
+        return Response(
+            {'error': 'cobranca_loja_id é obrigatório'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        cobranca = CobrancaLoja.objects.select_related('venda', 'venda__criado_por').get(id=cobranca_id)
+    except CobrancaLoja.DoesNotExist:
+        return Response({'error': 'Cobrança não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+
+    if cobranca.status != 'pendente':
+        return Response(
+            {'error': f'Cobrança não está pendente (status: {cobranca.get_status_display()})'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    config = ConfiguracaoSite.get_config()
+    if not config.mp_ativo:
+        return Response({'error': 'Mercado Pago não está ativo'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        mp_env = get_mp_env_pix(config, pagamento_embutido=True)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    credenciais_ok, detalhe = _validar_credenciais_mp_ambiente(
+        mp_env,
+        config.get_mp_public_key_for(mp_env),
+        config.get_mp_access_token_for(mp_env),
+    )
+    if not credenciais_ok:
+        return Response({'error': detalhe}, status=status.HTTP_400_BAD_REQUEST)
+
+    payer_req = request.data.get('payer') or {}
+    v = cobranca.venda
+    try:
+        payer_mp = resolver_pagador_loja(config, payer_req)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    nome_fb = getattr(v, 'comprador_nome', None) or config.nome_igreja or 'Loja'
+    if nome_fb and nome_fb.strip():
+        partes = nome_fb.strip().split(None, 1)
+        payer_mp['first_name'] = partes[0][:255]
+        payer_mp['last_name'] = (partes[1] if len(partes) > 1 else 'Balcão')[:255]
+
+    def limpar_ref():
+        cobranca.referencia_externa = ''
+        cobranca.save(update_fields=['referencia_externa'])
+
+    try:
+        result = criar_ou_reutilizar_pix_embutido(
+            codigo=cobranca.codigo,
+            valor=float(cobranca.valor),
+            descricao=f'Loja / cantina (venda #{v.id})',
+            referencia_externa=cobranca.referencia_externa,
+            payer_input={},
+            email_fallback=payer_mp['email'],
+            nome_fallback=nome_fb,
+            limpar_referencia_invalida=limpar_ref,
+            payer_mp_override=payer_mp,
+        )
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    if result.get('already_approved'):
+        if cobranca.status != 'pago':
+            try:
+                with transaction.atomic():
+                    c = CobrancaLoja.objects.select_for_update().select_related('venda').get(id=cobranca.id)
+                    c.status = 'pago'
+                    c.data_pagamento = timezone.now()
+                    c.referencia_externa = str(result.get('payment_id') or c.referencia_externa or '')
+                    c.metodo_pagamento = 'Mercado Pago (PIX)'
+                    c.save()
+                    v2 = Venda.objects.select_for_update().get(pk=c.venda_id)
+                    v2.status = 'pago'
+                    v2.save()
+                    baixar_estoque_venda(v2)
+                    marcar_reservas_venda_paga(v2)
+            except serializers.ValidationError as exc:
+                return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+        return Response({**result, 'cobranca_loja': {'id': cobranca.id, 'codigo': cobranca.codigo}})
+
+    pid = result.get('payment_id')
+    if pid:
+        cobranca.referencia_externa = str(pid)
+        cobranca.metodo_pagamento = 'Mercado Pago (PIX)'
+        cobranca.save(update_fields=['referencia_externa', 'metodo_pagamento'])
+
+    return Response({
+        **result,
+        'cobranca_loja': {'id': cobranca.id, 'codigo': cobranca.codigo},
+    })
 
 
 @api_view(['GET'])

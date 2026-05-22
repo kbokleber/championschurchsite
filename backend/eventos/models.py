@@ -961,6 +961,18 @@ class ConfiguracaoSite(models.Model):
         blank=True,
         help_text='Secret para validar assinatura dos webhooks (painel MP > Webhooks > Configurar notificações)'
     )
+    mp_loja_pix_email = models.EmailField(
+        max_length=254,
+        blank=True,
+        verbose_name='E-mail pagador PIX (loja)',
+        help_text='Usado no PIX/cartão da loja quando o cliente não se identifica. Vazio = e-mail de contato da igreja.',
+    )
+    mp_loja_pix_cpf_cnpj = models.CharField(
+        max_length=18,
+        blank=True,
+        verbose_name='CPF/CNPJ pagador PIX (loja)',
+        help_text='CPF ou CNPJ da igreja (só números) para pagamentos da loja/cantina sem cadastro do comprador.',
+    )
     mp_cartao_em_sandbox = models.BooleanField(
         default=False,
         verbose_name='Cartão em Sandbox (testes)',

@@ -393,13 +393,12 @@ function AdminLojaPDV() {
       const { data: mp } = await api.post(`/loja/vendas/${vId}/gerar-cobranca-mp/`, {
         meio_pagamento: 'pix_mp',
       })
-      const temLink = Boolean(mp?.init_point || mp?.sandbox_init_point)
-      const ok = mp?.success === true || temLink
+      const ok = mp?.success === true && mp?.cobranca_loja?.id
       if (!ok) {
         alert(
           (typeof mp?.error === 'string' && mp.error) ||
             (mp?.detail && String(mp.detail)) ||
-            'Falha ao gerar pagamento no Mercado Pago.',
+            'Falha ao preparar cobrança no Mercado Pago.',
         )
         return
       }
@@ -410,16 +409,7 @@ function AdminLojaPDV() {
           setReservadoMinPorProduto({})
         }
         navigate('/admin/loja/pagamento/' + String(cobId), {
-          state: {
-            area,
-            autoStartCheckout: true,
-            initPoint: mp.init_point || mp.initPoint,
-            sandboxInitPoint: mp.sandbox_init_point || mp.sandboxInitPoint,
-            isSandbox: mp.is_sandbox ?? mp.isSandbox,
-            reutilizado: mp.reutilizado,
-            valor: mp.valor,
-            preferenceId: mp.preference_id ?? mp.preferenceId,
-          },
+          state: { area, valor: mp.valor },
         })
       } else {
         alert('Resposta inesperada do servidor.')

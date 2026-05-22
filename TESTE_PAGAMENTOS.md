@@ -1,66 +1,90 @@
-# Teste do fluxo de pagamentos (Mercado Pago)
+# Teste do fluxo de pagamentos (Mercado Pago — checkout transparente)
 
-Use este checklist para validar PIX e cartão de crédito no site (boleto não é oferecido).
+Use este checklist para validar PIX embutido e cartão na própria página (sem redirect ao Checkout Pro).
 
 ## Pré-requisitos
 
-- Mercado Pago ativo em **Configurações** (credenciais de produção ou teste).
-- Webhook configurado no painel MP: `https://champions.kbosolucoes.com.br/api/mercadopago/webhook/`
+- Mercado Pago ativo em **Configurações** (credenciais de produção e/ou teste).
+- Webhook configurado no painel MP: `https://championschurch.com.br/api/mercadopago/webhook/` (ou URL do ambiente).
 - Webhook Secret preenchido no admin (Configurações → Mercado Pago).
 
 ---
 
 ## Checklist rápido
 
-### 1. Tela de pagamento (antes de abrir o MP)
+### 1. Tela de pagamento (eventos)
 
-- [ ] Acessar um evento com inscrição paga → ir para "Pagamento".
-- [ ] Ver o texto: **"Pague com PIX ou cartão de crédito"** no topo.
-- [ ] Dois botões: **"PIX (abre Mercado Pago)"** e **"Cartão aqui (paga no site, sem conta no MP)"**.
+- [ ] Acessar evento com inscrição paga → ir para `/pagamento/:id`.
+- [ ] Ver abas **PIX** e **Cartão** na mesma página (sem botão “Ir ao Mercado Pago”).
+- [ ] Texto: pagamento no site, checkout transparente.
 
-### 2. Cartão **no site** (sem conta no Mercado Pago)
+### 2. PIX embutido
 
-- [ ] Na tela de pagamento, clicar em **"Cartão aqui (paga no site, sem conta no MP)"**.
-- [ ] Formulário de cartão (Card Payment Brick) carrega na própria página.
-- [ ] Preencher dados do cartão e pagar; **não é necessário ter conta no Mercado Pago**.
-- [ ] Após aprovação, a página atualiza e libera ingressos.
+- [ ] Aba **PIX**: preencher e-mail e CPF do pagador.
+- [ ] Clicar **Gerar QR Code PIX** → aparece QR e botão **Copiar código PIX**.
+- [ ] Pagar via app do banco; em até ~5 s a página mostra **Pagamento Confirmado** (polling + webhook).
+- [ ] Status da cobrança no admin: **Pago**, método **Mercado Pago (PIX)**.
 
-### 3. PIX (Mercado Pago)
+### 3. Cartão no site (Brick)
 
-- [ ] Clicar em **"PIX (abre Mercado Pago)"**; página do Checkout Pro abre (nova aba).
-- [ ] Pagar com **PIX** na tela do MP (boleto não é oferecido).
+- [ ] Aba **Cartão**: preencher e-mail e CPF; formulário Brick carrega.
+- [ ] Preencher cartão e concluir (sem conta MP).
+- [ ] Em sandbox com “Cartão em Sandbox”: titular **APRO**, CPF **12345678909**, cartão de teste da doc MP.
+- [ ] Ingressos liberados após aprovação.
 
-### 4. Teste com PIX (produção ou sandbox)
+### 4. Loja / cantina (admin)
 
-- [ ] Escolher PIX, copiar código ou QR, simular pagamento (sandbox) ou pagar de verdade.
-- [ ] Voltar ao site: em até ~5 s a página deve mostrar "Pagamento Confirmado!" e liberar ingressos.
-- [ ] Em **Meus ingressos**, ingresso com QR Code disponível.
+- [ ] Em **Configurações → Mercado Pago**, preencher **CPF ou CNPJ (loja)** (e opcionalmente e-mail PIX loja).
+- [ ] PDV → venda com **PIX / cartão** → tela `/admin/loja/pagamento/:id`.
+- [ ] **Sem** formulário de e-mail/CPF do cliente — QR/cartão em nome da igreja.
+- [ ] Após pagamento, venda **paga** e estoque baixado.
 
-### 5. Teste com cartão (produção ou sandbox)
-
-- [ ] Usar **"Cartão aqui"** na página de pagamento (formulário no site) ou cartão no Checkout Pro após abrir o link PIX.
-- [ ] Cartão de teste (sandbox) ou cartão real (produção).
-- [ ] Concluir pagamento.
-- [ ] Voltar ao site: "Pagamento Confirmado!" e ingressos liberados.
-- [ ] Admin → Cobranças: status "Pago" e método "Mercado Pago".
-
-### 6. Webhook e idempotência
+### 5. Webhook e idempotência
 
 - [ ] Painel MP → Simular notificações → **200** (não 403/404).
-- [ ] Após um pagamento real, cobrança e inscrições atualizam mesmo sem ficar na tela (webhook em background).
+- [ ] Pagamento confirmado mesmo se o usuário fechar a aba (webhook em background).
 
 ---
 
-## Dados de teste (sandbox MP)
+## Dados de teste (sandbox cartão)
 
-- Cartão de teste: ver [Documentação MP - cartões de teste](https://www.mercadopago.com.br/developers/pt/docs/checkout-pro/additional-content/test-cards).
-- CPF de teste: 191.191.191-00 (ou outro da doc).
-- Em **Modo de teste**, nenhum valor real é cobrado.
+Painel MP → sua aplicação → **Cartões de teste**. Credenciais **Sandbox (Test)** em Configurações do site devem ser do **mesmo app** (Public Key + Access Token juntos).
+
+| Bandeira | Número | CVV | Validade |
+|----------|--------|-----|----------|
+| Mastercard | 5031 4332 1540 6351 | 123 | 11/30 |
+| Visa | 4235 6477 2802 5682 | 123 | 11/30 |
+| American Express | 3753 651535 56885 | 1234 | 11/30 |
+| Elo débito | 5067 7667 8388 8311 | 123 | 11/30 |
+
+**Nome do titular** (define o resultado): **APRO** = aprovado · **OTHE** = recusado · **CONT** = pendente · **FUND** = sem saldo.
+
+**CPF** (documento): **12345678909** (somente números no envio).
+
+Com **Cartão em Sandbox** ativo e ambiente geral em Produção: PIX usa produção; cartão usa credenciais de teste.
+
+**Erro 401:** Brick (chave pública) e backend (access token) em ambientes ou apps diferentes — corrija o par Sandbox no admin.
 
 ---
 
 ## Se algo falhar
 
-- **403 no webhook:** conferir Webhook Secret no admin e no painel MP (igual).
-- **Cartão sem conta:** use o botão **"Cartão aqui (paga no site, sem conta no MP)"** na página de pagamento; o formulário de cartão abre no próprio site.
-- **Pagamento aprovado mas site não atualiza:** verificar se a URL do webhook está correta e acessível; ver logs do backend.
+- **403 no webhook:** conferir Webhook Secret no admin e no painel MP (iguais).
+- **Brick não carrega:** verificar `mp_public_key` (sandbox se cartão em sandbox) e CSP (`sdk.mercadopago.com`).
+- **PIX sem QR:** e-mail + CPF obrigatórios; valor mínimo R$ 0,01.
+- **Pagamento aprovado mas site não atualiza:** URL do webhook acessível; logs do backend.
+
+---
+
+## Endpoints (referência)
+
+| Ação | Método | URL |
+|------|--------|-----|
+| Config (Brick) | GET | `/api/mercadopago/config/?for=card` |
+| PIX embutido (eventos) | POST | `/api/mercadopago/criar-pix-embutido/` |
+| Cartão (eventos) | POST | `/api/mercadopago/pagar-cartao/` |
+| PIX embutido (loja) | POST | `/api/loja/mercadopago/criar-pix-embutido/` |
+| Cartão (loja) | POST | `/api/loja/mercadopago/pagar-cartao/` |
+| Verificar | GET | `/api/mercadopago/verificar/:id/` ou `/api/loja/mercadopago/verificar/:id/` |
+
+O endpoint legado `criar-pix` (Checkout Pro / preferência) permanece na API, mas a interface usa apenas checkout transparente.

@@ -20,7 +20,12 @@ from .views import (
     verificar_permissao_menu, menus_permitidos, popular_permissoes_menu,
     admin_backup_exportar, admin_backup_importar,
     # Mercado Pago
-    criar_pagamento_pix, pagar_cartao, mercadopago_webhook, verificar_pagamento, mercadopago_config_publica
+    criar_pagamento_pix,
+    criar_pagamento_pix_embutido,
+    pagar_cartao,
+    mercadopago_webhook,
+    verificar_pagamento,
+    mercadopago_config_publica,
 )
 from loja.views import (
     ProdutoViewSet as LojaProdutoViewSet,
@@ -30,6 +35,7 @@ from loja.views import (
     ReservaLojaViewSet,
     verificar_pagamento_loja,
     pagar_cartao_loja,
+    criar_pagamento_pix_embutido_loja,
     dashboard_financeiro_loja,
 )
 
@@ -118,11 +124,13 @@ urlpatterns = [
     
     # Mercado Pago
     path('mercadopago/criar-pix/', criar_pagamento_pix, name='mp_criar_pix'),
+    path('mercadopago/criar-pix-embutido/', criar_pagamento_pix_embutido, name='mp_criar_pix_embutido'),
     path('mercadopago/pagar-cartao/', pagar_cartao, name='mp_pagar_cartao'),
     path('mercadopago/webhook/', mercadopago_webhook, name='mp_webhook'),
     path('mercadopago/verificar/<int:cobranca_id>/', verificar_pagamento, name='mp_verificar'),
     path('loja/mercadopago/verificar/<int:cobranca_loja_id>/', verificar_pagamento_loja, name='mp_verificar_loja'),
     path('loja/mercadopago/pagar-cartao/', pagar_cartao_loja, name='mp_pagar_cartao_loja'),
+    path('loja/mercadopago/criar-pix-embutido/', criar_pagamento_pix_embutido_loja, name='mp_criar_pix_embutido_loja'),
     path('loja/dashboard-financeiro/', dashboard_financeiro_loja, name='loja_dashboard_financeiro'),
     path('mercadopago/config/', mercadopago_config_publica, name='mp_config'),
     

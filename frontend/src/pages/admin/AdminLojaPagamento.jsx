@@ -1,23 +1,20 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate, useLocation, Link, useSearchParams } from 'react-router-dom'
-import { ExternalLink, CheckCircle, Clock, AlertCircle, ArrowLeft } from 'lucide-react'
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
+import { CheckCircle, Clock, AlertCircle, ArrowLeft } from 'lucide-react'
 import api from '../../services/api'
 import { formatApiError } from '../../services/api'
+import { MercadoPagoCheckout } from '../../components/mercadopago/MercadoPagoCheckout'
 import LoadingSpinner from '../../components/LoadingSpinner'
 
 function AdminLojaPagamento() {
   const { cobrancaLojaId } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
-  const [searchParams] = useSearchParams()
   const pollingRef = useRef(null)
   const [cob, setCob] = useState(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState(null)
-  const [link, setLink] = useState(null)
-  const [linkSandbox, setLinkSandbox] = useState(false)
   const [pago, setPago] = useState(false)
-  const [gerando, setGerando] = useState(false)
   const [verificando, setVerificando] = useState(false)
 
   const st = location.state
@@ -40,88 +37,6 @@ function AdminLojaPagamento() {
     }
   }
 
-  const garantirLink = async (cl) => {
-    if (pago) return
-    if (st?.initPoint) {
-      const isSandbox = !!st.isSandbox
-      const l = st.initPoint || st.sandboxInitPoint
-      if (l) {
-        setLink(l)
-        setLinkSandbox(isSandbox)
-        return
-      }
-    }
-    if (!cl?.venda) return
-    if (cl.referencia_externa) {
-      setGerando(true)
-      try {
-        const { data } = await api.post(`/loja/vendas/${cl.venda}/gerar-cobranca-mp/`, {
-          meio_pagamento: 'pix_mp',
-        })
-        const isSandbox = !!data.is_sandbox
-        const l2 = data.init_point || data.sandbox_init_point
-        const ok = data.success === true || Boolean(l2)
-        if (ok && l2) {
-          setLink(l2)
-          setLinkSandbox(isSandbox)
-        }
-      } catch (e) {
-        setErro(formatApiError(e, 'Não foi possível recuperar o link de pagamento.'))
-      } finally {
-        setGerando(false)
-      }
-    }
-  }
-
-  useEffect(() => {
-    const run = async () => {
-      await carregar()
-    }
-    run()
-  }, [cobrancaLojaId])
-
-  useEffect(() => {
-    const fromMp = searchParams.get('from_mp')
-    if (!fromMp) return
-    const verificarRetorno = async () => {
-      try {
-        const { data } = await api.get(`/loja/mercadopago/verificar/${cobrancaLojaId}/`)
-        if (data.status === 'pago' || data.cobranca_status === 'pago' || data.venda_status === 'pago') {
-          setPago(true)
-        } else {
-          setErro(null)
-        }
-      } catch (e) {
-        setErro(formatApiError(e, 'Não foi possível confirmar o pagamento agora.'))
-      } finally {
-        carregar()
-      }
-    }
-    verificarRetorno()
-  }, [cobrancaLojaId, searchParams])
-
-  useEffect(() => {
-    if (!cob) return
-    if (cob.status === 'pago') {
-      setPago(true)
-      return
-    }
-    garantirLink(cob)
-  }, [cob, st])
-
-  useEffect(() => {
-    if (!link) return
-    if (!st?.autoStartCheckout) return
-    if (searchParams.get('from_mp')) return
-    const startedKey = `loja_checkout_started_${cobrancaLojaId}`
-    if (sessionStorage.getItem(startedKey) === '1') return
-    sessionStorage.setItem(startedKey, '1')
-    const tm = window.setTimeout(() => {
-      window.open(link, '_blank', 'noopener,noreferrer')
-    }, 250)
-    return () => window.clearTimeout(tm)
-  }, [link, st, searchParams, cobrancaLojaId])
-
   const iniciarPolling = () => {
     if (pollingRef.current) clearInterval(pollingRef.current)
     pollingRef.current = setInterval(async () => {
@@ -130,6 +45,7 @@ function AdminLojaPagamento() {
         if (data.status === 'pago' || data.cobranca_status === 'pago' || data.venda_status === 'pago') {
           setPago(true)
           if (pollingRef.current) clearInterval(pollingRef.current)
+          carregar()
         }
       } catch {
         // ignore
@@ -154,6 +70,19 @@ function AdminLojaPagamento() {
       setVerificando(false)
     }
   }
+
+  const handlePaymentSuccess = async () => {
+    setPago(true)
+    if (pollingRef.current) clearInterval(pollingRef.current)
+    await carregar()
+  }
+
+  useEffect(() => {
+    carregar()
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current)
+    }
+  }, [cobrancaLojaId])
 
   useEffect(() => {
     if (cob && cob.status !== 'pago') {
@@ -183,7 +112,7 @@ function AdminLojaPagamento() {
       <div className="p-6 max-w-lg mx-auto text-center">
         <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Pagamento confirmado</h1>
-        <p className="text-gray-600 mb-4">A venda foi finalizada (Mercado Pago ou confirmação local).</p>
+        <p className="text-gray-600 mb-4">A venda foi finalizada.</p>
         <p className="text-lg font-semibold text-gray-800 mb-6">
           R$ {Number(cob?.valor).toFixed(2).replace('.', ',')}
         </p>
@@ -210,45 +139,27 @@ function AdminLojaPagamento() {
         <p className="text-gray-600 text-sm mt-1">
           Valor: R$ {cob ? Number(cob.valor).toFixed(2).replace('.', ',') : '—'}
         </p>
+        <p className="text-gray-500 text-xs mt-1">Pagamento no site — checkout transparente Mercado Pago.</p>
         {erro && <p className="text-red-600 text-sm mt-2">{erro}</p>}
 
         <div className="mt-6">
+          <MercadoPagoCheckout
+            contexto="loja"
+            cobrancaLojaId={Number(cobrancaLojaId)}
+            valor={Number(cob?.valor)}
+            defaultPayer={{ email: '', cpf: '' }}
+            onPaymentSuccess={handlePaymentSuccess}
+            onPixReady={() => iniciarPolling()}
+          />
+
           <button
             type="button"
             onClick={verificarAgora}
             disabled={verificando}
-            className="btn btn-secondary w-full mb-3"
+            className="btn btn-secondary w-full mt-4"
           >
             {verificando ? 'Verificando...' : 'Já paguei, verificar agora'}
           </button>
-          {gerando && <p className="text-sm text-gray-500">Preparando o link…</p>}
-          {link && (
-            <>
-              {linkSandbox && (
-                <div className="mb-3 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-left text-sm text-yellow-800">
-                  <p className="font-semibold">Checkout em Sandbox</p>
-                  <p className="mt-1">
-                    Para concluir o teste, entre no Mercado Pago com um usuário comprador de teste.
-                    Não use sua conta real nem a conta vendedora da integração.
-                  </p>
-                </div>
-              )}
-              <a
-                href={link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-primary w-full flex items-center justify-center gap-2"
-              >
-                <ExternalLink className="w-4 h-4" /> Abrir checkout PIX / cartão
-              </a>
-              <p className="text-xs text-gray-500 mt-2">
-                Após pagar no checkout do Mercado Pago, volte para esta tela. A confirmação é automática e você também pode usar "Já paguei, verificar agora".
-              </p>
-            </>
-          )}
-          {!link && !gerando && (
-            <p className="text-sm text-gray-500">Aguarde, preparando o link de pagamento…</p>
-          )}
         </div>
       </div>
     </div>

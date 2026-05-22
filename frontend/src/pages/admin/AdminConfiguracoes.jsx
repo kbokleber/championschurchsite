@@ -83,6 +83,8 @@ function AdminConfiguracoes() {
     mp_public_key_production: '',
     mp_access_token_production: '',
     mp_webhook_secret: '',
+    mp_loja_pix_email: '',
+    mp_loja_pix_cpf_cnpj: '',
     // WhatsApp Evolution API
     evolution_api_url: '',
     evolution_api_key: '',
@@ -171,6 +173,8 @@ function AdminConfiguracoes() {
         mp_public_key_production: data.mp_public_key_production || '',
         mp_access_token_production: data.mp_access_token_production || '',
         mp_webhook_secret: data.mp_webhook_secret || '',
+        mp_loja_pix_email: data.mp_loja_pix_email || '',
+        mp_loja_pix_cpf_cnpj: data.mp_loja_pix_cpf_cnpj || '',
         // WhatsApp Evolution API
         evolution_api_url: data.evolution_api_url || '',
         evolution_api_key: data.evolution_api_key || '',
@@ -1783,7 +1787,7 @@ function AdminConfiguracoes() {
                   <label className="font-medium text-gray-700">Mercado Pago Ativo</label>
                   <p className="text-sm text-gray-500">
                     {formData.mp_ativo 
-                      ? 'Pagamentos via PIX estão habilitados' 
+                      ? 'Checkout transparente: PIX (QR na página) e cartão (Brick) em eventos e loja' 
                       : 'Pagamentos via Mercado Pago estão desativados'}
                   </p>
                 </div>
@@ -1913,6 +1917,43 @@ function AdminConfiguracoes() {
                 )}
               </div>
 
+              {/* Loja/cantina: pagador anônimo no MP */}
+              <div className="border border-blue-200 rounded-lg p-4 bg-blue-50/50">
+                <h4 className="font-medium text-gray-800 mb-2">Loja / cantina (cliente não se identifica)</h4>
+                <p className="text-sm text-gray-600 mb-4">
+                  No balcão o comprador não preenche dados. Use CPF/CNPJ e e-mail da igreja no MP.
+                  O <strong>PIX na página</strong> usa sempre credenciais da aba <strong>Produção</strong> (o sandbox do MP não gera QR por API).
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      E-mail pagador PIX (loja)
+                    </label>
+                    <input
+                      type="email"
+                      name="mp_loja_pix_email"
+                      value={formData.mp_loja_pix_email}
+                      onChange={handleChange}
+                      className="input-field"
+                      placeholder="Opcional — usa e-mail de contato da igreja"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      CPF ou CNPJ (loja) *
+                    </label>
+                    <input
+                      type="text"
+                      name="mp_loja_pix_cpf_cnpj"
+                      value={formData.mp_loja_pix_cpf_cnpj}
+                      onChange={handleChange}
+                      className="input-field font-mono"
+                      placeholder="Somente números (11 ou 14 dígitos)"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Cartão em sandbox (PIX em produção, cartão em teste) */}
               {formData.mp_ambiente === 'production' && (
                 <div className="border border-amber-200 rounded-lg p-4 bg-amber-50/50">
@@ -1926,7 +1967,7 @@ function AdminConfiguracoes() {
                     <div>
                       <span className="font-medium text-gray-800">Cartão em Sandbox (testes)</span>
                       <p className="text-sm text-gray-600 mt-1">
-                        PIX continua em produção (obrigatório). Pagamento com cartão usa credenciais de teste: você pode testar com cartões de teste do MP sem cobrança real.
+                        PIX embutido usa credenciais de <strong>produção</strong> (QR real ou conforme conta). Cartão no site usa credenciais <strong>Teste</strong> (Brick sandbox). Titular de teste: <strong>APRO</strong>, CPF <strong>12345678909</strong>.
                       </p>
                     </div>
                   </label>

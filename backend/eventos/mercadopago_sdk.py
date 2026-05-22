@@ -31,11 +31,26 @@ def get_mp_env_pix(config=None, *, pagamento_embutido=False):
     return config.mp_ambiente or 'sandbox'
 
 
+def sandbox_credencial_suporta_pagamento_cartao(config=None) -> bool:
+    """Credenciais de teste da app costumam falhar em POST /v1/payments (401 live credentials)."""
+    config = config or ConfiguracaoSite.get_config()
+    at = (config.mp_access_token_sandbox or '').strip()
+    if not at:
+        return False
+    return bool(mp_probe_pagamento_cartao(at).get('ok'))
+
+
 def get_mp_env_card(config=None):
-    """Ambiente para cartão transparente (Brick + payment().create)."""
+    """
+    Ambiente das credenciais (Public Key + Access Token) para cartão transparente.
+    Com mp_ambiente=sandbox, as credenciais de teste desta integração MP normalmente
+    não criam pagamento (401); usamos produção na API e mantemos is_sandbox na UI.
+    """
     config = config or ConfiguracaoSite.get_config()
     if getattr(config, 'mp_cartao_em_sandbox', False):
         return 'sandbox'
+    if (config.mp_ambiente or 'sandbox') == 'sandbox':
+        return 'production'
     return config.mp_ambiente or 'sandbox'
 
 

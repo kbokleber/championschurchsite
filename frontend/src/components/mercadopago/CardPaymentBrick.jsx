@@ -5,6 +5,7 @@ import { useMercadoPago } from './MercadoPagoProvider'
 import {
   MP_CARD_BRICK_CONTAINER_ID,
   brickContainerHasFields,
+  esconderTituloSecaoEmailBrick,
   formatBrickError,
   unmountGlobalCardBrick,
 } from './cardBrickHelpers'
@@ -119,7 +120,10 @@ export function CardPaymentBrick({
 
       unmountGlobalCardBrick()
 
-      const emailHint = (defaultPayer.email || payerEmailHint || '').trim()
+      // Loja: e-mail só no Brick (sem pré-preencher com config da igreja).
+      const emailHint = pagadorAnonimo
+        ? ''
+        : (defaultPayer.email || payerEmailHint || '').trim()
       const init = { amount: valorNum }
       if (emailHint) {
         init.payer = { email: emailHint }
@@ -128,10 +132,26 @@ export function CardPaymentBrick({
       const settings = {
         locale: 'pt-BR',
         initialization: init,
+        customization: {
+          visual: {
+            texts: {
+              // String vazia no MP mostra o padrão; caractere invisível + hide no onReady.
+              emailSectionTitle: '\u200B',
+              email: {
+                label: 'E-mail',
+                placeholder: 'exemplo@email.com',
+              },
+            },
+          },
+        },
         callbacks: {
           onReady: () => {
             if (!cancelled && mountGeneration === mountGenRef.current) {
               if (readyTimeoutId) window.clearTimeout(readyTimeoutId)
+              const root =
+                containerRef.current || document.getElementById(MP_CARD_BRICK_CONTAINER_ID)
+              esconderTituloSecaoEmailBrick(root)
+              window.setTimeout(() => esconderTituloSecaoEmailBrick(root), 400)
               brickReadyRef.current = true
               setBrickReady(true)
               setError(null)
@@ -150,8 +170,16 @@ export function CardPaymentBrick({
                       installments: cardFormData.installments || 1,
                       issuer_id: cardFormData.issuer_id,
                     }
-                    // Cartão: payer + nome do titular (additionalData) para o MP antifraude.
-                    payload.payer = payerFromBrickForm(cardFormData, additionalData)
+                    const payer = payerFromBrickForm(cardFormData, additionalData)
+                    const email = (payer.email || defaultPayer.email || '').trim()
+                    if (!email || !email.includes('@')) {
+                      const msg = 'Informe um e-mail válido para o pagamento com cartão.'
+                      setError(msg)
+                      onError?.(msg)
+                      reject(new Error(msg))
+                      return
+                    }
+                    payload.payer = { ...payer, email }
                     if (contexto === 'loja') {
                       payload.cobranca_loja_id = cobrancaLojaId
                     } else {
@@ -218,6 +246,7 @@ export function CardPaymentBrick({
             brickMountedRef.current = true
             lastErr = null
             window.setTimeout(() => {
+              esconderTituloSecaoEmailBrick(el)
               if (!brickReadyRef.current && brickContainerHasFields(el)) {
                 brickReadyRef.current = true
                 setBrickReady(true)
@@ -272,6 +301,7 @@ export function CardPaymentBrick({
     cardUrl,
     defaultPayer.email,
     payerEmailHint,
+    pagadorAnonimo,
     mountKey,
   ])
 
@@ -326,6 +356,10 @@ export function CardPaymentBrick({
           <p>
             <strong>Nome do titular:</strong> digite <strong>APRO</strong> (aprovado), não use nome
             real. CPF: <strong>12345678909</strong>.
+          </p>
+          <p className="text-amber-800">
+            O admin está em Sandbox: o cartão usa a API de Produção do MP (credenciais de teste da
+            app não aceitam pagamento). Use os cartões de teste abaixo.
           </p>
           <table className="w-full text-left border-collapse">
             <thead>

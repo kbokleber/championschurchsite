@@ -1066,7 +1066,9 @@ def _pagar_cartao_loja_impl(request):
         cobranca.save(update_fields=['referencia_externa', 'metodo_pagamento'])
 
     mp_env = get_mp_env_card(config)
-    resp_msg = mensagem_resposta_cartao_mp(payment, sandbox=(mp_env == 'sandbox'))
+    resp_msg = mensagem_resposta_cartao_mp(
+        payment, sandbox=(config.mp_ambiente == 'sandbox')
+    )
     return Response(
         {
             'success': resp_msg['success'],

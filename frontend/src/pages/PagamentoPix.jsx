@@ -6,7 +6,6 @@ import { MercadoPagoCheckout } from '../components/mercadopago/MercadoPagoChecko
 import { ResumoCobrancaPagamento } from '../components/mercadopago/ResumoCobrancaPagamento';
 import {
   rotuloMetodosMp,
-  textoIntroPagamento,
   useMercadoPagoMetodos,
 } from '../components/mercadopago/useMercadoPagoMetodos';
 import { 
@@ -190,11 +189,6 @@ function PagamentoPix() {
           <h1 className="text-2xl font-bold text-gray-900">
             Pagamento{!metodosMp.loading ? ` — ${rotuloMetodosMp(metodosMp)}` : ''}
           </h1>
-          <p className="text-gray-600">
-            {metodosMp.loading
-              ? 'Carregando formas de pagamento…'
-              : textoIntroPagamento('eventos', metodosMp)}
-          </p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-lg overflow-hidden">

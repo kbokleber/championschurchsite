@@ -3570,7 +3570,12 @@ from .mercadopago_sdk import (
     mp_search_payments_by_reference,
     normalizar_order_cartao_response,
 )
-from .mp_payments import aplicar_identificacao_mp, criar_ou_reutilizar_pix_embutido, resolver_pagador_pix_config
+from .mp_payments import (
+    aplicar_identificacao_mp,
+    criar_ou_reutilizar_pix_embutido,
+    montar_identificacao_cobranca_evento,
+    resolver_pagador_pix_config,
+)
 
 
 @api_view(['POST'])
@@ -4158,44 +4163,22 @@ def _disparar_webhook_cobranca_confirmada(cobranca, tipo='pagamento_confirmado',
 
 
 def _montar_items_order_evento(cobranca):
-    items = []
-    evento = cobranca.evento
-    for item in cobranca.itens.select_related(
-        'inscricao__membro',
-        'inscricao__categoria',
-    ).all():
-        inscricao = item.inscricao
-        membro_nome = (getattr(inscricao.membro, 'nome', '') or 'Participante').strip()
-        categoria = (getattr(inscricao.categoria, 'nome', '') or 'Inscrição').strip()
-        titulo = f'{evento.titulo} - {membro_nome}'
-        items.append(
-            {
-                'title': titulo[:256],
-                'description': (item.descricao or categoria or evento.titulo)[:256],
-                'external_code': str(inscricao.id)[:64],
-                'category_id': 'event',
-                'type': 'event',
-                'quantity': 1,
-                'unit_price': _mp_valor_str(item.valor),
-            }
-        )
-    if not items:
-        items.append(
-            {
-                'title': (evento.titulo or 'Evento')[:256],
-                'description': f'Inscrição - ref. {cobranca.codigo}'[:256],
-                'external_code': str(cobranca.id)[:64],
-                'category_id': 'event',
-                'type': 'event',
-                'quantity': 1,
-                'unit_price': _mp_valor_str(cobranca.valor),
-            }
-        )
-    return items
+    meta = montar_identificacao_cobranca_evento(cobranca)
+    return [
+        {
+            'title': meta['titulo_mp'][:256],
+            'description': (meta['detalhe_mp'] or meta['description_order'])[:256],
+            'external_code': str(cobranca.id)[:64],
+            'category_id': 'event',
+            'type': 'event',
+            'quantity': 1,
+            'unit_price': _mp_valor_str(cobranca.valor),
+        }
+    ]
 
 
 def _descricao_order_evento(cobranca):
-    return f'Evento: {cobranca.evento.titulo} - ref. {cobranca.codigo}'[:255]
+    return montar_identificacao_cobranca_evento(cobranca)['description_order']
 
 
 @api_view(['GET'])
@@ -4491,7 +4474,10 @@ def criar_pagamento_pix_embutido(request):
         return Response({'error': 'cobranca_id é obrigatório'}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        cobranca = Cobranca.objects.select_related('membro', 'evento').get(id=cobranca_id)
+        cobranca = Cobranca.objects.select_related('membro', 'evento').prefetch_related(
+            'itens__inscricao__membro',
+            'itens__inscricao__categoria',
+        ).get(id=cobranca_id)
     except Cobranca.DoesNotExist:
         return Response({'error': 'Cobrança não encontrada'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -4538,13 +4524,16 @@ def criar_pagamento_pix_embutido(request):
         cobranca.referencia_externa = ''
         cobranca.save(update_fields=['referencia_externa'])
 
+    mp_meta = montar_identificacao_cobranca_evento(cobranca)
+
     try:
         result = criar_ou_reutilizar_pix_embutido(
             codigo=cobranca.codigo,
             valor=float(cobranca.valor),
-            titulo_mp=f'Evento: {cobranca.evento.titulo}',
-            detalhe_mp=f'Inscrição — ref. {cobranca.codigo}',
-            origem_mp='evento',
+            titulo_mp=mp_meta['titulo_mp'],
+            detalhe_mp=mp_meta['detalhe_mp'],
+            origem_mp=mp_meta['origem_mp'],
+            items=mp_meta['items'],
             referencia_externa=cobranca.referencia_externa,
             payer_input={},
             email_fallback=email_fb,

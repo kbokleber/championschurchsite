@@ -21,6 +21,89 @@ logger = logging.getLogger(__name__)
 MP_STATEMENT_DESCRIPTOR = 'CHAMPIONSCHURCH'
 
 VALOR_MINIMO_PIX = 0.01
+MP_MAX_CHARS = 256
+
+
+def _formatar_data_evento_mp(evento) -> str:
+    if evento and evento.data_inicio:
+        from django.utils import timezone
+        return timezone.localtime(evento.data_inicio).strftime('%d/%m/%Y %H:%M')
+    return ''
+
+
+def _participantes_cobranca(cobranca) -> list[str]:
+    nomes = []
+    for item in cobranca.itens.select_related('inscricao__membro', 'inscricao__categoria').all():
+        inscricao = item.inscricao
+        if not inscricao:
+            continue
+        membro_nome = (getattr(inscricao.membro, 'nome', None) or '').strip()
+        if not membro_nome:
+            continue
+        categoria = (getattr(inscricao.categoria, 'nome', None) or '').strip()
+        if item.descricao:
+            label = item.descricao.strip()
+        elif categoria:
+            label = f'{membro_nome} — {categoria}'
+        else:
+            label = membro_nome
+        if label not in nomes:
+            nomes.append(label)
+    if not nomes:
+        fallback = (getattr(cobranca.membro, 'nome', None) or 'Participante').strip()
+        nomes = [fallback]
+    return nomes
+
+
+def montar_identificacao_cobranca_evento(cobranca) -> dict:
+    """
+    Monta título, detalhe e itens para identificar a cobrança no painel Mercado Pago:
+    nome do evento, data e participantes.
+    """
+    evento = cobranca.evento
+    titulo_evento = (getattr(evento, 'titulo', None) or 'Evento').strip()
+    data_evento = _formatar_data_evento_mp(evento)
+    participantes = _participantes_cobranca(cobranca)
+    participantes_txt = ', '.join(participantes)
+
+    titulo_mp = f'Evento: {titulo_evento}'
+    if data_evento:
+        titulo_mp += f' — {data_evento}'
+
+    detalhe_mp = f'Participantes: {participantes_txt}' if participantes_txt else ''
+
+    descricao_completa = titulo_evento
+    if data_evento:
+        descricao_completa += f' ({data_evento})'
+    if participantes_txt:
+        descricao_completa += f' — {participantes_txt}'
+    if len(descricao_completa) > MP_MAX_CHARS:
+        descricao_completa = descricao_completa[: MP_MAX_CHARS - 3] + '...'
+
+    items = [
+        {
+            'nome': titulo_mp[:256],
+            'descricao': (detalhe_mp or descricao_completa)[:256],
+            'quantidade': 1,
+            'preco_unitario': float(cobranca.valor),
+            'categoria': 'event',
+            'id': str(cobranca.codigo).replace('-', '')[:40],
+        }
+    ]
+
+    description_order = titulo_mp
+    if detalhe_mp:
+        description_order = f'{titulo_mp} | {detalhe_mp}'
+    if len(description_order) > 255:
+        description_order = description_order[:252] + '...'
+
+    return {
+        'titulo_mp': titulo_mp[:200],
+        'detalhe_mp': (detalhe_mp or participantes_txt)[:256],
+        'origem_mp': 'evento',
+        'items': items,
+        'description_order': description_order,
+    }
 
 
 def _normalizar_cpf(numero: str) -> str:

@@ -7,9 +7,10 @@ import { getMediaUrl } from '../services/utils'
 import LoadingSpinner from '../components/LoadingSpinner'
 import api from '../services/api'
 
-/** Mesmo tamanho para titular e acompanhantes — grande no celular para leitura na entrada. */
-const CLASSE_QR_INGRESSO =
-  'w-64 h-64 max-w-[min(16rem,80vw)] max-h-[min(16rem,80vw)] sm:w-56 sm:h-56 mx-auto'
+/** Mobile: QR grande. Desktop: cabe no grid sem cortar; titular e acompanhantes iguais. */
+const CLASSE_QR_WRAPPER =
+  'w-full max-w-[min(16rem,80vw)] sm:max-w-[13rem] mx-auto'
+const CLASSE_QR_IMG = 'w-full aspect-square object-contain'
 
 function MeusIngressos() {
   const navigate = useNavigate()
@@ -726,11 +727,13 @@ function MeusIngressos() {
                           {ingresso.qrcode ? (
                             /* Ingresso liberado - tem QR Code */
                             <>
-                              <img
-                                src={getMediaUrl(ingresso.qrcode)}
-                                alt="QR Code"
-                                className={`${CLASSE_QR_INGRESSO} mb-2 sm:mb-3`}
-                              />
+                              <div className={`${CLASSE_QR_WRAPPER} mb-2 sm:mb-3`}>
+                                <img
+                                  src={getMediaUrl(ingresso.qrcode)}
+                                  alt="QR Code"
+                                  className={CLASSE_QR_IMG}
+                                />
+                              </div>
                               {participante?.nome && (
                                 <p className="text-sm sm:text-base font-bold text-church-navy mb-2 sm:mb-3 text-center">
                                   {participante.nome}
@@ -757,7 +760,7 @@ function MeusIngressos() {
                           ) : ingresso.pagamento_pendente ? (
                             /* Pagamento Pendente - aguardando para gerar QR Code */
                             <div className="text-center w-full">
-                              <div className={`${CLASSE_QR_INGRESSO} mb-2 sm:mb-3 bg-amber-100 rounded-lg flex flex-col items-center justify-center`}>
+                              <div className={`${CLASSE_QR_WRAPPER} mb-2 sm:mb-3 aspect-square bg-amber-100 rounded-lg flex flex-col items-center justify-center`}>
                                 <AlertCircle className="h-10 w-10 sm:h-12 sm:w-12 text-amber-500 mb-1" />
                                 <DollarSign className="h-5 w-5 sm:h-6 sm:w-6 text-amber-600" />
                               </div>
@@ -851,13 +854,15 @@ function MeusIngressos() {
                                     className={`rounded-lg p-3 sm:p-3 text-center min-w-0 ${acomp.qrcode ? 'bg-gray-50' : 'bg-amber-50'}`}
                                   >
                                     {acomp.qrcode ? (
-                                      <img
-                                        src={getMediaUrl(acomp.qrcode)}
-                                        alt={`QR Code - ${acomp.nome}`}
-                                        className={`${CLASSE_QR_INGRESSO} mb-2`}
-                                      />
+                                      <div className={`${CLASSE_QR_WRAPPER} mb-2`}>
+                                        <img
+                                          src={getMediaUrl(acomp.qrcode)}
+                                          alt={`QR Code - ${acomp.nome}`}
+                                          className={CLASSE_QR_IMG}
+                                        />
+                                      </div>
                                     ) : (
-                                      <div className={`${CLASSE_QR_INGRESSO} mb-2 bg-amber-100 rounded flex items-center justify-center`}>
+                                      <div className={`${CLASSE_QR_WRAPPER} mb-2 aspect-square bg-amber-100 rounded flex items-center justify-center`}>
                                         <Lock className="h-8 w-8 text-amber-500" />
                                       </div>
                                     )}

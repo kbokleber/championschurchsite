@@ -904,6 +904,8 @@ class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
             'webhook_inscricao', 'webhook_ativo', 'webhook_reset_senha', 'webhook_eventos',
             # Mercado Pago
             'mp_ambiente', 'mp_ativo', 'mp_cartao_em_sandbox',
+            'mp_pix_habilitado', 'mp_cartao_habilitado',
+            'mp_loja_pix_email', 'mp_loja_pix_cpf_cnpj',
             'mp_public_key_sandbox', 'mp_access_token_sandbox',
             'mp_public_key_production', 'mp_access_token_production',
             'mp_webhook_secret',
@@ -911,6 +913,8 @@ class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
             'mp_public_key', 'mp_is_sandbox',  # Campos computados
             # WhatsApp Evolution API
             'evolution_api_url', 'evolution_api_key', 'evolution_api_instance',
+            'evolution_api_instance_loja', 'evolution_api_key_loja',
+            'wa_msg_recibo_loja', 'wa_msg_reserva_loja',
             'wa_msg_reset_senha', 'wa_msg_inscricao_gratis',
             'wa_msg_inscricao_paga_pendente', 'wa_msg_inscricao_paga_confirmada',
             'destaques_home',
@@ -920,6 +924,17 @@ class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
                            'mp_access_token_sandbox_masked', 'mp_access_token_production_masked']
         # Tokens retornados na leitura para o admin poder ver/copiar (endpoint já é restrito)
     
+    def validate(self, attrs):
+        instance = getattr(self, 'instance', None)
+        mp_ativo = attrs.get('mp_ativo', instance.mp_ativo if instance else False)
+        mp_pix = attrs.get('mp_pix_habilitado', instance.mp_pix_habilitado if instance else True)
+        mp_cartao = attrs.get('mp_cartao_habilitado', instance.mp_cartao_habilitado if instance else True)
+        if mp_ativo and not mp_pix and not mp_cartao:
+            raise serializers.ValidationError(
+                'Com o Mercado Pago ativo, habilite pelo menos PIX ou cartão.'
+            )
+        return attrs
+
     def get_mp_access_token_sandbox_masked(self, obj):
         """Retorna token de sandbox mascarado."""
         if obj.mp_access_token_sandbox:
@@ -966,6 +981,7 @@ class CobrancaSerializer(serializers.ModelSerializer):
     """Serializer para cobranças."""
     
     membro_nome = serializers.CharField(source='membro.nome', read_only=True)
+    membro_email = serializers.EmailField(source='membro.email', read_only=True, allow_blank=True)
     membro_telefone = serializers.CharField(source='membro.telefone', read_only=True)
     evento_titulo = serializers.CharField(source='evento.titulo', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
@@ -976,7 +992,7 @@ class CobrancaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Cobranca
         fields = [
-            'id', 'codigo', 'membro', 'membro_nome', 'membro_telefone',
+            'id', 'codigo', 'membro', 'membro_nome', 'membro_email', 'membro_telefone',
             'evento', 'evento_titulo', 'valor', 'descricao',
             'status', 'status_display', 'data_criacao', 'data_criacao_formatada',
             'data_pagamento', 'data_pagamento_formatada',

@@ -20,7 +20,26 @@ from rest_framework.response import Response
 
 from django.utils import timezone
 
-from eventos.mercadopago_sdk import get_mercadopago_sdk
+from eventos.mercadopago_sdk import (
+    criar_order_cartao_mp,
+    get_mercadopago_sdk,
+    get_mp_env_card,
+    get_mp_env_pix,
+    interpretar_resposta_payment_create,
+    mensagem_erro_payment_http,
+    mensagem_resposta_cartao_mp,
+    mp_buscar_order,
+    mp_search_orders_by_reference,
+    mp_search_payments_by_reference,
+    normalizar_order_cartao_response,
+)
+from eventos.mp_payments import (
+    aplicar_identificacao_mp,
+    criar_ou_reutilizar_pix_embutido,
+    montar_payer_payment_cartao,
+    resolver_pagador_cartao_loja,
+    resolver_pagador_loja,
+)
 from eventos.models import ConfiguracaoSite
 from .estoque import (
     baixar_estoque_venda,
@@ -29,7 +48,6 @@ from .estoque import (
     validar_estoque_disponivel,
 )
 from .models import Produto, Venda, ItemVenda, CobrancaLoja, ReservaLoja, LojaAuditoria
-from .mp_preference import criar_preferencia_pagamento_loja
 from .reservas import liberar_reservas_ao_cancelar_venda, marcar_reservas_venda_paga
 from .serializers import (
     ProdutoSerializer,
@@ -44,6 +62,78 @@ from .serializers import (
     ReservaLojaLoteSerializer,
 )
 logger = logging.getLogger(__name__)
+
+
+def _mp_valor_str(valor):
+    return f'{round(float(valor), 2):.2f}'
+
+
+def _montar_items_order_loja(venda):
+    items = []
+    for item in venda.itens.select_related('produto').all():
+        produto = item.produto
+        nome = (getattr(produto, 'nome', '') or 'Produto').strip()
+        categoria = (getattr(produto, 'categoria', '') or 'loja').strip()
+        tipo_item = 'cantina' if categoria == 'cantina' else 'retail'
+        items.append(
+            {
+                'title': nome[:256],
+                'description': (getattr(produto, 'descricao', '') or nome)[:256],
+                'external_code': str(getattr(produto, 'id', '') or item.id)[:64],
+                'category_id': categoria[:64],
+                'type': tipo_item,
+                'quantity': int(item.quantidade or 1),
+                'unit_price': _mp_valor_str(item.preco_unitario),
+            }
+        )
+    return items
+
+
+def _categoria_principal_venda(venda):
+    """Define se a venda é de cantina, loja ou mista (Loja/Cantina)."""
+    categorias = set()
+    for item in venda.itens.select_related('produto').all():
+        if item.produto and item.produto.categoria:
+            categorias.add(item.produto.categoria)
+    if categorias == {'cantina'}:
+        return 'cantina'
+    if categorias == {'loja'}:
+        return 'loja'
+    return 'mista'
+
+
+def _titulo_venda_mp(venda):
+    cat = _categoria_principal_venda(venda)
+    return {'cantina': 'Cantina', 'loja': 'Loja'}.get(cat, 'Loja / Cantina')
+
+
+def _descricao_order_loja(venda):
+    nomes = [
+        f'{item.produto.nome} x{item.quantidade}'
+        for item in venda.itens.select_related('produto').all()
+        if item.produto
+    ]
+    detalhe = ', '.join(nomes[:5]) if nomes else f'Venda #{venda.id}'
+    titulo = _titulo_venda_mp(venda)
+    return f'{titulo} - {detalhe}'[:255]
+
+
+def _items_pix_loja(venda):
+    items = []
+    for item in venda.itens.select_related('produto').all():
+        produto = item.produto
+        nome = (getattr(produto, 'nome', '') or 'Produto').strip()
+        items.append(
+            {
+                'id': str(getattr(produto, 'id', '') or item.id),
+                'nome': nome,
+                'descricao': (getattr(produto, 'descricao', '') or nome).strip(),
+                'categoria': (getattr(produto, 'categoria', '') or 'loja').strip(),
+                'quantidade': int(item.quantidade or 1),
+                'preco_unitario': float(item.preco_unitario or 0),
+            }
+        )
+    return items
 
 
 class IsSuperUser(BasePermission):
@@ -437,7 +527,14 @@ class VendaViewSet(viewsets.ModelViewSet):
         c.valor = v.total
         c.status = 'pendente'
         c.save()
-        return criar_preferencia_pagamento_loja(request, c)
+        return Response(
+            {
+                'success': True,
+                'valor': float(c.valor),
+                'venda_id': v.id,
+                'cobranca_loja': {'id': c.id, 'codigo': c.codigo},
+            }
+        )
 
     @action(detail=True, methods=['post'], url_path='cancelar')
     def cancelar(self, request, pk=None):
@@ -740,7 +837,9 @@ class CobrancaLojaViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_field = 'id'
 
     def get_queryset(self):
-        return CobrancaLoja.objects.all().select_related('venda')
+        return CobrancaLoja.objects.select_related('venda').prefetch_related(
+            'venda__itens__produto',
+        )
 
 
 class LojaAuditoriaViewSet(viewsets.ReadOnlyModelViewSet):
@@ -803,8 +902,7 @@ def verificar_pagamento_loja(request, cobranca_loja_id: int):
         )
 
     config = ConfiguracaoSite.get_config()
-    sdk = get_mercadopago_sdk('production') if getattr(config, 'mp_cartao_em_sandbox', False) else get_mercadopago_sdk()
-    if not sdk:
+    if not config.mp_ativo:
         return Response(
             {
                 'status': cobranca.status,
@@ -813,21 +911,28 @@ def verificar_pagamento_loja(request, cobranca_loja_id: int):
             }
         )
     try:
-        env = 'production' if getattr(config, 'mp_cartao_em_sandbox', False) else config.mp_ambiente
-        access_token = config.get_mp_access_token_for(env)
-        search_url = f'https://api.mercadopago.com/v1/payments/search?external_reference={cobranca.codigo}'
-        r = requests.get(
-            search_url, headers={'Authorization': f'Bearer {access_token}'}, timeout=30
-        )
-        data = r.json()
-        results = data.get('results', [])
         mp_status = 'pending'
-        for pay in results:
-            if pay.get('status') == 'approved':
-                mp_status = 'approved'
-                break
-            if pay.get('status') in ('pending', 'in_process'):
-                mp_status = pay.get('status', 'pending')
+        ref = (cobranca.referencia_externa or '').strip()
+        if ref.startswith('ORD'):
+            order, _env = mp_buscar_order(ref, config)
+            if order:
+                mp_status = normalizar_order_cartao_response(order).get('status', 'pending')
+        else:
+            results = mp_search_payments_by_reference(cobranca.codigo, config)
+            for pay in results:
+                if pay.get('status') == 'approved':
+                    mp_status = 'approved'
+                    break
+                if pay.get('status') in ('pending', 'in_process'):
+                    mp_status = pay.get('status', 'pending')
+        if mp_status != 'approved' and not ref.startswith('ORD'):
+            for order in mp_search_orders_by_reference(cobranca.codigo, config):
+                order_payment = normalizar_order_cartao_response(order)
+                if order_payment.get('status') == 'approved':
+                    mp_status = 'approved'
+                    break
+                if order_payment.get('status') in ('pending', 'in_process'):
+                    mp_status = order_payment.get('status', 'pending')
 
         if mp_status == 'approved' and cobranca.status != 'pago':
             try:
@@ -891,6 +996,24 @@ def pagar_cartao_loja(request):
     Pagamento com cartão (token) para CobrancaLoja — mesmo fluxo que inscrições, sem inscrição.
     Body: cobranca_loja_id, token, payment_method_id, installments, payer, issuer_id (opc).
     """
+    try:
+        return _pagar_cartao_loja_impl(request)
+    except serializers.ValidationError as exc:
+        return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as exc:
+        logger.exception('pagar_cartao_loja inesperado')
+        return Response(
+            {
+                'error': 'Erro interno ao processar cartão. Tente novamente ou use PIX.',
+                'details': str(exc),
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+def _pagar_cartao_loja_impl(request):
     cobranca_id = request.data.get('cobranca_loja_id') or request.data.get('cobranca_id')
     token = request.data.get('token')
     payment_method_id = request.data.get('payment_method_id')
@@ -919,20 +1042,21 @@ def pagar_cartao_loja(request):
     config = ConfiguracaoSite.get_config()
     if not config.mp_ativo:
         return Response({'error': 'Mercado Pago não está ativo'}, status=status.HTTP_400_BAD_REQUEST)
-    sdk = get_mercadopago_sdk('sandbox') if getattr(config, 'mp_cartao_em_sandbox', False) else get_mercadopago_sdk()
+    if not getattr(config, 'mp_cartao_habilitado', True):
+        return Response(
+            {'error': 'Pagamento com cartão não está habilitado nas configurações do site.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    sdk = get_mercadopago_sdk(get_mp_env_card(config))
     if not sdk:
         return Response({'error': 'Mercado Pago não configurado'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     v = cobranca.venda
-    u = v.criado_por
-    email = payer.get('email') or (getattr(u, 'email', None) or '')
-    if not email and u:
-        email = f"lojau{u.id}@loja.interna"
-    if not email:
-        email = 'pagador@loja.interna'
-    identification = payer.get('identification') or {}
-    id_type = identification.get('type') or 'CPF'
-    id_number = identification.get('number') or ''
+    try:
+        pagador_loja = resolver_pagador_cartao_loja(config, payer)
+        payer_mp = montar_payer_payment_cartao(pagador_loja)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     transaction_amount = float(cobranca.valor)
     VALOR_MINIMO_CARTAO = 0.50
@@ -943,80 +1067,198 @@ def pagar_cartao_loja(request):
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
-    descricao = f'Loja / cantina (venda #{v.id})'
-    payment_data = {
-        'transaction_amount': round(transaction_amount, 2),
-        'token': token,
-        'installments': int(installments) if installments else 1,
-        'payment_method_id': payment_method_id,
-        'payer': {
-            'email': email,
-            'identification': {
-                'type': id_type,
-                'number': str(id_number).replace('.', '').replace('-', '').replace('/', ''),
-            },
-        },
-        'external_reference': cobranca.codigo,
-        'description': descricao[:200],
-    }
-    if issuer_id:
-        payment_data['issuer_id'] = str(issuer_id)
-
-    idem = str(uuid.uuid4())
-    try:
-        ro = getattr(mercadopago, 'config', None) and getattr(mercadopago.config, 'RequestOptions', None)
-        if ro:
-            opts = ro()
-            opts.custom_headers = {'x-idempotency-key': idem}
-            payment_response = sdk.payment().create(payment_data, opts)
-        else:
-            payment_response = sdk.payment().create(payment_data)
-    except Exception as e:
-        logger.exception('pagar_cartao_loja')
+    mp_env = get_mp_env_card(config)
+    payment_type_id = request.data.get('payment_type_id') or 'credit_card'
+    payment, http_status, api_err = criar_order_cartao_mp(
+        env=mp_env,
+        valor=transaction_amount,
+        codigo=cobranca.codigo,
+        token=token,
+        payment_method_id=payment_method_id,
+        installments=installments,
+        payer=payer_mp,
+        payment_type_id=payment_type_id,
+        description=_descricao_order_loja(v),
+        items=_montar_items_order_loja(v),
+    )
+    if api_err or http_status not in (200, 201):
+        msg = mensagem_erro_payment_http(http_status, payment, env=mp_env)
+        logger.warning(
+            'Cartão MP Orders erro loja cobrança %s: http=%s env=%s body=%s',
+            cobranca.codigo,
+            http_status,
+            mp_env,
+            payment,
+        )
         return Response(
-            {'error': 'Erro ao processar cartão', 'details': str(e)},
+            {
+                'success': False,
+                'status': 'api_error',
+                'message': msg,
+                'error': msg,
+                'mp_http_status': http_status,
+            },
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    payment = payment_response.get('response', {}) if isinstance(payment_response, dict) else {}
     status_mp = payment.get('status')
     payment_id = payment.get('id')
+    order_id = payment.get('order_id')
+    referencia_mp = str(order_id or payment_id or '')
 
     if status_mp == 'approved':
-        try:
-            with transaction.atomic():
-                c = CobrancaLoja.objects.select_for_update().select_related('venda').get(id=cobranca.id)
-                c.status = 'pago'
-                c.data_pagamento = timezone.now()
-                c.referencia_externa = str(payment_id or '')
-                c.metodo_pagamento = 'Mercado Pago (cartão)'
-                c.save()
-                v = Venda.objects.select_for_update().get(pk=c.venda_id)
-                v.status = 'pago'
-                v.save()
-                baixar_estoque_venda(v)
-                marcar_reservas_venda_paga(v)
-                registrar_log_loja(
-                    tipo_evento='venda_pagamento_mp',
-                    usuario=request.user,
-                    venda=v,
-                    detalhes={
-                        'origem': 'pagar_cartao_loja',
-                        'metodo': 'Mercado Pago (cartão)',
-                        'referencia_externa': str(payment_id or ''),
-                        'total': str(v.total),
-                    },
-                )
-        except serializers.ValidationError as exc:
-            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            c = CobrancaLoja.objects.select_for_update().select_related('venda').get(id=cobranca.id)
+            c.status = 'pago'
+            c.data_pagamento = timezone.now()
+            c.referencia_externa = referencia_mp
+            c.metodo_pagamento = 'Mercado Pago (cartão)'
+            c.save()
+            v = Venda.objects.select_for_update().get(pk=c.venda_id)
+            v.status = 'pago'
+            v.save()
+            baixar_estoque_venda(v)
+            marcar_reservas_venda_paga(v)
+            registrar_log_loja(
+                tipo_evento='venda_pagamento_mp',
+                usuario=request.user,
+                venda=v,
+                detalhes={
+                    'origem': 'pagar_cartao_loja',
+                    'metodo': 'Mercado Pago (cartão)',
+                    'referencia_externa': str(payment_id or ''),
+                    'total': str(v.total),
+                },
+            )
+    if referencia_mp and status_mp in ('approved', 'pending', 'in_process'):
+        cobranca.referencia_externa = referencia_mp
+        cobranca.metodo_pagamento = 'Mercado Pago (cartão)'
+        cobranca.save(update_fields=['referencia_externa', 'metodo_pagamento'])
+
+    mp_env = get_mp_env_card(config)
+    resp_msg = mensagem_resposta_cartao_mp(
+        payment, sandbox=(config.mp_ambiente == 'sandbox')
+    )
     return Response(
         {
-            'success': status_mp in ('approved', 'pending', 'in_process'),
+            'success': resp_msg['success'],
             'status': status_mp,
+            'status_detail': payment.get('status_detail'),
             'payment_id': payment_id,
-            'message': 'Pagamento aprovado!' if status_mp == 'approved' else 'Pagamento em processamento.',
+            'order_id': order_id,
+            'message': resp_msg['message'],
         }
     )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def criar_pagamento_pix_embutido_loja(request):
+    """PIX embutido (QR) para CobrancaLoja."""
+    from eventos.views import _validar_credenciais_mp_ambiente
+
+    cobranca_id = request.data.get('cobranca_loja_id') or request.data.get('cobranca_id')
+    if not cobranca_id:
+        return Response(
+            {'error': 'cobranca_loja_id é obrigatório'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        cobranca = CobrancaLoja.objects.select_related('venda', 'venda__criado_por').get(id=cobranca_id)
+    except CobrancaLoja.DoesNotExist:
+        return Response({'error': 'Cobrança não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+
+    if cobranca.status != 'pendente':
+        return Response(
+            {'error': f'Cobrança não está pendente (status: {cobranca.get_status_display()})'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    config = ConfiguracaoSite.get_config()
+    if not config.mp_ativo:
+        return Response({'error': 'Mercado Pago não está ativo'}, status=status.HTTP_400_BAD_REQUEST)
+    if not config.mp_pix_habilitado:
+        return Response(
+            {'error': 'Pagamento via PIX não está habilitado nas configurações do site.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    try:
+        mp_env = get_mp_env_pix(config, pagamento_embutido=True)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    credenciais_ok, detalhe = _validar_credenciais_mp_ambiente(
+        mp_env,
+        config.get_mp_public_key_for(mp_env),
+        config.get_mp_access_token_for(mp_env),
+    )
+    if not credenciais_ok:
+        return Response({'error': detalhe}, status=status.HTTP_400_BAD_REQUEST)
+
+    payer_req = request.data.get('payer') or {}
+    v = cobranca.venda
+    try:
+        payer_mp = resolver_pagador_loja(config, payer_req)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    nome_fb = getattr(v, 'comprador_nome', None) or config.nome_igreja or 'Loja'
+    if nome_fb and nome_fb.strip():
+        partes = nome_fb.strip().split(None, 1)
+        payer_mp['first_name'] = partes[0][:255]
+        payer_mp['last_name'] = (partes[1] if len(partes) > 1 else 'Balcão')[:255]
+
+    def limpar_ref():
+        cobranca.referencia_externa = ''
+        cobranca.save(update_fields=['referencia_externa'])
+
+    try:
+        result = criar_ou_reutilizar_pix_embutido(
+            codigo=cobranca.codigo,
+            valor=float(cobranca.valor),
+            titulo_mp=_titulo_venda_mp(v),
+            detalhe_mp=f'Venda #{v.id}',
+            origem_mp=_categoria_principal_venda(v),
+            referencia_externa=cobranca.referencia_externa,
+            payer_input={},
+            email_fallback=payer_mp['email'],
+            nome_fallback=nome_fb,
+            limpar_referencia_invalida=limpar_ref,
+            payer_mp_override=payer_mp,
+            items=_items_pix_loja(v),
+        )
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    if result.get('already_approved'):
+        if cobranca.status != 'pago':
+            try:
+                with transaction.atomic():
+                    c = CobrancaLoja.objects.select_for_update().select_related('venda').get(id=cobranca.id)
+                    c.status = 'pago'
+                    c.data_pagamento = timezone.now()
+                    c.referencia_externa = str(result.get('payment_id') or c.referencia_externa or '')
+                    c.metodo_pagamento = 'Mercado Pago (PIX)'
+                    c.save()
+                    v2 = Venda.objects.select_for_update().get(pk=c.venda_id)
+                    v2.status = 'pago'
+                    v2.save()
+                    baixar_estoque_venda(v2)
+                    marcar_reservas_venda_paga(v2)
+            except serializers.ValidationError as exc:
+                return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+        return Response({**result, 'cobranca_loja': {'id': cobranca.id, 'codigo': cobranca.codigo}})
+
+    pid = result.get('payment_id')
+    if pid:
+        cobranca.referencia_externa = str(pid)
+        cobranca.metodo_pagamento = 'Mercado Pago (PIX)'
+        cobranca.save(update_fields=['referencia_externa', 'metodo_pagamento'])
+
+    return Response({
+        **result,
+        'cobranca_loja': {'id': cobranca.id, 'codigo': cobranca.codigo},
+    })
 
 
 @api_view(['GET'])

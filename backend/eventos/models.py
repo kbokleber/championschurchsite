@@ -961,10 +961,32 @@ class ConfiguracaoSite(models.Model):
         blank=True,
         help_text='Secret para validar assinatura dos webhooks (painel MP > Webhooks > Configurar notificações)'
     )
+    mp_loja_pix_email = models.EmailField(
+        max_length=254,
+        blank=True,
+        verbose_name='E-mail pagador PIX (loja)',
+        help_text='Usado no PIX/cartão da loja quando o cliente não se identifica. Vazio = e-mail de contato da igreja.',
+    )
+    mp_loja_pix_cpf_cnpj = models.CharField(
+        max_length=18,
+        blank=True,
+        verbose_name='CPF/CNPJ pagador PIX (loja)',
+        help_text='CPF ou CNPJ da igreja (só números) para pagamentos da loja/cantina sem cadastro do comprador.',
+    )
     mp_cartao_em_sandbox = models.BooleanField(
         default=False,
         verbose_name='Cartão em Sandbox (testes)',
         help_text='Quando ativo: PIX usa sempre Produção (obrigatório para PIX). Cartão usa Sandbox para testar com cartões de teste, sem cobrança real. Deixe o ambiente geral em Produção.'
+    )
+    mp_pix_habilitado = models.BooleanField(
+        default=True,
+        verbose_name='Aceitar PIX',
+        help_text='Exibe PIX no checkout de eventos e da loja/cantina.',
+    )
+    mp_cartao_habilitado = models.BooleanField(
+        default=True,
+        verbose_name='Aceitar cartão',
+        help_text='Exibe pagamento com cartão (Brick) em eventos e na loja/cantina.',
     )
 
     # WhatsApp Evolution API
@@ -984,6 +1006,32 @@ class ConfiguracaoSite(models.Model):
         verbose_name='Instância Evolution',
         blank=True,
         help_text='Nome da instância configurada na Evolution API'
+    )
+    evolution_api_instance_loja = models.CharField(
+        max_length=100,
+        verbose_name='Instância Evolution (Loja/Cantina)',
+        blank=True,
+        help_text='Nome da instância usada para enviar recibos da loja/cantina. '
+                  'Reaproveita a URL base da Evolution acima.',
+    )
+    evolution_api_key_loja = models.CharField(
+        max_length=200,
+        verbose_name='Token da Instância Evolution (Loja/Cantina)',
+        blank=True,
+        help_text='Token da instância da loja/cantina (opcional). '
+                  'Se vazio, usa o Token da instância principal.',
+    )
+    wa_msg_recibo_loja = models.TextField(
+        verbose_name='Template WhatsApp - Recibo da Loja',
+        blank=True,
+        help_text='Mensagem enviada com o link do recibo. Placeholders: '
+                  '{nome_saudacao}, {nome_igreja}, {codigo}, {total}, {itens}, {link_recibo}.',
+    )
+    wa_msg_reserva_loja = models.TextField(
+        verbose_name='Template WhatsApp - Lembrete de Reserva',
+        blank=True,
+        help_text='Mensagem enviada para lembrar de reserva ainda não retirada/paga. '
+                  'Placeholders: {nome_saudacao}, {nome_igreja}, {nome}, {itens}, {data}.',
     )
     wa_msg_reset_senha = models.TextField(
         verbose_name='Template WhatsApp - Reset de senha',

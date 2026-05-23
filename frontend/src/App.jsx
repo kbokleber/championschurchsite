@@ -19,6 +19,7 @@ import Sobre from './pages/Sobre'
 import Contato from './pages/Contato'
 import MeusIngressos from './pages/MeusIngressos'
 import PagamentoPix from './pages/PagamentoPix'
+import ReciboLoja from './pages/ReciboLoja'
 
 // Páginas admin
 import Login from './pages/admin/Login'
@@ -163,6 +164,7 @@ function App() {
           </div>
         } />
         <Route path="/pagamento/:cobrancaId" element={<PagamentoPix />} />
+        <Route path="/recibo/:codigo" element={<ReciboLoja />} />
 
         {/* Rota de Login */}
         <Route path="/admin/login" element={<Login />} />

@@ -143,7 +143,7 @@ def criar_preferencia_pagamento_loja(request, cobranca_loja) -> Response:
     preference_data = {
         'items': items,
         'external_reference': cobranca_loja.codigo,
-        'statement_descriptor': 'IGREJA',
+        'statement_descriptor': 'CHAMPIONSCHURCH',
         'payment_methods': {
             'excluded_payment_methods': [],
             'excluded_payment_types': [{'id': 'ticket'}],

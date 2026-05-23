@@ -110,18 +110,11 @@ class SecurityHeadersMiddleware:
     def __call__(self, request):
         response = self.get_response(request)
         
-        # Content Security Policy
+        # Content Security Policy (Bricks MP exigem iframes + unsafe-eval no script-src)
         if not settings.DEBUG:
-            response['Content-Security-Policy'] = (
-                "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline' https://sdk.mercadopago.com https://*.googleapis.com https://*.gstatic.com https://analytics.kbosolucoes.com.br; "
-                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-                "img-src 'self' data: blob: https:; "
-                "font-src 'self' data: https://fonts.gstatic.com; "
-                "connect-src 'self' https://api.mercadopago.com https://analytics.kbosolucoes.com.br; "
-                "frame-src 'self' https://www.google.com https://maps.google.com https://*.google.com; "
-                "frame-ancestors 'none';"
-            )
+            from .csp_mp import MP_CONTENT_SECURITY_POLICY
+
+            response['Content-Security-Policy'] = MP_CONTENT_SECURITY_POLICY
         
         # Outros headers de segurança
         response['X-Content-Type-Options'] = 'nosniff'

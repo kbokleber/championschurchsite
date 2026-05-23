@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Save, Upload, X, Church, Mail, Phone, MapPin, Facebook, Instagram, Youtube, Twitter, Globe, Webhook, ToggleLeft, ToggleRight, CreditCard, AlertTriangle, CheckCircle, Eye, EyeOff, MessageSquare, Download, Plus, Trash2, ChevronUp, ChevronDown, RefreshCw } from 'lucide-react'
+import { Save, Upload, X, Church, Mail, Phone, MapPin, Facebook, Instagram, Youtube, Twitter, Globe, Webhook, ToggleLeft, ToggleRight, CreditCard, QrCode, AlertTriangle, CheckCircle, Eye, EyeOff, MessageSquare, Download, Plus, Trash2, ChevronUp, ChevronDown, RefreshCw } from 'lucide-react'
 import api from '../../services/api'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import { useConfiguracao } from '../../contexts/ConfiguracaoContext'
@@ -7,6 +7,70 @@ import { useAuth } from '../../contexts/AuthContext'
 
 // Abas visíveis apenas para superusuário (admin)
 const TABS_SOMENTE_ADMIN = ['whatsapp', 'mercadopago']
+
+/** Campos booleanos enviados como 'true'/'false' no FormData (evita perder false no PATCH). */
+const CONFIG_BOOLEAN_KEYS = new Set([
+  'webhook_ativo',
+  'mp_ativo',
+  'mp_cartao_em_sandbox',
+  'mp_pix_habilitado',
+  'mp_cartao_habilitado',
+])
+
+function WhatsAppTestResultBox({ resultado, labelStatus, getQrImage }) {
+  if (!resultado) return null
+  return (
+    <div className={`mt-4 rounded-lg border p-3 text-sm ${
+      resultado.ok
+        ? 'border-green-200 bg-green-50 text-green-800'
+        : resultado.motivo === 'whatsapp_desconectado'
+          ? 'border-amber-200 bg-amber-50 text-amber-800'
+          : 'border-red-200 bg-red-50 text-red-800'
+    }`}>
+      <p><strong>Status:</strong> {labelStatus(resultado)}</p>
+      <p><strong>Motivo:</strong> {resultado.motivo || '-'}</p>
+      <p><strong>HTTP:</strong> {String(resultado.status_http ?? '-')}</p>
+      <p><strong>URL testada:</strong> {resultado.url_usada || '-'}</p>
+      {resultado.detalhe && (
+        <p className="mt-1 break-all"><strong>Detalhe:</strong> {resultado.detalhe}</p>
+      )}
+      {resultado.motivo === 'whatsapp_desconectado' && (
+        <div className="mt-4 rounded-lg border border-amber-300 bg-white p-4 text-gray-800">
+          <h5 className="font-semibold text-gray-900">Conectar telefone</h5>
+          <p className="mt-1 text-xs text-gray-600">
+            Abra o WhatsApp no celular, toque em Aparelhos conectados e leia o QR Code abaixo.
+            Depois clique em Testar conexão novamente.
+          </p>
+          {getQrImage(resultado) ? (
+            <img
+              src={getQrImage(resultado)}
+              alt="QR Code para conectar WhatsApp"
+              className="mt-4 h-56 w-56 rounded-lg border border-gray-200 bg-white object-contain p-2"
+            />
+          ) : (
+            <p className="mt-3 text-xs text-amber-700">
+              A instância está desconectada, mas a Evolution Go não retornou um QR Code nesta tentativa.
+              Clique em Testar conexão novamente em alguns segundos.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function appendConfigFormValue(formData, key, value) {
+  if (CONFIG_BOOLEAN_KEYS.has(key) || typeof value === 'boolean') {
+    const on = value === true || value === 'true' || value === '1' || value === 1
+    formData.append(key, on ? 'true' : 'false')
+    return
+  }
+  if (value === null || value === undefined) {
+    formData.append(key, '')
+    return
+  }
+  formData.append(key, value)
+}
 
 const novoDestaqueHome = () => ({
   id: null,
@@ -78,20 +142,28 @@ function AdminConfiguracoes() {
     mp_ambiente: 'sandbox',
     mp_ativo: false,
     mp_cartao_em_sandbox: false,
+    mp_pix_habilitado: true,
+    mp_cartao_habilitado: true,
     mp_public_key_sandbox: '',
     mp_access_token_sandbox: '',
     mp_public_key_production: '',
     mp_access_token_production: '',
     mp_webhook_secret: '',
+    mp_loja_pix_email: '',
+    mp_loja_pix_cpf_cnpj: '',
     // WhatsApp Evolution API
     evolution_api_url: '',
     evolution_api_key: '',
     evolution_api_instance: '',
+    evolution_api_instance_loja: '',
+    evolution_api_key_loja: '',
     // Templates WhatsApp
     wa_msg_reset_senha: '',
     wa_msg_inscricao_gratis: '',
     wa_msg_inscricao_paga_pendente: '',
-    wa_msg_inscricao_paga_confirmada: ''
+    wa_msg_inscricao_paga_confirmada: '',
+    wa_msg_recibo_loja: '',
+    wa_msg_reserva_loja: ''
   })
 
   const [logoPreview, setLogoPreview] = useState(null)
@@ -110,9 +182,12 @@ function AdminConfiguracoes() {
   const [showAccessTokenProduction, setShowAccessTokenProduction] = useState(false)
   const [showMpWebhookSecret, setShowMpWebhookSecret] = useState(false)
   const [showEvolutionApiKey, setShowEvolutionApiKey] = useState(false)
+  const [showEvolutionLojaApiKey, setShowEvolutionLojaApiKey] = useState(false)
   const [destaquesHome, setDestaquesHome] = useState([novoDestaqueHome()])
   const [testingWhatsApp, setTestingWhatsApp] = useState(false)
   const [whatsAppTestResult, setWhatsAppTestResult] = useState(null)
+  const [testingWhatsAppLoja, setTestingWhatsAppLoja] = useState(false)
+  const [whatsAppTestResultLoja, setWhatsAppTestResultLoja] = useState(null)
   const [testingMercadoPago, setTestingMercadoPago] = useState(false)
   const [mercadoPagoTestResult, setMercadoPagoTestResult] = useState(null)
 
@@ -166,20 +241,28 @@ function AdminConfiguracoes() {
         mp_ambiente: data.mp_ambiente || 'sandbox',
         mp_ativo: data.mp_ativo || false,
         mp_cartao_em_sandbox: data.mp_cartao_em_sandbox || false,
+        mp_pix_habilitado: data.mp_pix_habilitado !== false,
+        mp_cartao_habilitado: data.mp_cartao_habilitado !== false,
         mp_public_key_sandbox: data.mp_public_key_sandbox || '',
         mp_access_token_sandbox: data.mp_access_token_sandbox || '',
         mp_public_key_production: data.mp_public_key_production || '',
         mp_access_token_production: data.mp_access_token_production || '',
         mp_webhook_secret: data.mp_webhook_secret || '',
+        mp_loja_pix_email: data.mp_loja_pix_email || '',
+        mp_loja_pix_cpf_cnpj: data.mp_loja_pix_cpf_cnpj || '',
         // WhatsApp Evolution API
         evolution_api_url: data.evolution_api_url || '',
         evolution_api_key: data.evolution_api_key || '',
         evolution_api_instance: data.evolution_api_instance || '',
+        evolution_api_instance_loja: data.evolution_api_instance_loja || '',
+        evolution_api_key_loja: data.evolution_api_key_loja || '',
         // Templates WhatsApp
         wa_msg_reset_senha: data.wa_msg_reset_senha || '',
         wa_msg_inscricao_gratis: data.wa_msg_inscricao_gratis || '',
         wa_msg_inscricao_paga_pendente: data.wa_msg_inscricao_paga_pendente || '',
-        wa_msg_inscricao_paga_confirmada: data.wa_msg_inscricao_paga_confirmada || ''
+        wa_msg_inscricao_paga_confirmada: data.wa_msg_inscricao_paga_confirmada || '',
+        wa_msg_recibo_loja: data.wa_msg_recibo_loja || '',
+        wa_msg_reserva_loja: data.wa_msg_reserva_loja || ''
       })
 
       if (data.logo) {
@@ -402,28 +485,50 @@ function AdminConfiguracoes() {
     })
   }
 
-  const handleTestarConexaoWhatsApp = async () => {
-    setTestingWhatsApp(true)
-    setWhatsAppTestResult(null)
+  const _executarTesteWhatsApp = async ({ rotulo, instance, apiKey, setLoading, setResult }) => {
+    setLoading(true)
+    setResult(null)
     setMessage({ type: '', text: '' })
     try {
       const response = await api.post('/admin/whatsapp/testar-conexao/', {
         evolution_api_url: formData.evolution_api_url,
-        evolution_api_key: formData.evolution_api_key,
-        evolution_api_instance: formData.evolution_api_instance
+        evolution_api_key: apiKey,
+        evolution_api_instance: instance,
       })
-      setWhatsAppTestResult(response.data)
-      setMessage({ type: 'success', text: 'Teste de conexão concluído com sucesso.' })
+      setResult(response.data)
+      setMessage({ type: 'success', text: `Teste de conexão (${rotulo}) concluído com sucesso.` })
     } catch (error) {
       const result = error.response?.data
-      if (result) {
-        setWhatsAppTestResult(result)
-      }
+      if (result) setResult(result)
       const detalhe = result?.detalhe || error.message || 'Falha ao testar conexão WhatsApp.'
-      setMessage({ type: 'error', text: `Falha no teste da Evolution Go: ${detalhe}` })
+      setMessage({ type: 'error', text: `Falha no teste (${rotulo}): ${detalhe}` })
     } finally {
-      setTestingWhatsApp(false)
+      setLoading(false)
     }
+  }
+
+  const handleTestarConexaoWhatsApp = () =>
+    _executarTesteWhatsApp({
+      rotulo: 'Eventos',
+      instance: formData.evolution_api_instance,
+      apiKey: formData.evolution_api_key,
+      setLoading: setTestingWhatsApp,
+      setResult: setWhatsAppTestResult,
+    })
+
+  const handleTestarConexaoWhatsAppLoja = () => {
+    const instance = (formData.evolution_api_instance_loja || '').trim()
+    if (!instance) {
+      setMessage({ type: 'error', text: 'Informe a instância da Loja / Cantina antes de testar.' })
+      return
+    }
+    return _executarTesteWhatsApp({
+      rotulo: 'Loja / Cantina',
+      instance,
+      apiKey: formData.evolution_api_key_loja || formData.evolution_api_key,
+      setLoading: setTestingWhatsAppLoja,
+      setResult: setWhatsAppTestResultLoja,
+    })
   }
 
   const getWhatsAppQrImage = (result) => {
@@ -461,7 +566,14 @@ function AdminConfiguracoes() {
         mp_webhook_secret: formData.mp_webhook_secret
       })
       setMercadoPagoTestResult(response.data)
-      setMessage({ type: 'success', text: 'Teste de conexão do Mercado Pago concluído com sucesso.' })
+      if (response.data?.ok) {
+        setMessage({ type: 'success', text: 'Teste de conexão do Mercado Pago concluído com sucesso.' })
+      } else {
+        setMessage({
+          type: 'error',
+          text: response.data?.detalhe || 'Credenciais autenticam, mas o cartão na página não funcionará com este token.',
+        })
+      }
     } catch (error) {
       const result = error.response?.data
       if (result) {
@@ -479,6 +591,19 @@ function AdminConfiguracoes() {
     setSaving(true)
     setMessage({ type: '', text: '' })
 
+    if (
+      formData.mp_ativo &&
+      !formData.mp_pix_habilitado &&
+      !formData.mp_cartao_habilitado
+    ) {
+      setMessage({
+        type: 'error',
+        text: 'Com o Mercado Pago ativo, habilite pelo menos PIX ou cartão.',
+      })
+      setSaving(false)
+      return
+    }
+
     try {
       const data = new FormData()
       
@@ -487,17 +612,12 @@ function AdminConfiguracoes() {
         ? formData.descricao.replace(/\\n/g, '\n')
         : formData.descricao
       
-      // Adiciona todos os campos (nunca null/undefined — vira "null" na string e quebra validação)
+      // Adiciona todos os campos (booleanos sempre como 'true'/'false' no multipart)
       Object.keys(formData).forEach(key => {
         if (key === 'descricao') {
           data.append(key, descricaoProcessada ?? '')
         } else {
-          const v = formData[key]
-          if (v === null || v === undefined) {
-            data.append(key, '')
-          } else {
-            data.append(key, v)
-          }
+          appendConfigFormValue(data, key, formData[key])
         }
       })
 
@@ -1528,73 +1648,64 @@ function AdminConfiguracoes() {
                       placeholder="https://sua-evolutiongo.com"
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      URL base da Evolution Go (sem barra no final)
+                      URL base da Evolution Go (sem barra no final). Mesma URL para as duas instâncias.
                     </p>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      API Key / Token da Instância *
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showEvolutionApiKey ? 'text' : 'password'}
-                        name="evolution_api_key"
-                        value={formData.evolution_api_key}
-                        onChange={handleChange}
-                        className="input-field font-mono text-sm pr-10"
-                        placeholder="Sua chave de API da Evolution Go"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowEvolutionApiKey((s) => !s)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 rounded"
-                        title={showEvolutionApiKey ? 'Ocultar chave' : 'Mostrar chave'}
-                      >
-                        {showEvolutionApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Nesta instalação, use o Token da Instância para envio/status. A GLOBAL_API_KEY serve para rotas administrativas.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Instância (opcional)
-                    </label>
-                    <input
-                      type="text"
-                      name="evolution_api_instance"
-                      value={formData.evolution_api_instance}
-                      onChange={handleChange}
-                      className="input-field"
-                      placeholder="nome-da-instancia"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Use quando sua instalação exigir identificação de instância.
-                    </p>
-                  </div>
-
-                  {/* Instruções */}
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                    <h4 className="font-medium text-gray-800 mb-2">Como configurar a Evolution Go</h4>
-                    <ol className="text-sm text-gray-700 list-decimal list-inside space-y-1">
-                      <li>Abra sua instalação Evolution Go e confirme que a licença está ativa</li>
-                      <li>Copie a URL base da API (ex.: https://seu-dominio)</li>
-                      <li>Para envio/status, copie o Token da Instância no painel da instância</li>
-                      <li>Se necessário, informe a instância utilizada para envio</li>
-                    </ol>
-                  </div>
-
+                  {/* Instância dos Eventos */}
                   <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <h4 className="font-semibold text-gray-800 mb-1">Instância dos Eventos</h4>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Usada para mensagens transacionais de inscrições e eventos.
+                    </p>
+
+                    <div className="grid grid-cols-1 gap-4">
                       <div>
-                        <h4 className="font-medium text-gray-800">Teste de conexão</h4>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Token da Instância (Eventos) *
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={showEvolutionApiKey ? 'text' : 'password'}
+                            name="evolution_api_key"
+                            value={formData.evolution_api_key}
+                            onChange={handleChange}
+                            className="input-field font-mono text-sm pr-10"
+                            placeholder="Token da instância de eventos"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowEvolutionApiKey((s) => !s)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 rounded"
+                            title={showEvolutionApiKey ? 'Ocultar chave' : 'Mostrar chave'}
+                          >
+                            {showEvolutionApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
                         <p className="text-xs text-gray-500 mt-1">
-                          Verifica autenticação e status da instância na Evolution Go.
+                          Token da instância de eventos. A GLOBAL_API_KEY é só para rotas administrativas.
                         </p>
                       </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Instância dos Eventos
+                        </label>
+                        <input
+                          type="text"
+                          name="evolution_api_instance"
+                          value={formData.evolution_api_instance}
+                          onChange={handleChange}
+                          className="input-field"
+                          placeholder="ex.: eventos_principal"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
+                      <p className="text-xs text-gray-500">
+                        Verifica autenticação e status da instância de eventos.
+                      </p>
                       <button
                         type="button"
                         onClick={handleTestarConexaoWhatsApp}
@@ -1609,51 +1720,118 @@ function AdminConfiguracoes() {
                         ) : (
                           <>
                             <RefreshCw className="h-4 w-4 mr-2" />
-                            Testar conexão
+                            Testar conexão (Eventos)
                           </>
                         )}
                       </button>
                     </div>
 
                     {whatsAppTestResult && (
-                      <div className={`mt-4 rounded-lg border p-3 text-sm ${
-                        whatsAppTestResult.ok
-                          ? 'border-green-200 bg-green-50 text-green-800'
-                          : whatsAppTestResult.motivo === 'whatsapp_desconectado'
-                            ? 'border-amber-200 bg-amber-50 text-amber-800'
-                          : 'border-red-200 bg-red-50 text-red-800'
-                      }`}>
-                        <p><strong>Status:</strong> {getWhatsAppStatusLabel(whatsAppTestResult)}</p>
-                        <p><strong>Motivo:</strong> {whatsAppTestResult.motivo || '-'}</p>
-                        <p><strong>HTTP:</strong> {String(whatsAppTestResult.status_http ?? '-')}</p>
-                        <p><strong>URL testada:</strong> {whatsAppTestResult.url_usada || '-'}</p>
-                        {whatsAppTestResult.detalhe && (
-                          <p className="mt-1 break-all"><strong>Detalhe:</strong> {whatsAppTestResult.detalhe}</p>
-                        )}
-                        {whatsAppTestResult.motivo === 'whatsapp_desconectado' && (
-                          <div className="mt-4 rounded-lg border border-amber-300 bg-white p-4 text-gray-800">
-                            <h5 className="font-semibold text-gray-900">Conectar telefone</h5>
-                            <p className="mt-1 text-xs text-gray-600">
-                              Abra o WhatsApp no celular, toque em Aparelhos conectados e leia o QR Code abaixo.
-                              Depois clique em Testar conexão novamente.
-                            </p>
-                            {getWhatsAppQrImage(whatsAppTestResult) ? (
-                              <img
-                                src={getWhatsAppQrImage(whatsAppTestResult)}
-                                alt="QR Code para conectar WhatsApp"
-                                className="mt-4 h-56 w-56 rounded-lg border border-gray-200 bg-white object-contain p-2"
-                              />
-                            ) : (
-                              <p className="mt-3 text-xs text-amber-700">
-                                A instância está desconectada, mas a Evolution Go não retornou um QR Code nesta tentativa.
-                                Clique em Testar conexão novamente em alguns segundos.
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                      <WhatsAppTestResultBox
+                        resultado={whatsAppTestResult}
+                        labelStatus={getWhatsAppStatusLabel}
+                        getQrImage={getWhatsAppQrImage}
+                      />
                     )}
                   </div>
+
+                  {/* Instância da Loja/Cantina */}
+                  <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                    <h4 className="font-semibold text-gray-800 mb-1">
+                      Instância da Loja / Cantina
+                    </h4>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Reaproveita a URL acima. Usada para enviar recibos de venda.
+                      Se ficar vazia, o envio de recibos é desativado.
+                    </p>
+
+                    <div className="grid grid-cols-1 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Token da Instância (Loja/Cantina)
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={showEvolutionLojaApiKey ? 'text' : 'password'}
+                            name="evolution_api_key_loja"
+                            value={formData.evolution_api_key_loja}
+                            onChange={handleChange}
+                            className="input-field font-mono text-sm pr-10"
+                            placeholder="Token da instância da loja/cantina"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowEvolutionLojaApiKey((s) => !s)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 rounded"
+                            title={showEvolutionLojaApiKey ? 'Ocultar chave' : 'Mostrar chave'}
+                          >
+                            {showEvolutionLojaApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Cada instância tem seu próprio token. Se vazio, usa o token da instância de eventos.
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Instância da Loja / Cantina
+                        </label>
+                        <input
+                          type="text"
+                          name="evolution_api_instance_loja"
+                          value={formData.evolution_api_instance_loja}
+                          onChange={handleChange}
+                          className="input-field"
+                          placeholder="ex.: loja_principal"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
+                      <p className="text-xs text-gray-500">
+                        Verifica autenticação e status da instância da loja/cantina.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleTestarConexaoWhatsAppLoja}
+                        disabled={testingWhatsAppLoja || !formData.evolution_api_instance_loja}
+                        className="btn-outline inline-flex items-center"
+                      >
+                        {testingWhatsAppLoja ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                            Testando...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                            Testar conexão (Loja)
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {whatsAppTestResultLoja && (
+                      <WhatsAppTestResultBox
+                        resultado={whatsAppTestResultLoja}
+                        labelStatus={getWhatsAppStatusLabel}
+                        getQrImage={getWhatsAppQrImage}
+                      />
+                    )}
+                  </div>
+
+                  {/* Instruções */}
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <h4 className="font-medium text-gray-800 mb-2">Como configurar a Evolution Go</h4>
+                    <ol className="text-sm text-gray-700 list-decimal list-inside space-y-1">
+                      <li>Abra sua instalação Evolution Go e confirme que a licença está ativa</li>
+                      <li>Copie a URL base da API (ex.: https://seu-dominio)</li>
+                      <li>Para envio/status, copie o Token da Instância no painel da instância</li>
+                      <li>Se necessário, informe a instância utilizada para envio</li>
+                    </ol>
+                  </div>
+
                 </div>
               )}
 
@@ -1721,6 +1899,66 @@ function AdminConfiguracoes() {
                       placeholder="Olá {{nome}}, pagamento confirmado para o evento {{evento}}..."
                     />
                   </div>
+
+                  {/* Mensagens da Loja / Cantina (templates; credenciais ficam na aba Credenciais) */}
+                  <div className="border-t border-gray-200 pt-4 mt-4 space-y-5">
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-800 mb-1">
+                        Loja / Cantina
+                      </h3>
+                      <p className="text-xs text-gray-500">
+                        Templates usados pelos botões de envio na loja/cantina. A instância e o token
+                        ficam na aba <strong>Credenciais → Instância da Loja / Cantina</strong>.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Recibo (após pagamento)
+                      </label>
+                      <textarea
+                        name="wa_msg_recibo_loja"
+                        value={formData.wa_msg_recibo_loja}
+                        onChange={handleChange}
+                        rows={5}
+                        className="input-field"
+                        placeholder={
+                          'Olá{nome_saudacao}! Obrigado pela sua compra em {nome_igreja}.\n\n' +
+                          'Pedido: {codigo}\n' +
+                          'Total: R$ {total}\n' +
+                          'Itens: {itens}\n\n' +
+                          'Recibo (link): {link_recibo}\n\n' +
+                          'Documento não fiscal.'
+                        }
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Placeholders: {'{nome_saudacao}'}, {'{nome_igreja}'}, {'{codigo}'},{' '}
+                        {'{total}'}, {'{itens}'}, {'{link_recibo}'}.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Lembrete de reserva (pendente de retirada/pagamento)
+                      </label>
+                      <textarea
+                        name="wa_msg_reserva_loja"
+                        value={formData.wa_msg_reserva_loja}
+                        onChange={handleChange}
+                        rows={5}
+                        className="input-field"
+                        placeholder={
+                          'Olá{nome_saudacao}! Aqui é da {nome_igreja}.\n\n' +
+                          'Existe uma reserva em nome de {nome} para o dia {data}: {itens}.\n' +
+                          'Passe na cantina para retirar e pagar quando puder. Obrigado!'
+                        }
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Placeholders: {'{nome_saudacao}'}, {'{nome_igreja}'}, {'{nome}'},{' '}
+                        {'{itens}'}, {'{data}'}.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1783,7 +2021,7 @@ function AdminConfiguracoes() {
                   <label className="font-medium text-gray-700">Mercado Pago Ativo</label>
                   <p className="text-sm text-gray-500">
                     {formData.mp_ativo 
-                      ? 'Pagamentos via PIX estão habilitados' 
+                      ? 'Checkout em eventos e loja conforme as formas de pagamento abaixo' 
                       : 'Pagamentos via Mercado Pago estão desativados'}
                   </p>
                 </div>
@@ -1801,6 +2039,70 @@ function AdminConfiguracoes() {
                   />
                 </button>
               </div>
+
+              {formData.mp_ativo && (
+                <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
+                  <div>
+                    <h4 className="font-medium text-gray-800">Formas de pagamento</h4>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Vale para inscrições em eventos e para a loja/cantina. Desative o cartão enquanto o Brick não estiver liberado no domínio do site.
+                    </p>
+                  </div>
+                  <label className="flex items-center justify-between gap-4 cursor-pointer">
+                    <span className="text-sm text-gray-700 flex items-center gap-2">
+                      <QrCode className="w-4 h-4 text-primary-600" />
+                      Aceitar PIX (QR na página)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          mp_pix_habilitado: !prev.mp_pix_habilitado,
+                        }))
+                      }
+                      className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition-colors ${
+                        formData.mp_pix_habilitado ? 'bg-green-500' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-md transition-transform ${
+                          formData.mp_pix_habilitado ? 'translate-x-7' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </label>
+                  <label className="flex items-center justify-between gap-4 cursor-pointer">
+                    <span className="text-sm text-gray-700 flex items-center gap-2">
+                      <CreditCard className="w-4 h-4 text-primary-600" />
+                      Aceitar cartão (Brick)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          mp_cartao_habilitado: !prev.mp_cartao_habilitado,
+                        }))
+                      }
+                      className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition-colors ${
+                        formData.mp_cartao_habilitado ? 'bg-green-500' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-md transition-transform ${
+                          formData.mp_cartao_habilitado ? 'translate-x-7' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </label>
+                  {!formData.mp_pix_habilitado && !formData.mp_cartao_habilitado && (
+                    <p className="text-sm text-red-600">
+                      Habilite pelo menos PIX ou cartão para salvar com o Mercado Pago ativo.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Seleção de Ambiente */}
               <div>
@@ -1893,9 +2195,39 @@ function AdminConfiguracoes() {
                   }`}>
                     <p><strong>Status:</strong> {mercadoPagoTestResult.ok ? 'Conectado' : 'Falha'}</p>
                     <p><strong>Ambiente:</strong> {mercadoPagoTestResult.ambiente || '-'}</p>
+                    {mercadoPagoTestResult.ambiente_cartao_brick && (
+                      <p><strong>Cartão (Brick) usa:</strong> {mercadoPagoTestResult.ambiente_cartao_brick}</p>
+                    )}
                     <p><strong>Motivo:</strong> {mercadoPagoTestResult.motivo || '-'}</p>
-                    {mercadoPagoTestResult.ambiente === 'sandbox' && (
-                      <p><strong>Pagamento fictício:</strong> {mercadoPagoTestResult.credenciais_teste ? 'Sim, usando credenciais configuradas no Sandbox' : 'Não confirmado'}</p>
+                    {mercadoPagoTestResult.public_key_resumo && (
+                      <p className="text-xs break-all">
+                        <strong>Public Key (teste):</strong> {mercadoPagoTestResult.public_key_resumo}
+                      </p>
+                    )}
+                    {mercadoPagoTestResult.access_token_resumo && (
+                      <p className="text-xs break-all">
+                        <strong>Access Token (teste):</strong> {mercadoPagoTestResult.access_token_resumo}
+                      </p>
+                    )}
+                    {mercadoPagoTestResult.aviso_cartao && (
+                      <p className="text-xs text-amber-800 mt-1">{mercadoPagoTestResult.aviso_cartao}</p>
+                    )}
+                    {mercadoPagoTestResult.conta_teste_mp && (
+                      <p className="text-amber-900 font-medium">
+                        Token de conta de teste (TESTUSER) — não serve para cartão na página.
+                      </p>
+                    )}
+                    {mercadoPagoTestResult.cartao_api_ok != null && (
+                      <p>
+                        <strong>API cartão (Brick):</strong>{' '}
+                        {mercadoPagoTestResult.cartao_api_ok ? 'OK' : 'Falhou'}
+                        {mercadoPagoTestResult.cartao_api_http != null && (
+                          <> (HTTP {mercadoPagoTestResult.cartao_api_http})</>
+                        )}
+                      </p>
+                    )}
+                    {mercadoPagoTestResult.ambiente === 'sandbox' && mercadoPagoTestResult.ok && (
+                      <p><strong>Pagamento fictício:</strong> API de cartão validada com cartão de teste (APRO).</p>
                     )}
                     <p><strong>HTTP:</strong> {String(mercadoPagoTestResult.status_http ?? '-')}</p>
                     <p><strong>Webhook URL:</strong> {mercadoPagoTestResult.webhook_url || '-'}</p>
@@ -1913,6 +2245,43 @@ function AdminConfiguracoes() {
                 )}
               </div>
 
+              {/* Loja/cantina: pagador anônimo no MP */}
+              <div className="border border-blue-200 rounded-lg p-4 bg-blue-50/50">
+                <h4 className="font-medium text-gray-800 mb-2">Loja / cantina (cliente não se identifica)</h4>
+                <p className="text-sm text-gray-600 mb-4">
+                  No balcão o comprador não preenche dados. Use CPF/CNPJ e e-mail da igreja no MP.
+                  O <strong>PIX na página</strong> usa sempre credenciais da aba <strong>Produção</strong> (o sandbox do MP não gera QR por API).
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      E-mail pagador PIX (loja)
+                    </label>
+                    <input
+                      type="email"
+                      name="mp_loja_pix_email"
+                      value={formData.mp_loja_pix_email}
+                      onChange={handleChange}
+                      className="input-field"
+                      placeholder="Opcional — usa e-mail de contato da igreja"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      CPF ou CNPJ (loja) *
+                    </label>
+                    <input
+                      type="text"
+                      name="mp_loja_pix_cpf_cnpj"
+                      value={formData.mp_loja_pix_cpf_cnpj}
+                      onChange={handleChange}
+                      className="input-field font-mono"
+                      placeholder="Somente números (11 ou 14 dígitos)"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Cartão em sandbox (PIX em produção, cartão em teste) */}
               {formData.mp_ambiente === 'production' && (
                 <div className="border border-amber-200 rounded-lg p-4 bg-amber-50/50">
@@ -1926,7 +2295,7 @@ function AdminConfiguracoes() {
                     <div>
                       <span className="font-medium text-gray-800">Cartão em Sandbox (testes)</span>
                       <p className="text-sm text-gray-600 mt-1">
-                        PIX continua em produção (obrigatório). Pagamento com cartão usa credenciais de teste: você pode testar com cartões de teste do MP sem cobrança real.
+                        PIX embutido usa credenciais de <strong>produção</strong> (QR real ou conforme conta). Cartão no site usa credenciais <strong>Teste</strong> (Brick sandbox). Titular de teste: <strong>APRO</strong>, CPF <strong>12345678909</strong>.
                       </p>
                     </div>
                   </label>
@@ -1939,6 +2308,12 @@ function AdminConfiguracoes() {
                   <AlertTriangle className="h-4 w-4 text-yellow-600 mr-2" />
                   Credenciais de Teste (Sandbox)
                 </h4>
+                <p className="text-sm text-amber-900 mb-4">
+                  Copie <strong>Public Key</strong> e <strong>Access Token</strong> da mesma tela:{' '}
+                  <em>Suas integrações → sua aplicação → Credenciais de teste</em>.
+                  Não use o token da seção <em>Contas de teste</em> (nickname TESTUSER…) — ele passa no
+                  “Testar conexão” antigo, mas o cartão na página retorna erro 401.
+                </p>
                 <div className="grid grid-cols-1 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -2067,6 +2442,11 @@ function AdminConfiguracoes() {
                   <li>Vá em "Credenciais" no menu lateral</li>
                   <li>Copie a Public Key e o Access Token</li>
                   <li>Para testes, use as credenciais da seção "Credenciais de teste"</li>
+                  <li>
+                    Em <strong>Checkout Bricks</strong> / configuração da aplicação, cadastre as URLs do site
+                    (ex.: <code className="text-xs">https://dev.championschurch.com.br</code> e produção) — sem isso
+                    o formulário de cartão não abre no navegador.
+                  </li>
                 </ol>
               </div>
             </div>

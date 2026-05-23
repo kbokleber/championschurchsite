@@ -88,6 +88,7 @@ class VendaListSerializer(serializers.ModelSerializer):
     itens = ItemVendaSerializer(many=True, read_only=True)
     tem_cobranca_mp = serializers.SerializerMethodField()
     cobranca_loja_id = serializers.SerializerMethodField()
+    cobranca_loja_codigo = serializers.SerializerMethodField()
 
     class Meta:
         model = Venda
@@ -104,6 +105,7 @@ class VendaListSerializer(serializers.ModelSerializer):
             'itens',
             'tem_cobranca_mp',
             'cobranca_loja_id',
+            'cobranca_loja_codigo',
         )
 
     def get_criado_por_nome(self, obj):
@@ -121,6 +123,11 @@ class VendaListSerializer(serializers.ModelSerializer):
     def get_cobranca_loja_id(self, obj):
         if hasattr(obj, 'cobranca_mp') and obj.cobranca_mp is not None:
             return obj.cobranca_mp.id
+        return None
+
+    def get_cobranca_loja_codigo(self, obj):
+        if hasattr(obj, 'cobranca_mp') and obj.cobranca_mp is not None:
+            return obj.cobranca_mp.codigo
         return None
 
 
@@ -300,6 +307,9 @@ class ReservaLojaLoteSerializer(serializers.Serializer):
 
 class CobrancaLojaSerializer(serializers.ModelSerializer):
     venda = serializers.IntegerField(source='venda_id', read_only=True)
+    itens = serializers.SerializerMethodField()
+    comprador_nome = serializers.SerializerMethodField()
+    venda_categoria = serializers.SerializerMethodField()
 
     class Meta:
         model = CobrancaLoja
@@ -313,6 +323,9 @@ class CobrancaLojaSerializer(serializers.ModelSerializer):
             'data_pagamento',
             'metodo_pagamento',
             'referencia_externa',
+            'itens',
+            'comprador_nome',
+            'venda_categoria',
         )
         read_only_fields = (
             'id',
@@ -324,7 +337,32 @@ class CobrancaLojaSerializer(serializers.ModelSerializer):
             'data_pagamento',
             'metodo_pagamento',
             'referencia_externa',
+            'itens',
+            'comprador_nome',
+            'venda_categoria',
         )
+
+    def get_itens(self, obj):
+        venda = obj.venda
+        if not venda:
+            return []
+        return ItemVendaSerializer(venda.itens.all(), many=True).data
+
+    def get_comprador_nome(self, obj):
+        if not obj.venda:
+            return ''
+        return (obj.venda.comprador_nome or '').strip()
+
+    def get_venda_categoria(self, obj):
+        if not obj.venda:
+            return 'cantina'
+        itens = list(obj.venda.itens.all())
+        if not itens:
+            return 'cantina'
+        produto = getattr(itens[0], 'produto', None)
+        if produto:
+            return produto.categoria or 'cantina'
+        return 'cantina'
 
 
 class LojaAuditoriaSerializer(serializers.ModelSerializer):

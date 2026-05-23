@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<title>Manual da Cantina — Champions Church</title>
+<style>
+  @page { margin: 18mm 16mm; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color: #1f2937; line-height: 1.55; font-size: 11.5pt; }
+  h1 { color: #0f172a; font-size: 24pt; margin: 0 0 8px; }
+  h2 { color: #b45309; font-size: 16pt; margin: 28px 0 10px; page-break-after: avoid; }
+  h3 { color: #334155; font-size: 13pt; margin: 18px 0 8px; }
+  p, li { margin: 0 0 8px; }
+  ul, ol { margin: 0 0 12px 18px; padding: 0; }
+  .capa { text-align: center; padding: 40px 0 24px; page-break-after: always; }
+  .capa p { color: #64748b; }
+  .destaque { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 10px 14px; margin: 12px 0; }
+  .dica { background: #f0f9ff; border-left: 4px solid #0284c7; padding: 10px 14px; margin: 12px 0; }
+  figure { margin: 14px 0 18px; page-break-inside: avoid; }
+  img { width: 100%; max-width: 100%; border: 1px solid #e5e7eb; border-radius: 8px; }
+  figcaption { font-size: 9.5pt; color: #64748b; margin-top: 6px; text-align: center; }
+  .toc { page-break-after: always; }
+  .toc ol { font-size: 12pt; }
+  section { page-break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<div class="capa">
+  <h1>Manual da Cantina</h1>
+  <p><strong>Champions Church</strong> — passo a passo para quem atende no balcão</p>
+  <p>Versão do sistema: maio/2026 · Linguagem simples · Com telas reais</p>
+</div>
+
+<div class="toc">
+  <h2>Sumário</h2>
+  <ol>
+    <li>Antes de começar</li>
+    <li>Entrar no sistema</li>
+    <li>Escolher a Cantina</li>
+    <li>Cadastrar produtos</li>
+    <li>Vender no balcão</li>
+    <li>Receber pagamento (dinheiro, PIX e cartão)</li>
+    <li>Reservas</li>
+    <li>Histórico, recibo e WhatsApp</li>
+    <li>Configurações importantes</li>
+    <li>Dúvidas rápidas no balcão</li>
+  </ol>
+</div>
+
+<section>
+  <h2>1. Antes de começar</h2>
+  <p>Este manual é para quem trabalha na <strong>cantina</strong> da igreja — receber pedido, lançar venda, cobrar e entregar.</p>
+  <p>O sistema separa <strong>Cantina</strong> (comida e bebida) de <strong>Loja</strong> (camisetas, livros etc.). Aqui falamos só da cantina.</p>
+  <div class="destaque"><strong>Importante:</strong> use sempre o login que a liderança passou. Não compartilhe usuário e senha com visitantes.</div>
+</section>
+
+<section>
+  <h2>2. Entrar no sistema</h2>
+  <ol>
+    <li>Abra o site da igreja e vá em <strong>Admin</strong> (ou acesse direto <code>/admin/login</code>).</li>
+    <li>Digite <strong>usuário</strong> e <strong>senha</strong>.</li>
+    <li>Clique em <strong>Entrar</strong>.</li>
+  </ol>
+  <figure><img src="screenshots/01-login.png" alt="Tela de login do painel administrativo" /><figcaption>Tela de login do painel administrativo</figcaption></figure>
+</section>
+
+<section>
+  <h2>3. Escolher a Cantina</h2>
+  <p>No menu lateral, clique em <strong>Loja / Cantina</strong>. Na tela inicial, escolha o card <strong>Cantina</strong>.</p>
+  <p>Ali embaixo também tem atalho para <strong>Reservas</strong>, <strong>Histórico de vendas</strong> e <strong>Financeiro</strong>.</p>
+  <figure><img src="screenshots/02-hub-loja.png" alt="Tela inicial — escolher Cantina ou Loja" /><figcaption>Tela inicial — escolher Cantina ou Loja</figcaption></figure>
+  <div class="dica"><strong>Dica de balcão:</strong> se você só vende salgado e refrigerante, fique na Cantina. Não precisa abrir a Loja.</div>
+</section>
+
+<section>
+  <h2>4. Cadastrar produtos</h2>
+  <p>Vá em <strong>Produtos</strong> (menu de cima, dentro da Cantina).</p>
+  <ul>
+    <li><strong>Novo produto:</strong> nome, preço, foto (se tiver), estoque.</li>
+    <li><strong>Comida ou bebida:</strong> marque o segmento certo — ajuda a filtrar na hora de vender.</li>
+    <li><strong>Ativo:</strong> produto desligado some do balcão.</li>
+  </ul>
+  <figure><img src="screenshots/03-produtos-cantina.png" alt="Lista de produtos da cantina" /><figcaption>Lista de produtos da cantina</figcaption></figure>
+</section>
+
+<section>
+  <h2>5. Vender no balcão</h2>
+  <p>Clique em <strong>Vender</strong>. Essa é a tela do dia a dia:</p>
+  <ol>
+    <li>Toque no <strong>+</strong> do produto que a pessoa pediu.</li>
+    <li>Confira o carrinho à direita (ou embaixo no celular).</li>
+    <li>Coloque o <strong>nome de quem comprou</strong> — facilita achar depois no histórico.</li>
+    <li>Escolha como vai receber: <strong>Dinheiro</strong>, <strong>PIX/Mercado Pago</strong> ou <strong>Cartão/Mercado Pago</strong>.</li>
+  </ol>
+  <figure><img src="screenshots/04-pdv-venda.png" alt="Tela de venda (PDV) da cantina com itens no carrinho" /><figcaption>Tela de venda (PDV) da cantina com itens no carrinho</figcaption></figure>
+  <h3>Dinheiro</h3>
+  <p>Se a pessoa pagou certinho, pode deixar o campo “valor recebido” vazio. Se deu nota maior, digite quanto recebeu — o sistema calcula o troco.</p>
+  <h3>PIX ou cartão</h3>
+  <p>O sistema abre a tela de pagamento na hora. Mostra os produtos e o total antes de cobrar.</p>
+</section>
+
+<section>
+  <h2>6. Receber pagamento</h2>
+  <h3>PIX</h3>
+  <ul>
+    <li>Aparece o QR Code na tela.</li>
+    <li>A pessoa paga pelo app do banco.</li>
+    <li>Quando cair, a tela confirma sozinha (ou clique em verificar).</li>
+  </ul>
+  <h3>Cartão</h3>
+  <ul>
+    <li>Preencha os dados no formulário do Mercado Pago na tela.</li>
+    <li>O e-mail é obrigatório — peça para a pessoa informar ou use um e-mail de contato.</li>
+  </ul>
+  <h3>Depois de pago</h3>
+  <p>Aparece a confirmação com resumo da venda. Dá para <strong>imprimir/salvar PDF</strong> e <strong>mandar recibo no WhatsApp</strong> se a pessoa quiser.</p>
+  <figure><img src="screenshots/08-pagamento-confirmado.png" alt="Tela de pagamento confirmado com opção de recibo" /><figcaption>Tela de pagamento confirmado com opção de recibo</figcaption></figure>
+</section>
+
+<section>
+  <h2>7. Reservas</h2>
+  <p>Quando alguém pede para <strong>separar</strong> e pagar depois (ex.: encomenda para o culto), use <strong>Reservas</strong>.</p>
+  <ol>
+    <li>Escolha a <strong>data</strong>.</li>
+    <li>Coloque o <strong>nome</strong> de quem reservou.</li>
+    <li>Adicione os produtos e salve.</li>
+    <li>Na hora de cobrar, use <strong>Cobrar</strong> — vai para a tela de venda/pagamento.</li>
+  </ol>
+  <p>Ao lado do nome tem o botão do <strong>WhatsApp</strong> para mandar lembrete: “tem reserva pendente, precisa pagar e retirar”.</p>
+  <figure><img src="screenshots/05-reservas.png" alt="Tela de reservas da cantina" /><figcaption>Tela de reservas da cantina</figcaption></figure>
+</section>
+
+<section>
+  <h2>8. Histórico, recibo e WhatsApp</h2>
+  <h3>Ver vendas antigas</h3>
+  <p>Em <strong>Histórico</strong>, filtre por <strong>Cantina</strong> para ver só o balcão. Vendas pagas têm botão <strong>Recibo</strong>.</p>
+  <figure><img src="screenshots/06-historico-vendas.png" alt="Histórico de vendas filtrado pela cantina" /><figcaption>Histórico de vendas filtrado pela cantina</figcaption></figure>
+  <figure><img src="screenshots/07-recibo-modal.png" alt="Modal para ver e enviar recibo pelo WhatsApp" /><figcaption>Modal para ver e enviar recibo pelo WhatsApp</figcaption></figure>
+  <h3>Recibo para o cliente</h3>
+  <p>O link do recibo abre uma página simples no celular da pessoa — dá para salvar ou imprimir.</p>
+  <figure><img src="screenshots/09-recibo-cliente.png" alt="Recibo público que o cliente recebe" /><figcaption>Recibo público que o cliente recebe</figcaption></figure>
+  <div class="destaque"><strong>No balcão:</strong> pergunte “Quer o comprovante no WhatsApp?”. Se sim, digite o número com DDD e envie.</div>
+</section>
+
+<section>
+  <h2>9. Configurações importantes</h2>
+  <p>Só quem é admin configura. Na aba <strong>WhatsApp → Mensagens</strong> estão os textos de:</p>
+  <ul>
+    <li><strong>Recibo da loja/cantina</strong> — mensagem com link do comprovante.</li>
+    <li><strong>Reserva da cantina</strong> — lembrete de reserva pendente.</li>
+  </ul>
+  <p>Em <strong>Credenciais</strong>, a cantina usa instância e token <strong>separados</strong> dos eventos — um WhatsApp para loja, outro para inscrições.</p>
+  <figure><img src="screenshots/10-config-whatsapp.png" alt="Configurações de WhatsApp da loja/cantina" /><figcaption>Configurações de WhatsApp da loja/cantina</figcaption></figure>
+</section>
+
+<section>
+  <h2>10. Dúvidas rápidas no balcão</h2>
+  <h3>“O PIX não confirmou”</h3>
+  <ul>
+    <li>Peça para a pessoa conferir se pagou o valor certo.</li>
+    <li>Na tela de pagamento, clique em <strong>Verificar pagamento</strong>.</li>
+    <li>No histórico, use <strong>Atualizar pendentes</strong> se aparecer.</li>
+  </ul>
+  <h3>“Quero cancelar / corrigi errado”</h3>
+  <p>Chame quem tem perfil de admin. Exclusão de venda paga é restrita.</p>
+  <h3>“Cadê a reserva de fulano?”</h3>
+  <p>Reservas → mesma data → procure pelo nome. Se tiver WhatsApp cadastrado, dá para mandar lembrete pelo botão ao lado.</p>
+  <h3>“Isso é nota fiscal?”</h3>
+  <p>Não. É <strong>recibo interno</strong> da igreja para controle e comprovante simples pro cliente.</p>
+</section>
+
+<p style="margin-top:32px;color:#94a3b8;font-size:9pt;text-align:center;">Manual gerado automaticamente com telas reais do sistema · Champions Church</p>
+</body>
+</html>

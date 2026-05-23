@@ -159,9 +159,18 @@ def _response_json_indica_falha(response: requests.Response) -> bool:
     return False
 
 
-def enviar_texto_evolution_go(config, telefone: str, mensagem: str) -> Dict[str, Any]:
+def enviar_texto_evolution_go(
+    config,
+    telefone: str,
+    mensagem: str,
+    instancia_override: str | None = None,
+    api_key_override: str | None = None,
+) -> Dict[str, Any]:
     """
     Envia mensagem de texto para Evolution Go.
+
+    instancia_override: usa outra instância (ex.: loja) reaproveitando a URL base.
+    api_key_override: usa outro token de instância (ex.: instância dedicada da loja).
 
     Retorno padrão:
     {
@@ -183,8 +192,14 @@ def enviar_texto_evolution_go(config, telefone: str, mensagem: str) -> Dict[str,
     }
 
     api_url = (getattr(config, "evolution_api_url", "") or "").strip().rstrip("/")
-    api_key = (getattr(config, "evolution_api_key", "") or "").strip()
-    instance = (getattr(config, "evolution_api_instance", "") or "").strip()
+    if api_key_override is not None and (api_key_override or "").strip():
+        api_key = (api_key_override or "").strip()
+    else:
+        api_key = (getattr(config, "evolution_api_key", "") or "").strip()
+    if instancia_override is not None:
+        instance = (instancia_override or "").strip()
+    else:
+        instance = (getattr(config, "evolution_api_instance", "") or "").strip()
 
     if not api_url or not api_key:
         resultado["motivo"] = "configuracao_incompleta"

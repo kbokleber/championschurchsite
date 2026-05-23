@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Receipt, RefreshCw, Store, Trash2 } from 'lucide-react'
+import { Receipt, RefreshCw, Store, Trash2, FileText, X } from 'lucide-react'
 import api, { formatApiError } from '../../services/api'
 import { useAuth } from '../../contexts/AuthContext'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import AdminLojaSecaoNav from '../../components/AdminLojaSecaoNav'
+import VendaPagaResumo from '../../components/loja/VendaPagaResumo'
 
 const STATUS = {
   rascunho: 'Rascunho',
@@ -29,6 +30,7 @@ function AdminLojaVendas() {
   const [page, setPage] = useState(1)
   const [excluindoId, setExcluindoId] = useState(null)
   const [sincronizando, setSincronizando] = useState(false)
+  const [reciboCodigo, setReciboCodigo] = useState(null)
 
   const load = async (opts = {}) => {
     try {
@@ -155,7 +157,7 @@ function AdminLojaVendas() {
               <th className="p-2">Meio</th>
               <th className="p-2">Comprador</th>
               <th className="p-2">Total</th>
-              {podeExcluirVenda && <th className="p-2 w-24 text-right">Ações</th>}
+              <th className="p-2 w-40 text-right">Ações</th>
             </tr>
           </thead>
           <tbody>
@@ -173,25 +175,38 @@ function AdminLojaVendas() {
                 <td className="p-2 font-medium">
                   R$ {Number(r.total).toFixed(2).replace('.', ',')}
                 </td>
-                {podeExcluirVenda && (
-                  <td className="p-2 text-right">
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
-                      disabled={excluindoId === r.id}
-                      onClick={() => excluirVenda(r.id)}
-                      title="Excluir venda (apenas administradores)"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      {excluindoId === r.id ? '…' : 'Excluir'}
-                    </button>
-                  </td>
-                )}
+                <td className="p-2 text-right">
+                  <div className="inline-flex items-center gap-1">
+                    {r.status === 'pago' && r.cobranca_loja_codigo && (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm text-primary-700 hover:bg-primary-50"
+                        onClick={() => setReciboCodigo(r.cobranca_loja_codigo)}
+                        title="Ver / enviar recibo"
+                      >
+                        <FileText className="w-4 h-4" />
+                        Recibo
+                      </button>
+                    )}
+                    {podeExcluirVenda && (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
+                        disabled={excluindoId === r.id}
+                        onClick={() => excluirVenda(r.id)}
+                        title="Excluir venda (apenas administradores)"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        {excluindoId === r.id ? '…' : 'Excluir'}
+                      </button>
+                    )}
+                  </div>
+                </td>
               </tr>
             ))}
             {!rows.length && (
               <tr>
-                <td colSpan={podeExcluirVenda ? 7 : 6} className="p-6 text-center text-gray-500">
+                <td colSpan={7} className="p-6 text-center text-gray-500">
                   Nenhuma venda. Inicie uma{' '}
                   <Link to="/admin/loja/cantina/nova-venda" className="text-church-sky hover:underline">nova venda (Cantina)</Link>
                   {' ou '}
@@ -206,6 +221,33 @@ function AdminLojaVendas() {
       <p className="text-xs text-gray-400 mt-3 flex items-center gap-1">
         <Store className="w-3 h-3" /> Totais por filtros: somar manualmente a partir da lista (MVP).
       </p>
+
+      {reciboCodigo && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-3 overflow-y-auto"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setReciboCodigo(null)}
+        >
+          <div
+            className="relative max-w-lg w-full bg-transparent"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="absolute -top-3 -right-3 z-10 bg-white text-gray-700 hover:text-gray-900 rounded-full shadow p-1.5"
+              onClick={() => setReciboCodigo(null)}
+              aria-label="Fechar"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <VendaPagaResumo
+              codigo={reciboCodigo}
+              ondeIrAposEnvio={() => setReciboCodigo(null)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

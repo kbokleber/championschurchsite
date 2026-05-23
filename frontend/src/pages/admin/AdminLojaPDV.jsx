@@ -7,6 +7,7 @@ import { getMediaUrl } from '../../services/utils'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import AdminLojaSecaoNav from '../../components/AdminLojaSecaoNav'
 import ConfirmModal from '../../components/ConfirmModal'
+import { rotuloMetodosMp, useMercadoPagoMetodos } from '../../components/mercadopago/useMercadoPagoMetodos'
 
 const CATEGORIAS = ['cantina', 'loja']
 
@@ -85,6 +86,9 @@ function AdminLojaPDV() {
   const [rascunhoVendaId, setRascunhoVendaId] = useState(null)
   /** produtoId → quantidade mínima no carrinho (reservas em cobrança nesta venda) */
   const [reservadoMinPorProduto, setReservadoMinPorProduto] = useState({})
+  const metodosMp = useMercadoPagoMetodos()
+  const rotuloMp = metodosMp.loading ? 'Mercado Pago' : rotuloMetodosMp(metodosMp)
+  const mpDisponivel = metodosMp.loading || metodosMp.pix || metodosMp.cartao
 
   const baseTotal = useCallback(() => {
     return lines.reduce((s, l) => s + Number(l.subtotal), 0)
@@ -393,13 +397,12 @@ function AdminLojaPDV() {
       const { data: mp } = await api.post(`/loja/vendas/${vId}/gerar-cobranca-mp/`, {
         meio_pagamento: 'pix_mp',
       })
-      const temLink = Boolean(mp?.init_point || mp?.sandbox_init_point)
-      const ok = mp?.success === true || temLink
+      const ok = mp?.success === true && mp?.cobranca_loja?.id
       if (!ok) {
         alert(
           (typeof mp?.error === 'string' && mp.error) ||
             (mp?.detail && String(mp.detail)) ||
-            'Falha ao gerar pagamento no Mercado Pago.',
+            'Falha ao preparar cobrança no Mercado Pago.',
         )
         return
       }
@@ -410,16 +413,7 @@ function AdminLojaPDV() {
           setReservadoMinPorProduto({})
         }
         navigate('/admin/loja/pagamento/' + String(cobId), {
-          state: {
-            area,
-            autoStartCheckout: true,
-            initPoint: mp.init_point || mp.initPoint,
-            sandboxInitPoint: mp.sandbox_init_point || mp.sandboxInitPoint,
-            isSandbox: mp.is_sandbox ?? mp.isSandbox,
-            reutilizado: mp.reutilizado,
-            valor: mp.valor,
-            preferenceId: mp.preference_id ?? mp.preferenceId,
-          },
+          state: { area, valor: mp.valor },
         })
       } else {
         alert('Resposta inesperada do servidor.')
@@ -684,11 +678,12 @@ function AdminLojaPDV() {
             </button>
             <button
               type="button"
-              disabled={!lines.length || processing}
+              disabled={!lines.length || processing || !mpDisponivel}
               onClick={submeterVendaMP}
+              title={!mpDisponivel ? 'Mercado Pago não habilitado nas configurações' : undefined}
               className={`flex-1 min-h-[52px] text-base font-semibold text-white rounded-xl flex items-center justify-center gap-2 ${accent.btn} disabled:opacity-50 touch-manipulation`}
             >
-              <CreditCard className="w-5 h-5" /> PIX / cartão
+              <CreditCard className="w-5 h-5" /> {rotuloMp}
             </button>
           </div>
         </div>
@@ -712,11 +707,12 @@ function AdminLojaPDV() {
             </button>
             <button
               type="button"
-              disabled={!lines.length || processing}
+              disabled={!lines.length || processing || !mpDisponivel}
               onClick={submeterVendaMP}
+              title={!mpDisponivel ? 'Mercado Pago não habilitado nas configurações' : undefined}
               className={`min-h-[52px] text-base font-semibold text-white rounded-xl flex items-center justify-center gap-2 ${accent.btn} disabled:opacity-50 touch-manipulation`}
             >
-              <CreditCard className="w-5 h-5" /> PIX/cartão
+              <CreditCard className="w-5 h-5" /> {rotuloMp}
             </button>
           </div>
         </div>

@@ -11,6 +11,9 @@ import {
   ShoppingCart,
   ChevronDown,
   ChevronRight,
+  MessageCircle,
+  Send,
+  X,
 } from 'lucide-react'
 import api, { formatApiError } from '../../services/api'
 import LoadingSpinner from '../../components/LoadingSpinner'
@@ -68,6 +71,11 @@ function AdminLojaReservas() {
 
   const [nomeReserva, setNomeReserva] = useState('')
   const [carrinho, setCarrinho] = useState(() => [])
+  const [reservaWhats, setReservaWhats] = useState(null)
+  const [whatsTelefone, setWhatsTelefone] = useState('')
+  const [whatsNome, setWhatsNome] = useState('')
+  const [whatsEnviando, setWhatsEnviando] = useState(false)
+  const [whatsFeedback, setWhatsFeedback] = useState(null)
   const [carrinhoListaExpandida, setCarrinhoListaExpandida] = useState(false)
   /** Por chave do grupo: tabela de itens expandida. Default: 1 item = expandido, 2+ = recolhido (resumo). */
   const [grupoTabelaExpandida, setGrupoTabelaExpandida] = useState({})
@@ -299,6 +307,67 @@ function AdminLojaReservas() {
       await load()
     } catch (e) {
       alert(formatApiError(e, 'Não foi possível cancelar.'))
+    }
+  }
+
+  const abrirEnvioWhatsappReserva = (g) => {
+    const primeiraPendente = g.itens.find((r) =>
+      ['pendente', 'em_cobranca'].includes(stReserva(r)),
+    )
+    if (!primeiraPendente) return
+    setReservaWhats({
+      reservaId: primeiraPendente.id,
+      nomeExibicao: g.nomeExibicao,
+      itens: g.itens
+        .filter((r) => ['pendente', 'em_cobranca'].includes(stReserva(r)))
+        .map((r) => ({
+          produto_nome: r.produto_nome,
+          quantidade: r.quantidade,
+        })),
+    })
+    setWhatsNome(g.nomeExibicao || '')
+    setWhatsTelefone('')
+    setWhatsFeedback(null)
+  }
+
+  const fecharEnvioWhatsapp = () => {
+    if (whatsEnviando) return
+    setReservaWhats(null)
+    setWhatsTelefone('')
+    setWhatsNome('')
+    setWhatsFeedback(null)
+  }
+
+  const enviarWhatsappReserva = async () => {
+    if (!reservaWhats) return
+    if (!whatsTelefone.trim()) {
+      setWhatsFeedback({ tipo: 'erro', texto: 'Informe o WhatsApp para enviar.' })
+      return
+    }
+    setWhatsEnviando(true)
+    setWhatsFeedback(null)
+    try {
+      const { data } = await api.post(
+        `/loja/reservas/${reservaWhats.reservaId}/enviar-whatsapp/`,
+        { telefone: whatsTelefone, nome: whatsNome },
+      )
+      if (data?.success) {
+        setWhatsFeedback({ tipo: 'ok', texto: 'Lembrete enviado pelo WhatsApp.' })
+        setTimeout(() => fecharEnvioWhatsapp(), 1200)
+      } else {
+        setWhatsFeedback({
+          tipo: 'erro',
+          texto: data?.detalhe || 'Falha ao enviar pelo WhatsApp.',
+        })
+      }
+    } catch (e) {
+      const detalhe = e?.response?.data?.error || e?.response?.data?.detalhe
+      setWhatsFeedback({
+        tipo: 'erro',
+        texto: detalhe || formatApiError(e, 'Falha ao enviar pelo WhatsApp.'),
+      })
+    } finally {
+      setWhatsEnviando(false)
     }
   }
 
@@ -593,7 +662,24 @@ function AdminLojaReservas() {
               >
                 <div className="px-4 py-3 bg-gradient-to-r from-amber-50 to-amber-50/30 border-b border-amber-100 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <h2 className="text-lg font-semibold text-amber-950 leading-tight">{g.nomeExibicao}</h2>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-lg font-semibold text-amber-950 leading-tight">
+                        {g.nomeExibicao}
+                      </h2>
+                      {g.itens.some((r) =>
+                        ['pendente', 'em_cobranca'].includes(stReserva(r)),
+                      ) && (
+                        <button
+                          type="button"
+                          onClick={() => abrirEnvioWhatsappReserva(g)}
+                          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs text-green-700 hover:bg-green-50 border border-green-200"
+                          title="Enviar lembrete pelo WhatsApp"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          WhatsApp
+                        </button>
+                      )}
+                    </div>
                     <p className="text-xs text-amber-800/80 mt-0.5">
                       {g.itens.length} {g.itens.length === 1 ? 'item' : 'itens'}
                     </p>
@@ -717,6 +803,86 @@ function AdminLojaReservas() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {reservaWhats && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-3 overflow-y-auto"
+          role="dialog"
+          aria-modal="true"
+          onClick={fecharEnvioWhatsapp}
+        >
+          <div
+            className="relative max-w-md w-full bg-white rounded-2xl shadow-lg p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={fecharEnvioWhatsapp}
+              disabled={whatsEnviando}
+              className="absolute top-2 right-2 text-gray-500 hover:text-gray-800 p-1.5"
+              aria-label="Fechar"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+              <MessageCircle className="w-4 h-4 text-green-600" />
+              Enviar lembrete por WhatsApp
+            </h3>
+            <p className="text-xs text-gray-500 mt-1">
+              Envia um lembrete para a pessoa retirar e pagar a reserva.
+            </p>
+
+            <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm">
+              <p className="font-medium text-gray-800">{reservaWhats.nomeExibicao}</p>
+              <ul className="mt-1 text-xs text-gray-600 space-y-0.5">
+                {reservaWhats.itens.map((it, i) => (
+                  <li key={i}>
+                    {it.produto_nome} x{it.quantidade}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="mt-3 grid gap-2">
+              <input
+                type="text"
+                className="input-field w-full"
+                placeholder="Nome (opcional)"
+                value={whatsNome}
+                onChange={(e) => setWhatsNome(e.target.value)}
+                disabled={whatsEnviando}
+              />
+              <input
+                type="tel"
+                inputMode="tel"
+                className="input-field w-full"
+                placeholder="WhatsApp (DDD + número)"
+                value={whatsTelefone}
+                onChange={(e) => setWhatsTelefone(e.target.value)}
+                disabled={whatsEnviando}
+              />
+              <button
+                type="button"
+                onClick={enviarWhatsappReserva}
+                disabled={whatsEnviando || !whatsTelefone.trim()}
+                className="btn btn-primary w-full inline-flex items-center justify-center gap-2"
+              >
+                <Send className="w-4 h-4" />
+                {whatsEnviando ? 'Enviando…' : 'Enviar'}
+              </button>
+              {whatsFeedback && (
+                <p
+                  className={`text-xs ${
+                    whatsFeedback.tipo === 'ok' ? 'text-green-700' : 'text-red-600'
+                  }`}
+                >
+                  {whatsFeedback.texto}
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

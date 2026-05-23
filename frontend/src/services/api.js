@@ -50,7 +50,12 @@ export function formatApiError(error, fallback = 'Ocorreu um erro. Tente novamen
     }
   }
 
-  const fieldKeys = Object.keys(data).filter((k) => k !== 'detail')
+  if (typeof data.error === 'string' && data.error.trim()) return data.error.trim()
+  if (typeof data.message === 'string' && data.message.trim()) return data.message.trim()
+
+  const fieldKeys = Object.keys(data).filter(
+    (k) => k !== 'detail' && k !== 'status' && k !== 'success' && k !== 'mp_http_status',
+  )
   for (const k of fieldKeys) {
     const v = data[k]
     if (typeof v === 'string' && v.trim()) return `${k}: ${v}`

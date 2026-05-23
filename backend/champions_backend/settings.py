@@ -220,6 +220,11 @@ if FRONTEND_ROOT:
 else:
     print(f"[SETTINGS] Frontend NÃO encontrado (procurou em: {_frontend_root})")
 
+# URL pública do frontend para gerar links externos (ex.: recibo enviado por WhatsApp).
+# Em produção (Docker single-app) deixe vazio: o link será montado a partir do request.
+# Em desenvolvimento local, defina http://localhost:5173 (ou outra porta do Vite) no .env.
+FRONTEND_BASE_URL = os.environ.get('FRONTEND_BASE_URL', '').rstrip('/')
+
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

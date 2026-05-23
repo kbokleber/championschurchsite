@@ -47,7 +47,12 @@ function MembroForm() {
       })
     } catch (error) {
       console.error('Erro ao carregar membro:', error)
-      setError('Erro ao carregar membro. Tente novamente.')
+      const status = error?.response?.status
+      setError(
+        status === 404
+          ? 'Cadastro não encontrado. Acompanhantes de eventos não ficam na lista de membros — veja em Inscrições.'
+          : 'Erro ao carregar membro. Tente novamente.'
+      )
     } finally {
       setLoading(false)
     }

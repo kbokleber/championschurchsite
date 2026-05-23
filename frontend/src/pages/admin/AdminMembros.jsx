@@ -122,7 +122,9 @@ function AdminMembros() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold text-church-navy">Membros</h1>
-          <p className="text-gray-600 mt-1">Gerencie os membros da igreja</p>
+          <p className="text-gray-600 mt-1">
+            Cadastros com contato da igreja. Acompanhantes de eventos ficam só em Inscrições.
+          </p>
         </div>
         <Link
           to="/admin/membros/novo"
@@ -167,8 +169,11 @@ function AdminMembros() {
             checked={somenteComContato}
             onChange={(e) => setSomenteComContato(e.target.checked)}
           />
-          Mostrar somente cadastros com contato (telefone)
+          Mostrar somente quem tem telefone cadastrado
         </label>
+        <p className="mt-2 text-xs text-gray-500">
+          Quem entrou só como acompanhante em um evento não aparece aqui — consulte Inscrições ou Check-in.
+        </p>
       </div>
 
       {/* Members Table */}

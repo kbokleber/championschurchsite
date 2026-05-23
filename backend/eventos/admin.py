@@ -17,6 +17,9 @@ class MembroAdmin(admin.ModelAdmin):
     search_fields = ['nome', 'email', 'telefone']
     ordering = ['nome']
     readonly_fields = ['data_cadastro']
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(is_acompanhante=False)
     
     fieldsets = (
         ('Informações Pessoais', {

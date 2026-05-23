@@ -1927,8 +1927,8 @@ def dashboard_stats(request):
         Q(data_fim__gte=agora) | Q(data_fim__isnull=True, data_inicio__gte=agora)
     ).count()
     
-    # Mesmo critério da tela /admin/membros: todos os membros (Membro.objects.all())
-    total_membros = Membro.objects.count()
+    # Mesmo critério da tela /admin/membros (sem acompanhantes de evento)
+    total_membros = Membro.objects.filter(is_acompanhante=False).count()
     total_inscricoes = Inscricao.objects.filter(status='confirmada').count()
     contatos_nao_lidos = Contato.objects.filter(lido=False).count()
     
@@ -1947,10 +1947,15 @@ def dashboard_stats(request):
     })
 
 
+def queryset_membros_cadastro():
+    """Cadastros reais da igreja; exclui acompanhantes criados só na inscrição de eventos."""
+    return Membro.objects.filter(is_acompanhante=False)
+
+
 class MembroViewSet(viewsets.ModelViewSet):
     """ViewSet para operações CRUD de Membros."""
     
-    queryset = Membro.objects.all()
+    queryset = queryset_membros_cadastro()
     serializer_class = MembroSerializer
     
     def get_serializer_class(self):
@@ -1959,7 +1964,7 @@ class MembroViewSet(viewsets.ModelViewSet):
         return MembroSerializer
     
     def get_queryset(self):
-        queryset = Membro.objects.all()
+        queryset = queryset_membros_cadastro()
         
         # Filtro por status
         status_param = self.request.query_params.get('status')

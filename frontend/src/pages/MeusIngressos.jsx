@@ -725,7 +725,7 @@ function MeusIngressos() {
                               <img
                                 src={getMediaUrl(ingresso.qrcode)}
                                 alt="QR Code"
-                                className="w-36 h-36 sm:w-40 sm:h-40 mb-2 sm:mb-3"
+                                className="w-48 h-48 sm:w-40 sm:h-40 mb-2 sm:mb-3"
                               />
                               {participante?.nome && (
                                 <p className="text-sm sm:text-base font-bold text-church-navy mb-2 sm:mb-3 text-center">
@@ -753,7 +753,7 @@ function MeusIngressos() {
                           ) : ingresso.pagamento_pendente ? (
                             /* Pagamento Pendente - aguardando para gerar QR Code */
                             <div className="text-center w-full">
-                              <div className="w-32 h-32 sm:w-40 sm:h-40 mx-auto mb-2 sm:mb-3 bg-amber-100 rounded-lg flex flex-col items-center justify-center">
+                              <div className="w-48 h-48 sm:w-40 sm:h-40 mx-auto mb-2 sm:mb-3 bg-amber-100 rounded-lg flex flex-col items-center justify-center">
                                 <AlertCircle className="h-10 w-10 sm:h-12 sm:w-12 text-amber-500 mb-1" />
                                 <DollarSign className="h-5 w-5 sm:h-6 sm:w-6 text-amber-600" />
                               </div>
@@ -840,21 +840,21 @@ function MeusIngressos() {
                                 <Users className="h-4 w-4 mr-2" />
                                 Acompanhantes ({ingresso.acompanhantes.length})
                               </h4>
-                              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 sm:gap-3">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                 {ingresso.acompanhantes.map((acomp) => (
                                   <div 
                                     key={acomp.id}
-                                    className={`rounded-lg p-2 sm:p-3 text-center min-w-0 ${acomp.qrcode ? 'bg-gray-50' : 'bg-amber-50'}`}
+                                    className={`rounded-lg p-3 sm:p-3 text-center min-w-0 ${acomp.qrcode ? 'bg-gray-50' : 'bg-amber-50'}`}
                                   >
                                     {acomp.qrcode ? (
                                       <img
                                         src={getMediaUrl(acomp.qrcode)}
                                         alt={`QR Code - ${acomp.nome}`}
-                                        className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-1 sm:mb-2"
+                                        className="w-44 h-44 sm:w-28 sm:h-28 mx-auto mb-2"
                                       />
                                     ) : (
-                                      <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-1 sm:mb-2 bg-amber-100 rounded flex items-center justify-center">
-                                        <Lock className="h-6 w-6 sm:h-8 sm:w-8 text-amber-500" />
+                                      <div className="w-44 h-44 sm:w-28 sm:h-28 mx-auto mb-2 bg-amber-100 rounded flex items-center justify-center">
+                                        <Lock className="h-8 w-8 sm:h-8 sm:w-8 text-amber-500" />
                                       </div>
                                     )}
                                     <p className="text-xs sm:text-sm font-medium text-gray-700 truncate">

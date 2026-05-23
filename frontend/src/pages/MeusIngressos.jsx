@@ -7,6 +7,10 @@ import { getMediaUrl } from '../services/utils'
 import LoadingSpinner from '../components/LoadingSpinner'
 import api from '../services/api'
 
+/** Mesmo tamanho para titular e acompanhantes — grande no celular para leitura na entrada. */
+const CLASSE_QR_INGRESSO =
+  'w-64 h-64 max-w-[min(16rem,80vw)] max-h-[min(16rem,80vw)] sm:w-56 sm:h-56 mx-auto'
+
 function MeusIngressos() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -718,14 +722,14 @@ function MeusIngressos() {
                     >
                       <div className="flex flex-col md:flex-row">
                         {/* QR Code */}
-                        <div className="md:w-64 bg-gray-50 p-4 sm:p-6 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r">
+                        <div className="md:w-72 bg-gray-50 p-4 sm:p-6 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r">
                           {ingresso.qrcode ? (
                             /* Ingresso liberado - tem QR Code */
                             <>
                               <img
                                 src={getMediaUrl(ingresso.qrcode)}
                                 alt="QR Code"
-                                className="w-48 h-48 sm:w-40 sm:h-40 mb-2 sm:mb-3"
+                                className={`${CLASSE_QR_INGRESSO} mb-2 sm:mb-3`}
                               />
                               {participante?.nome && (
                                 <p className="text-sm sm:text-base font-bold text-church-navy mb-2 sm:mb-3 text-center">
@@ -753,7 +757,7 @@ function MeusIngressos() {
                           ) : ingresso.pagamento_pendente ? (
                             /* Pagamento Pendente - aguardando para gerar QR Code */
                             <div className="text-center w-full">
-                              <div className="w-48 h-48 sm:w-40 sm:h-40 mx-auto mb-2 sm:mb-3 bg-amber-100 rounded-lg flex flex-col items-center justify-center">
+                              <div className={`${CLASSE_QR_INGRESSO} mb-2 sm:mb-3 bg-amber-100 rounded-lg flex flex-col items-center justify-center`}>
                                 <AlertCircle className="h-10 w-10 sm:h-12 sm:w-12 text-amber-500 mb-1" />
                                 <DollarSign className="h-5 w-5 sm:h-6 sm:w-6 text-amber-600" />
                               </div>
@@ -850,11 +854,11 @@ function MeusIngressos() {
                                       <img
                                         src={getMediaUrl(acomp.qrcode)}
                                         alt={`QR Code - ${acomp.nome}`}
-                                        className="w-44 h-44 sm:w-28 sm:h-28 mx-auto mb-2"
+                                        className={`${CLASSE_QR_INGRESSO} mb-2`}
                                       />
                                     ) : (
-                                      <div className="w-44 h-44 sm:w-28 sm:h-28 mx-auto mb-2 bg-amber-100 rounded flex items-center justify-center">
-                                        <Lock className="h-8 w-8 sm:h-8 sm:w-8 text-amber-500" />
+                                      <div className={`${CLASSE_QR_INGRESSO} mb-2 bg-amber-100 rounded flex items-center justify-center`}>
+                                        <Lock className="h-8 w-8 text-amber-500" />
                                       </div>
                                     )}
                                     <p className="text-xs sm:text-sm font-medium text-gray-700 truncate">

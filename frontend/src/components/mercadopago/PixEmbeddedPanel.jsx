@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { Copy, RefreshCw, QrCode, AlertCircle } from 'lucide-react'
 import api from '../../services/api'
 import { PayerDataForm, payerToApiPayload, isPayerValid } from './PayerDataForm'
@@ -65,21 +65,6 @@ export function PixEmbeddedPanel({
     }
   }, [payer, pixUrl, bodyKey, bodyId, onPixCreated, onAlreadyPaid, pagadorAnonimo])
 
-  /** Loja/cantina: só gera PIX ao clicar (evita cobranças abandonadas no painel MP). */
-  const gerarPixAutomatico = contexto !== 'loja'
-
-  useEffect(() => {
-    if (!gerarPixAutomatico) return
-    if (pagadorAnonimo) {
-      gerarPix()
-      return
-    }
-    if (isPayerValid(payer) && defaultPayer.email && defaultPayer.cpf?.length >= 11) {
-      gerarPix()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gerarPixAutomatico, pagadorAnonimo])
-
   const copiar = async () => {
     if (!pix?.qr_code) return
     try {
@@ -93,13 +78,6 @@ export function PixEmbeddedPanel({
 
   return (
     <div className="space-y-4">
-      {pagadorAnonimo && contexto !== 'loja' && (
-        <p className="text-sm text-gray-600 rounded-lg bg-gray-50 border border-gray-200 p-3">
-          O QR Code PIX é gerado automaticamente com o <strong>e-mail da inscrição</strong> e o{' '}
-          <strong>CPF/CNPJ</strong> configurado em <strong>Configurações → Mercado Pago</strong> (não é
-          necessário preencher dados aqui).
-        </p>
-      )}
       {!pagadorAnonimo && (
         <PayerDataForm payer={payer} onChange={setPayer} disabled={loading || !!pix} />
       )}

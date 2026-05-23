@@ -23,35 +23,6 @@ export function rotuloMetodosMp({ pix, cartao }) {
   return 'Mercado Pago'
 }
 
-/** Texto introdutório nas telas de pagamento (eventos ou loja). */
-export function textoIntroPagamento(contexto, { pix, cartao }) {
-  const cfg = 'Configurações → Mercado Pago'
-
-  if (contexto === 'loja') {
-    if (pix && cartao) {
-      return `Formas de pagamento conforme ${cfg} (dados da igreja; sem pedir e-mail/CPF do comprador no balcão).`
-    }
-    if (pix) {
-      return `Pagamento via PIX (QR na página), conforme ${cfg}. Dados da igreja; sem pedir e-mail/CPF do comprador no balcão.`
-    }
-    if (cartao) {
-      return `Pagamento com cartão nesta página, conforme ${cfg}. Dados da igreja no Mercado Pago.`
-    }
-    return `Nenhuma forma de pagamento Mercado Pago está habilitada em ${cfg}.`
-  }
-
-  if (pix && cartao) {
-    return `Pague com PIX ou cartão nesta página (sem sair do site). O PIX usa seu e-mail de inscrição e o CPF/CNPJ da igreja em ${cfg}.`
-  }
-  if (pix) {
-    return `Pague com PIX nesta página (QR Code). Usa seu e-mail de inscrição e o CPF/CNPJ da igreja em ${cfg}.`
-  }
-  if (cartao) {
-    return `Pague com cartão nesta página (sem sair do site). Preencha os dados do titular no formulário do Mercado Pago.`
-  }
-  return `Nenhuma forma de pagamento Mercado Pago está habilitada em ${cfg}.`
-}
-
 export function useMercadoPagoMetodos() {
   const [metodos, setMetodos] = useState({
     ativo: false,

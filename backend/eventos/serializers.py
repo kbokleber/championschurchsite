@@ -984,6 +984,7 @@ class CobrancaSerializer(serializers.ModelSerializer):
     membro_email = serializers.EmailField(source='membro.email', read_only=True, allow_blank=True)
     membro_telefone = serializers.CharField(source='membro.telefone', read_only=True)
     evento_titulo = serializers.CharField(source='evento.titulo', read_only=True)
+    evento_data = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     itens = CobrancaItemSerializer(many=True, read_only=True)
     data_criacao_formatada = serializers.SerializerMethodField()
@@ -993,7 +994,7 @@ class CobrancaSerializer(serializers.ModelSerializer):
         model = Cobranca
         fields = [
             'id', 'codigo', 'membro', 'membro_nome', 'membro_email', 'membro_telefone',
-            'evento', 'evento_titulo', 'valor', 'descricao',
+            'evento', 'evento_titulo', 'evento_data', 'valor', 'descricao',
             'status', 'status_display', 'data_criacao', 'data_criacao_formatada',
             'data_pagamento', 'data_pagamento_formatada',
             'referencia_externa', 'metodo_pagamento', 'itens'
@@ -1014,3 +1015,9 @@ class CobrancaSerializer(serializers.ModelSerializer):
     
     def get_data_pagamento_formatada(self, obj):
         return self._formatar_data(obj.data_pagamento)
+
+    def get_evento_data(self, obj):
+        if obj.evento and obj.evento.data_inicio:
+            from django.utils import timezone
+            return timezone.localtime(obj.evento.data_inicio).strftime('%d/%m/%Y %H:%M')
+        return None

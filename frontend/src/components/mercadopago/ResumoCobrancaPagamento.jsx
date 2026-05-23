@@ -57,6 +57,9 @@ export function ResumoCobrancaPagamento({ contexto, dados }) {
       <div className="min-w-0">
         <p className="text-sm text-gray-500">Evento</p>
         <p className="font-semibold text-gray-900">{dados.evento_titulo || '—'}</p>
+        {dados.evento_data && (
+          <p className="text-sm text-gray-600 mt-0.5">{dados.evento_data}</p>
+        )}
         {dados.membro_nome && (
           <p className="text-sm text-gray-600 mt-1">Responsável: {dados.membro_nome}</p>
         )}

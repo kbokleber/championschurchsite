@@ -12,6 +12,39 @@ const CLASSE_QR_WRAPPER =
   'w-full max-w-[min(16rem,80vw)] sm:max-w-[13rem] mx-auto'
 const CLASSE_QR_IMG = 'w-full aspect-square object-contain'
 
+/** QR com tarja verde "ENTRADA CONFERIDA" após check-in — visível para quem acompanha online. */
+function QrIngressoComStatus({ src, alt, presente, dataCheckin, className = '' }) {
+  return (
+    <div
+      className={`${CLASSE_QR_WRAPPER} relative overflow-hidden rounded-lg ${className} ${
+        presente ? 'ring-2 ring-green-500 ring-offset-2' : ''
+      }`}
+    >
+      <img
+        src={src}
+        alt={alt}
+        className={`${CLASSE_QR_IMG} ${presente ? 'opacity-40 grayscale' : ''}`}
+      />
+      {presente && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none" aria-hidden>
+          <div className="absolute inset-0 bg-green-600/15" />
+          <div className="absolute w-[145%] -rotate-12 bg-green-600 text-white text-center py-2 sm:py-2.5 shadow-md">
+            <span className="text-[9px] sm:text-xs font-bold tracking-wide flex items-center justify-center gap-1 px-1">
+              <Check className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" strokeWidth={3} />
+              ENTRADA CONFERIDA
+            </span>
+          </div>
+        </div>
+      )}
+      {presente && dataCheckin && (
+        <p className="absolute bottom-0 left-0 right-0 text-center text-[10px] sm:text-xs font-semibold text-green-900 bg-white/95 py-1 px-1 border-t border-green-200">
+          {dataCheckin}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function MeusIngressos() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -309,6 +342,24 @@ function MeusIngressos() {
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [isLoggedIn, atualizarIngressos])
+
+  // Atualiza status de check-in enquanto alguém aguarda entrada (evento online / tela aberta)
+  useEffect(() => {
+    if (!isLoggedIn || ingressos.length === 0) return
+
+    const aguardandoCheckin = ingressos.some((i) => {
+      if (isEventoPassado(i)) return false
+      if (i.qrcode && !i.pagamento_pendente && !i.presente) return true
+      return (i.acompanhantes || []).some((a) => a.qrcode && !a.presente)
+    })
+    if (!aguardandoCheckin) return
+
+    const intervalo = setInterval(() => {
+      atualizarIngressos({ silent: true })
+    }, 30000)
+
+    return () => clearInterval(intervalo)
+  }, [isLoggedIn, ingressos, atualizarIngressos])
 
   const handleTelefoneChange = (e) => {
     setTelefone(formatarTelefone(e.target.value))
@@ -727,13 +778,13 @@ function MeusIngressos() {
                           {ingresso.qrcode ? (
                             /* Ingresso liberado - tem QR Code */
                             <>
-                              <div className={`${CLASSE_QR_WRAPPER} mb-2 sm:mb-3`}>
-                                <img
-                                  src={getMediaUrl(ingresso.qrcode)}
-                                  alt="QR Code"
-                                  className={CLASSE_QR_IMG}
-                                />
-                              </div>
+                              <QrIngressoComStatus
+                                src={getMediaUrl(ingresso.qrcode)}
+                                alt="QR Code"
+                                presente={ingresso.presente}
+                                dataCheckin={ingresso.data_checkin}
+                                className="mb-2 sm:mb-3"
+                              />
                               {participante?.nome && (
                                 <p className="text-sm sm:text-base font-bold text-church-navy mb-2 sm:mb-3 text-center">
                                   {participante.nome}
@@ -854,13 +905,13 @@ function MeusIngressos() {
                                     className={`rounded-lg p-3 sm:p-3 text-center min-w-0 ${acomp.qrcode ? 'bg-gray-50' : 'bg-amber-50'}`}
                                   >
                                     {acomp.qrcode ? (
-                                      <div className={`${CLASSE_QR_WRAPPER} mb-2`}>
-                                        <img
-                                          src={getMediaUrl(acomp.qrcode)}
-                                          alt={`QR Code - ${acomp.nome}`}
-                                          className={CLASSE_QR_IMG}
-                                        />
-                                      </div>
+                                      <QrIngressoComStatus
+                                        src={getMediaUrl(acomp.qrcode)}
+                                        alt={`QR Code - ${acomp.nome}`}
+                                        presente={acomp.presente}
+                                        dataCheckin={acomp.data_checkin}
+                                        className="mb-2"
+                                      />
                                     ) : (
                                       <div className={`${CLASSE_QR_WRAPPER} mb-2 aspect-square bg-amber-100 rounded flex items-center justify-center`}>
                                         <Lock className="h-8 w-8 text-amber-500" />
@@ -875,30 +926,26 @@ function MeusIngressos() {
                                     {!acomp.qrcode && acomp.valor > 0 && (
                                       <p className="text-xs font-medium text-amber-700">{formatarValor(acomp.valor)}</p>
                                     )}
-                                    {acomp.qrcode && (
-                                      acomp.presente ? (
-                                        <span className="text-xs text-green-600 flex items-center justify-center mt-1">
-                                          <Check className="h-3 w-3 mr-1" />
-                                          Check-in OK
-                                        </span>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            downloadQrCode(
-                                              acomp.qrcode,
-                                              `qrcode-${sanitizeFileName(acomp.nome || 'acompanhante')}-${sanitizeFileName(ingresso.evento.titulo || 'evento')}.png`,
-                                              acomp.nome || 'Acompanhante',
-                                              ingresso.evento.titulo || 'Evento',
-                                              ingresso.evento.data_inicio || ''
-                                            )
-                                          }
-                                          className="text-xs text-primary-600 hover:underline flex items-center justify-center mt-1 min-h-[36px]"
-                                        >
-                                          <Download className="h-3 w-3 mr-1" />
-                                          Salvar
-                                        </button>
-                                      )
+                                    {acomp.qrcode && !acomp.presente && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          downloadQrCode(
+                                            acomp.qrcode,
+                                            `qrcode-${sanitizeFileName(acomp.nome || 'acompanhante')}-${sanitizeFileName(ingresso.evento.titulo || 'evento')}.png`,
+                                            acomp.nome || 'Acompanhante',
+                                            ingresso.evento.titulo || 'Evento',
+                                            ingresso.evento.data_inicio || ''
+                                          )
+                                        }
+                                        className="text-xs text-primary-600 hover:underline flex items-center justify-center mt-1 min-h-[36px]"
+                                      >
+                                        <Download className="h-3 w-3 mr-1" />
+                                        Salvar
+                                      </button>
+                                    )}
+                                    {acomp.qrcode && acomp.presente && (
+                                      <p className="text-xs text-green-700 font-medium mt-1">Entrada conferida</p>
                                     )}
                                   </div>
                                 ))}
@@ -936,13 +983,33 @@ function MeusIngressos() {
                 <div className="mt-6 sm:mt-8 bg-blue-50 rounded-xl p-4 sm:p-6">
                   <h3 className="font-semibold text-blue-800 mb-2 sm:mb-3 flex items-center text-sm sm:text-base">
                     <QrCode className="h-5 w-5 mr-2 flex-shrink-0" />
-                    Como usar seu ingresso
+                    Seu ingresso digital — é simples!
                   </h3>
+                  <p className="text-xs sm:text-sm text-blue-700 mb-3">
+                    Cada QR Code é pessoal: o seu e o de cada acompanhante. Guarde com carinho — no dia do
+                    evento, é só apresentar na entrada.
+                  </p>
                   <ul className="text-xs sm:text-sm text-blue-700 space-y-1.5 sm:space-y-2">
-                    <li>1. Salve ou tire um print do QR Code</li>
-                    <li>2. No dia do evento, apresente o QR Code na entrada</li>
-                    <li>3. Aguarde a confirmação do check-in</li>
-                    <li>4. Aproveite o evento!</li>
+                    <li>
+                      <strong>Salvar ou print:</strong> toque em &quot;Salvar QR Code&quot; ou tire um print da
+                      tela. Funciona offline — sem internet na hora H.
+                    </li>
+                    <li>
+                      <strong>Enviar para a família:</strong> mande o QR de cada pessoa pelo WhatsApp para
+                      quem vai junto — cada um entra com o código dele.
+                    </li>
+                    <li>
+                      <strong>No dia do evento:</strong> chegue com o QR aberto (ou a imagem salva) e mostre na
+                      entrada. Rapidinho, fazemos seu check-in!
+                    </li>
+                    <li>
+                      <strong>Depois do check-in:</strong> o QR ganha uma tarja verde <strong>ENTRADA CONFERIDA</strong> com
+                      horário — assim todo mundo sabe online que a pessoa já entrou (atualiza sozinho nesta página).
+                    </li>
+                    <li>
+                      <strong>Pronto!</strong> Entrada conferida — agora é só aproveitar o evento com a
+                      gente.
+                    </li>
                   </ul>
                 </div>
               )}

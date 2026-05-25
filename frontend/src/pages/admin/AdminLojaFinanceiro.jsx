@@ -416,9 +416,7 @@ function AdminLojaFinanceiro() {
                     stroke="#6b7280"
                   />
                   <Tooltip
-                    formatter={(value, name) =>
-                      name === 'valor' ? fmtBRL(value) : `${value} vendas`
-                    }
+                    formatter={(value) => fmtBRL(value)}
                     labelFormatter={(l) => `Horário ${l}`}
                     contentStyle={{ borderRadius: '8px', borderColor: '#e5e7eb' }}
                   />

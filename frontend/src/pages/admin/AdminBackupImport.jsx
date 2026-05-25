@@ -216,7 +216,7 @@ function AdminBackupImport() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Backup e Restore</h1>
         <p className="text-gray-600">
-          Download local ou Google Drive — cada operação pede login na conta Google de quem está usando.
+          Exporte ou restaure backup completo (banco + mídia).
         </p>
       </div>
 
@@ -232,13 +232,6 @@ function AdminBackupImport() {
         </div>
       </div>
 
-      {backupViaServidorRemoto && (
-        <div className="bg-sky-50 border border-sky-200 rounded-lg p-4 text-sm text-sky-900">
-          Backup e restore usam o servidor <strong>{BACKUP_API_URL}</strong> (PostgreSQL).
-          O restante do admin continua em <strong>{MAIN_API_URL || 'mesma API'}</strong>.
-        </div>
-      )}
-
       {mensagem && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-green-700">
           {mensagem}
@@ -249,34 +242,6 @@ function AdminBackupImport() {
           {erro}
         </div>
       )}
-
-      <div className="bg-white rounded-xl shadow-md p-6 space-y-3 border border-primary-100">
-        <div className="flex items-center gap-2">
-          <Cloud className="h-5 w-5 text-primary-600" />
-          <h2 className="text-lg font-semibold text-gray-900">Google Drive (login na hora)</h2>
-        </div>
-        <p className="text-sm text-gray-600">
-          Ao usar Drive, o Google pede login e permissão. O backup vai para <strong>a sua</strong> conta —
-          nada fica salvo no servidor.
-        </p>
-        {!googlePronto && (
-          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            Falta <code className="text-xs bg-amber-100 px-1 rounded">VITE_GOOGLE_CLIENT_ID</code> no build do
-            frontend. Local: <code className="text-xs bg-amber-100 px-1 rounded">frontend/.env.local</code>.
-            Coolify (dev e prod): variável no build + <strong>rebuild</strong> do frontend.
-          </p>
-        )}
-        {googlePronto && (
-          <p className="text-sm text-gray-600">
-            No Google Cloud (OAuth Web), cadastre as <strong>origens JavaScript</strong> de cada ambiente:{' '}
-            <code className="text-xs bg-gray-100 px-1 rounded">http://localhost:5174</code>,{' '}
-            <code className="text-xs bg-gray-100 px-1 rounded">https://dev.championschurch.com.br</code>,{' '}
-            <code className="text-xs bg-gray-100 px-1 rounded">https://championschurch.com.br</code>,{' '}
-            <code className="text-xs bg-gray-100 px-1 rounded">https://www.championschurch.com.br</code>.
-            Ative também a <strong>Google Drive API</strong>.
-          </p>
-        )}
-      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-xl shadow-md p-6 space-y-4">

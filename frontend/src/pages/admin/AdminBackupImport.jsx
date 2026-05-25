@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { DatabaseBackup, Upload, AlertTriangle, Loader2, Cloud, HardDrive } from 'lucide-react'
-import api, { formatApiError } from '../../services/api'
+import api, { formatApiError, parseApiErrorDetail, resolveBackupApiBaseUrl } from '../../services/api'
 import ConfirmModal from '../../components/ConfirmModal'
 import DriveBrowseModal from '../../components/admin/DriveBrowseModal'
 import {
@@ -10,6 +10,12 @@ import {
 } from '../../utils/googleDriveClient'
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
+const BACKUP_API_BASE = resolveBackupApiBaseUrl()
+const MAIN_API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
+const BACKUP_API_URL = (import.meta.env.VITE_BACKUP_API_URL || import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
+const backupViaServidorRemoto = Boolean(
+  BACKUP_API_URL && MAIN_API_URL && BACKUP_API_URL !== MAIN_API_URL
+)
 
 function AdminBackupImport() {
   const [exportando, setExportando] = useState(false)
@@ -41,21 +47,35 @@ function AdminBackupImport() {
   }
 
   const gerarBackupBlob = async () => {
-    const response = await api.post('/admin/backup/exportar/', {}, {
-      responseType: 'blob',
-      timeout: 600000,
-    })
-    const contentType = response.headers['content-type'] || ''
-    if (contentType.includes('application/json')) {
-      const text = await response.data.text()
-      const data = JSON.parse(text)
-      throw new Error(data.detail || 'Falha ao exportar backup.')
+    try {
+      const response = await api.post('/admin/backup/exportar/', {}, {
+        baseURL: BACKUP_API_BASE,
+        responseType: 'blob',
+        timeout: 600000,
+      })
+      const contentType = response.headers['content-type'] || ''
+      if (contentType.includes('application/json')) {
+        const text = await response.data.text()
+        const data = JSON.parse(text)
+        throw new Error(data.detail || 'Falha ao exportar backup.')
+      }
+      const fileName = extrairNomeBackup(
+        response,
+        `champions_backup_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.tar.gz`
+      )
+      return { blob: response.data, fileName }
+    } catch (error) {
+      if (error.response?.status === 401 && backupViaServidorRemoto) {
+        throw new Error(
+          'Sessão inválida no servidor de backup. Use VITE_API_URL=https://dev.championschurch.com.br, reinicie o Vite e faça login novamente.'
+        )
+      }
+      const detail = await parseApiErrorDetail(
+        error,
+        'Não foi possível gerar o backup. Exportação exige backend com PostgreSQL (use VITE_BACKUP_API_URL).'
+      )
+      throw new Error(detail)
     }
-    const fileName = extrairNomeBackup(
-      response,
-      `champions_backup_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.tar.gz`
-    )
-    return { blob: response.data, fileName }
   }
 
   const handleExportarDownload = async () => {
@@ -73,7 +93,7 @@ function AdminBackupImport() {
       window.URL.revokeObjectURL(url)
       setMensagem('Backup gerado e download iniciado com sucesso.')
     } catch (error) {
-      setErro(formatApiError(error, error.message || 'Não foi possível gerar o backup.'))
+      setErro(error.message || formatApiError(error, 'Não foi possível gerar o backup.'))
     } finally {
       setExportando(false)
     }
@@ -103,7 +123,7 @@ function AdminBackupImport() {
       const uploaded = await uploadBackupParaDrive(accessToken, pasta.id, fileName, blob)
       setMensagem(`Backup salvo no seu Google Drive: ${uploaded.name} (pasta ${pasta.name}).`)
     } catch (error) {
-      setErro(formatApiError(error, error.message || 'Falha ao exportar para o Google Drive.'))
+      setErro(error.message || formatApiError(error, error.message || 'Falha ao exportar para o Google Drive.'))
     } finally {
       setExportando(false)
     }
@@ -142,14 +162,20 @@ function AdminBackupImport() {
         const { blob, name } = await baixarBackupDoDrive(accessToken, driveFileId)
         const formData = new FormData()
         formData.append('arquivo', blob, name)
-        response = await api.post('/admin/backup/importar/', formData, { timeout: 600000 })
+        response = await api.post('/admin/backup/importar/', formData, {
+          baseURL: BACKUP_API_BASE,
+          timeout: 600000,
+        })
       } else {
         if (!arquivo) {
           throw new Error('Selecione um arquivo .tar.gz para importar.')
         }
         const formData = new FormData()
         formData.append('arquivo', arquivo)
-        response = await api.post('/admin/backup/importar/', formData, { timeout: 600000 })
+        response = await api.post('/admin/backup/importar/', formData, {
+          baseURL: BACKUP_API_BASE,
+          timeout: 600000,
+        })
       }
 
       const detail = response?.data?.detail || 'Backup importado com sucesso.'
@@ -206,6 +232,13 @@ function AdminBackupImport() {
         </div>
       </div>
 
+      {backupViaServidorRemoto && (
+        <div className="bg-sky-50 border border-sky-200 rounded-lg p-4 text-sm text-sky-900">
+          Backup e restore usam o servidor <strong>{BACKUP_API_URL}</strong> (PostgreSQL).
+          O restante do admin continua em <strong>{MAIN_API_URL || 'mesma API'}</strong>.
+        </div>
+      )}
+
       {mensagem && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-green-700">
           {mensagem}
@@ -228,8 +261,19 @@ function AdminBackupImport() {
         </p>
         {!googlePronto && (
           <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            Falta <code className="text-xs bg-amber-100 px-1 rounded">VITE_GOOGLE_CLIENT_ID</code> em{' '}
-            <code className="text-xs bg-amber-100 px-1 rounded">frontend/.env.local</code>.
+            Falta <code className="text-xs bg-amber-100 px-1 rounded">VITE_GOOGLE_CLIENT_ID</code> no build do
+            frontend. Local: <code className="text-xs bg-amber-100 px-1 rounded">frontend/.env.local</code>.
+            Coolify (dev e prod): variável no build + <strong>rebuild</strong> do frontend.
+          </p>
+        )}
+        {googlePronto && (
+          <p className="text-sm text-gray-600">
+            No Google Cloud (OAuth Web), cadastre as <strong>origens JavaScript</strong> de cada ambiente:{' '}
+            <code className="text-xs bg-gray-100 px-1 rounded">http://localhost:5174</code>,{' '}
+            <code className="text-xs bg-gray-100 px-1 rounded">https://dev.championschurch.com.br</code>,{' '}
+            <code className="text-xs bg-gray-100 px-1 rounded">https://championschurch.com.br</code>,{' '}
+            <code className="text-xs bg-gray-100 px-1 rounded">https://www.championschurch.com.br</code>.
+            Ative também a <strong>Google Drive API</strong>.
           </p>
         )}
       </div>

@@ -76,8 +76,12 @@ python manage.py collectstatic --noinput
 **Variáveis de Ambiente:**
 ```
 NODE_ENV=production
-VITE_API_URL=https://api.seu-dominio.com
+# Opcional se Nginx faz proxy /api na mesma origem (recomendado):
+# VITE_API_URL=https://api.seu-dominio.com
+VITE_GOOGLE_CLIENT_ID=seu-client-id.apps.googleusercontent.com
 ```
+
+**Google Drive (backup admin):** use o mesmo `VITE_GOOGLE_CLIENT_ID` nos builds de **dev.championschurch.com.br** e **championschurch.com.br**. Rebuild obrigatório após alterar. No Google Cloud, adicione cada domínio HTTPS (e `http://localhost:5174`) em Origens JavaScript autorizadas e habilite a Google Drive API.
 
 ---
 

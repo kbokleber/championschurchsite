@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Carregar variáveis de ambiente do arquivo .env
-load_dotenv(BASE_DIR / '.env')
+# Carregar variáveis de ambiente do arquivo .env (override=True: .env vence vars do shell/Windows)
+load_dotenv(BASE_DIR / '.env', override=True)
 
 # ==============================================
 # CONFIGURAÇÕES DE AMBIENTE
@@ -147,8 +147,9 @@ TEMPLATES = [
 WSGI_APPLICATION = 'champions_backend.wsgi.application'
 
 # Database
-# Usar PostgreSQL se as variáveis estiverem definidas, caso contrário SQLite
-if os.environ.get('POSTGRES_HOST'):
+# CHURCH_USE_SQLITE=1 — dev local no Windows (Postgres Coolify só funciona dentro do Docker)
+USE_SQLITE_LOCAL = os.environ.get('CHURCH_USE_SQLITE', '').lower() in ('true', '1', 'yes')
+if not USE_SQLITE_LOCAL and os.environ.get('POSTGRES_HOST'):
     # PostgreSQL (desenvolvimento e produção)
     DATABASES = {
         'default': {

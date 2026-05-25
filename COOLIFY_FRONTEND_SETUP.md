@@ -133,7 +133,10 @@ CORS_ALLOWED_ORIGINS=http://sgock8888s8sco48488gg0gs.154.12.227.87.sslip.io
 
 ### Frontend (Coolify)
 ```
-VITE_API_URL=http://s8o8s80sw0gswkockswkw084.154.12.227.87.sslip.io
+# Com Nginx/Dockerfile na mesma origem, omita VITE_API_URL (usa /api)
+VITE_GOOGLE_CLIENT_ID=278138141726-xxxx.apps.googleusercontent.com
 ```
+
+**Backup Google Drive:** defina `VITE_GOOGLE_CLIENT_ID` no build do frontend **dev** e **prod**, depois **rebuild**. No Google Cloud, cadastre as origens JavaScript de cada domínio (`https://dev.championschurch.com.br`, `https://championschurch.com.br`, etc.) e habilite a Drive API.
 
 **Nota:** As URLs podem ser diferentes se frontend e backend estão em containers/domínios diferentes no Coolify.

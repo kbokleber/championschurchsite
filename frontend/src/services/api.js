@@ -76,6 +76,33 @@ export function formatApiError(error, fallback = 'Ocorreu um erro. Tente novamen
   return fallback
 }
 
+/** Extrai `detail` quando a resposta veio como Blob (ex.: export backup com responseType blob). */
+export async function parseApiErrorDetail(error, fallback = 'Ocorreu um erro. Tente novamente.') {
+  const data = error?.response?.data
+  if (data instanceof Blob) {
+    try {
+      const text = await data.text()
+      if (text.trim().startsWith('{')) {
+        const parsed = JSON.parse(text)
+        if (parsed.detail != null) {
+          return typeof parsed.detail === 'string' ? parsed.detail : fallback
+        }
+      }
+      if (text.length > 0 && text.length < 400) return text
+    } catch {
+      /* ignore */
+    }
+  }
+  return formatApiError(error, fallback)
+}
+
+export function resolveBackupApiBaseUrl() {
+  // Dev/prod publicados: sempre mesma origem (/api via Nginx) — funciona em dev e prod sem VITE_* extra
+  if (isProduction) return API_BASE_URL
+  const backup = (import.meta.env.VITE_BACKUP_API_URL || import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
+  return backup ? `${backup}/api` : API_BASE_URL
+}
+
 // Interceptor para adicionar token de autenticação (apenas para rotas do admin)
 // Rotas /participante/ usam o token do participante passado no header de cada requisição
 api.interceptors.request.use(

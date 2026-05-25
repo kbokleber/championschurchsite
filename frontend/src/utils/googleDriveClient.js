@@ -113,7 +113,12 @@ export async function uploadBackupParaDrive(accessToken, folderId, filename, blo
     }
   )
   if (!initResp.ok) {
-    throw new Error('Google Drive recusou o upload. Verifique a pasta escolhida.')
+    const body = await initResp.text().catch(() => '')
+    throw new Error(
+      body.includes('accessNotConfigured') || body.includes('Drive API')
+        ? 'Ative a Google Drive API no projeto Google Cloud (APIs e serviços → Biblioteca).'
+        : `Google Drive recusou o upload (${initResp.status}). Verifique a pasta e as permissões OAuth.`
+    )
   }
   const uploadUrl = initResp.headers.get('Location')
   if (!uploadUrl) {

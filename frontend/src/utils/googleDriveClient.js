@@ -33,19 +33,11 @@ function buildGoogleOAuthUrl(clientId) {
 export function formatGoogleOAuthError(message) {
   const msg = String(message || '').trim()
   const lower = msg.toLowerCase()
-  if (lower.includes('popup') && lower.includes('closed')) {
-    return (
-      'Login Google não concluído. Na tela do Google, role até o final e clique em Permitir. ' +
-      'Se aparecer "app não verificado", clique em Avançado e em "Acessar… (não seguro)". ' +
-      'Se o erro for redirect_uri_mismatch, cadastre no Google Cloud a URI: ' +
-      `${driveOAuthRedirectUri()}`
-    )
-  }
   if (lower.includes('popup') && lower.includes('block')) {
-    return 'O navegador bloqueou a janela do Google. Permita pop-ups para este site ou use o login nesta aba.'
+    return 'O navegador bloqueou a janela do Google. Permita pop-ups para este site.'
   }
   if (lower.includes('access_denied') || lower.includes('cancel')) {
-    return 'Login Google cancelado. Tente novamente e autorize o acesso ao Drive.'
+    return 'Login Google cancelado.'
   }
   if (lower.includes('server_error') || lower.includes('500')) {
     return (
@@ -59,6 +51,28 @@ export function formatGoogleOAuthError(message) {
     )
   }
   return msg || 'Falha ao entrar no Google.'
+}
+
+export class GoogleOAuthCancelledError extends Error {
+  constructor() {
+    super('Login Google cancelado.')
+    this.name = 'GoogleOAuthCancelledError'
+  }
+}
+
+export function isGoogleOAuthCancelado(error) {
+  return error instanceof GoogleOAuthCancelledError
+}
+
+function lerResultadoOAuthPopup() {
+  try {
+    const raw = localStorage.getItem(DRIVE_OAUTH_RESULT_KEY)
+    if (!raw) return null
+    localStorage.removeItem(DRIVE_OAUTH_RESULT_KEY)
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -281,6 +295,7 @@ export async function solicitarTokenGooglePopupRedirect(
   }
 
   const startedAt = Date.now()
+  let popupClosedAt = null
 
   return new Promise((resolve, reject) => {
     let settled = false
@@ -292,42 +307,34 @@ export async function solicitarTokenGooglePopupRedirect(
     }
 
     const timer = setInterval(() => {
-      try {
-        const raw = localStorage.getItem(DRIVE_OAUTH_RESULT_KEY)
-        if (raw) {
-          localStorage.removeItem(DRIVE_OAUTH_RESULT_KEY)
-          try {
-            popup.close()
-          } catch {
-            // ignore
-          }
-          const data = JSON.parse(raw)
-          if (data.error) {
-            finish(reject, new Error(data.error))
-            return
-          }
-          if (!data.accessToken) {
-            finish(reject, new Error('Google não devolveu token de acesso.'))
-            return
-          }
-          finish(resolve, data.accessToken)
+      const data = lerResultadoOAuthPopup()
+      if (data) {
+        try {
+          popup.close()
+        } catch {
+          // ignore
+        }
+        if (data.error) {
+          finish(reject, new Error(data.error))
           return
         }
-      } catch {
-        // ignore parse errors
+        if (!data.accessToken) {
+          finish(reject, new Error('Google não devolveu token de acesso.'))
+          return
+        }
+        finish(resolve, data.accessToken)
+        return
       }
 
       if (popup.closed) {
-        finish(
-          reject,
-          new Error(
-            'Login Google não concluído. Na tela do Google, role até Permitir. ' +
-              'Se aparecer redirect_uri_mismatch, cadastre no Google Cloud: ' +
-              driveOAuthRedirectUri()
-          )
-        )
+        if (!popupClosedAt) popupClosedAt = Date.now()
+        // Pop-up fecha antes do React gravar o token; aguarda retorno OAuth.
+        if (Date.now() - popupClosedAt < 2500) return
+        finish(reject, new GoogleOAuthCancelledError())
         return
       }
+
+      popupClosedAt = null
 
       if (Date.now() - startedAt > timeoutMs) {
         try {

@@ -7,6 +7,7 @@ import {
   baixarBackupDoDrive,
   consumirRetornoOAuthNoHash,
   DRIVE_OAUTH_PENDING_KEY,
+  isGoogleOAuthCancelado,
   solicitarTokenGoogleComFallback,
   solicitarTokenGooglePopup,
   uploadBackupParaDrive,
@@ -52,17 +53,8 @@ function AdminBackupImport() {
 
   const liberarOAuthSeTravado = () => {
     window.setTimeout(() => {
-      if (!sessionStorage.getItem(DRIVE_OAUTH_PENDING_KEY)) {
-        setAutenticandoGoogle(false)
-        return
-      }
       sessionStorage.removeItem(DRIVE_OAUTH_PENDING_KEY)
       setAutenticandoGoogle(false)
-      setErro(
-        'O login Google não redirecionou. Recarregue a página e tente de novo. ' +
-        'Confira no Google Cloud a URI de redirecionamento: ' +
-        `${window.location.origin}/admin/backup-import`
-      )
     }, 5000)
   }
 
@@ -161,16 +153,14 @@ function AdminBackupImport() {
       const accessToken = await solicitarTokenGoogleComFallback(GOOGLE_CLIENT_ID, 'export')
       if (!accessToken) {
         redirecionando = true
-        setMensagem(
-          'Abrindo login Google nesta aba. Na tela do Google, role até o final e clique em Permitir. ' +
-          'Se aparecer "app não verificado", use Avançado e continue.'
-        )
         liberarOAuthSeTravado()
         return
       }
       await abrirDriveModalAposLogin(accessToken, 'export')
     } catch (error) {
-      setErro(error.message || formatApiError(error, 'Falha ao entrar no Google.'))
+      if (!isGoogleOAuthCancelado(error)) {
+        setErro(error.message || formatApiError(error, 'Falha ao entrar no Google.'))
+      }
     } finally {
       if (!redirecionando) setAutenticandoGoogle(false)
     }
@@ -203,16 +193,14 @@ function AdminBackupImport() {
       const accessToken = await solicitarTokenGoogleComFallback(GOOGLE_CLIENT_ID, 'import')
       if (!accessToken) {
         redirecionando = true
-        setMensagem(
-          'Abrindo login Google nesta aba. Na tela do Google, role até o final e clique em Permitir. ' +
-          'Se aparecer "app não verificado", use Avançado e continue.'
-        )
         liberarOAuthSeTravado()
         return
       }
       await abrirDriveModalAposLogin(accessToken, 'import')
     } catch (error) {
-      setErro(error.message || 'Falha ao entrar no Google.')
+      if (!isGoogleOAuthCancelado(error)) {
+        setErro(error.message || 'Falha ao entrar no Google.')
+      }
     } finally {
       if (!redirecionando) setAutenticandoGoogle(false)
     }

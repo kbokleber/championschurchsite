@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 
 from .models import Produto, Venda
+from .models import CobrancaLoja
 
 
 class LojaVendaAPITest(APITestCase):
@@ -81,6 +82,8 @@ class LojaVendaAPITest(APITestCase):
         vid = res.data['id']
         r2 = self.client.post(f'/api/loja/vendas/{vid}/registrar-pagamento-dinheiro/', {}, format='json')
         self.assertEqual(r2.status_code, 200, r2.data)
+        self.assertTrue(r2.data.get('cobranca_loja_codigo'))
+        self.assertEqual(CobrancaLoja.objects.filter(venda_id=vid, status='pago').count(), 1)
         self.p1.refresh_from_db()
         self.assertEqual(self.p1.estoque, 3)
         v = Venda.objects.get(pk=vid)

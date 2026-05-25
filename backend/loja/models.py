@@ -279,6 +279,18 @@ class ReservaLoja(models.Model):
         max_length=200,
         verbose_name='Nome (identificação)',
     )
+    whatsapp = models.CharField(
+        max_length=20,
+        blank=True,
+        default='',
+        verbose_name='WhatsApp',
+        help_text='Telefone opcional para lembrete (somente dígitos, com DDI quando informado).',
+    )
+    lote_reserva = models.UUIDField(
+        db_index=True,
+        verbose_name='Lote da reserva',
+        help_text='Itens confirmados juntos na mesma operação compartilham o mesmo lote.',
+    )
     quantidade = models.PositiveIntegerField(default=1, verbose_name='Quantidade')
     em_estoque_empenhado = models.BooleanField(
         default=False,

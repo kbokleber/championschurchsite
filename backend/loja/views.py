@@ -47,6 +47,7 @@ from .estoque import (
     validar_estoque_ao_adicionar_itens,
     validar_estoque_disponivel,
 )
+from .cobranca import marcar_cobranca_venda_paga
 from .models import Produto, Venda, ItemVenda, CobrancaLoja, ReservaLoja, LojaAuditoria
 from .reservas import liberar_reservas_ao_cancelar_venda, marcar_reservas_venda_paga
 from .serializers import (
@@ -454,12 +455,7 @@ class VendaViewSet(viewsets.ModelViewSet):
                 v.meio_pagamento = 'dinheiro'
                 v.status = 'pago'
                 v.save()
-                c = CobrancaLoja.objects.select_for_update().filter(
-                    venda_id=v.pk, status='pendente'
-                ).first()
-                if c:
-                    c.status = 'cancelado'
-                    c.save(update_fields=['status'])
+                marcar_cobranca_venda_paga(v, metodo_pagamento='Dinheiro')
                 baixar_estoque_venda(v)
                 marcar_reservas_venda_paga(v)
                 registrar_log_loja(
@@ -620,6 +616,8 @@ class ReservaLojaViewSet(viewsets.ModelViewSet):
         d = vdata['data']
         nome = vdata['nome']
         obs = (vdata.get('observacao') or '').strip()
+        whatsapp = (vdata.get('whatsapp') or '').strip()
+        lote_reserva = uuid.uuid4()
         created = []
         with transaction.atomic():
             for line in vdata['itens']:
@@ -628,6 +626,8 @@ class ReservaLojaViewSet(viewsets.ModelViewSet):
                         'produto': line['produto'],
                         'data': d,
                         'nome': nome,
+                        'whatsapp': whatsapp,
+                        'lote_reserva': str(lote_reserva),
                         'quantidade': line['quantidade'],
                         'observacao': obs,
                     },
@@ -643,38 +643,53 @@ class ReservaLojaViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='iniciar-cobranca-grupo')
     def iniciar_cobranca_grupo(self, request, *args, **kwargs):
         """
-        Uma venda com todos os itens pendentes do cliente nesta data (por nome, cantina).
-        Não use quando houver itens pendentes e itens já em venda; conclua ou cancele a parcial.
+        Abre o PDV para um lote de reserva (itens confirmados juntos).
+        Aceita lote_reserva (preferencial) ou, legado, data + nome.
         """
         d_raw = request.data.get('data')
         nome_in = (request.data.get('nome') or '').strip()
-        if not d_raw or not nome_in or len(nome_in) < 2:
-            return Response(
-                {
-                    'error': 'Informe a data (AAAA-MM-DD) e o nome (mín. 2 caracteres) igual ao do cadastro.',
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+        lote_raw = (request.data.get('lote_reserva') or '').strip()
+        if lote_raw:
+            base = (
+                ReservaLoja.objects.filter(lote_reserva=lote_raw, produto__categoria='cantina')
+                .exclude(status__in=('pago', 'cancelada'))
+                .select_related('produto', 'venda')
             )
-        try:
-            if isinstance(d_raw, date):
-                d = d_raw
-            else:
-                d = date.fromisoformat(str(d_raw)[:10])
-        except ValueError:
-            return Response({'error': 'Data inválida. Use AAAA-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
-        nlow = nome_in.lower()
-        base = (
-            ReservaLoja.objects.filter(data=d, produto__categoria='cantina')
-            .exclude(status__in=('pago', 'cancelada'))
-            .select_related('produto', 'venda')
-        )
-        reservas = [r for r in base if (r.nome or '').strip().lower() == nlow]
-        reservas.sort(key=lambda x: x.id)
-        if not reservas:
-            return Response(
-                {'error': 'Nenhuma reserva (pendente ou em cobrança) encontrada para este nome e data.'},
-                status=status.HTTP_400_BAD_REQUEST,
+            reservas = list(base.order_by('id'))
+            if not reservas:
+                return Response(
+                    {'error': 'Nenhuma reserva pendente encontrada para este pedido.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            nome_in = (reservas[0].nome or '').strip() or nome_in
+        else:
+            if not d_raw or not nome_in or len(nome_in) < 2:
+                return Response(
+                    {
+                        'error': 'Informe o lote da reserva ou a data (AAAA-MM-DD) e o nome (mín. 2 caracteres).',
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                if isinstance(d_raw, date):
+                    d = d_raw
+                else:
+                    d = date.fromisoformat(str(d_raw)[:10])
+            except ValueError:
+                return Response({'error': 'Data inválida. Use AAAA-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+            nlow = nome_in.lower()
+            base = (
+                ReservaLoja.objects.filter(data=d, produto__categoria='cantina')
+                .exclude(status__in=('pago', 'cancelada'))
+                .select_related('produto', 'venda')
             )
+            reservas = [r for r in base if (r.nome or '').strip().lower() == nlow]
+            reservas.sort(key=lambda x: x.id)
+            if not reservas:
+                return Response(
+                    {'error': 'Nenhuma reserva (pendente ou em cobrança) encontrada para este nome e data.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         pend = [r for r in reservas if r.status == 'pendente']
         ec = [r for r in reservas if r.status == 'em_cobranca']
         if pend and ec:

@@ -1,10 +1,23 @@
 from rest_framework import serializers
 
 from django.db import transaction
+import uuid
+
+from eventos.evolution_go import normalizar_telefone_whatsapp
 
 from .estoque import validar_estoque_disponivel
 from .estoque_reserva import empenhar_ao_salvar_reserva
 from .models import Produto, Venda, ItemVenda, CobrancaLoja, ReservaLoja, LojaAuditoria
+
+
+def _validar_whatsapp_opcional(valor: str) -> str:
+    bruto = (valor or '').strip()
+    if not bruto:
+        return ''
+    normalizado = normalizar_telefone_whatsapp(bruto)
+    if not normalizado:
+        raise serializers.ValidationError('WhatsApp inválido.')
+    return normalizado
 
 
 class ProdutoSerializer(serializers.ModelSerializer):
@@ -127,7 +140,9 @@ class VendaListSerializer(serializers.ModelSerializer):
 
     def get_cobranca_loja_codigo(self, obj):
         if hasattr(obj, 'cobranca_mp') and obj.cobranca_mp is not None:
-            return obj.cobranca_mp.codigo
+            c = obj.cobranca_mp
+            if c.status == 'pago':
+                return c.codigo
         return None
 
 
@@ -202,6 +217,12 @@ class VendaCreateSerializer(serializers.Serializer):
 
 class ReservaLojaListSerializer(serializers.ModelSerializer):
     produto_nome = serializers.CharField(source='produto.nome', read_only=True)
+    produto_preco = serializers.DecimalField(
+        source='produto.preco',
+        max_digits=10,
+        decimal_places=2,
+        read_only=True,
+    )
     categoria = serializers.CharField(source='produto.categoria', read_only=True)
 
     class Meta:
@@ -210,9 +231,12 @@ class ReservaLojaListSerializer(serializers.ModelSerializer):
             'id',
             'produto',
             'produto_nome',
+            'produto_preco',
             'categoria',
             'data',
             'nome',
+            'whatsapp',
+            'lote_reserva',
             'quantidade',
             'status',
             'venda',
@@ -226,9 +250,20 @@ class ReservaLojaListSerializer(serializers.ModelSerializer):
 
 
 class ReservaLojaCreateSerializer(serializers.ModelSerializer):
+    lote_reserva = serializers.UUIDField(required=False, allow_null=True)
+
     class Meta:
         model = ReservaLoja
-        fields = ('id', 'produto', 'data', 'nome', 'quantidade', 'observacao')
+        fields = (
+            'id',
+            'produto',
+            'data',
+            'nome',
+            'whatsapp',
+            'lote_reserva',
+            'quantidade',
+            'observacao',
+        )
         read_only_fields = ('id',)
 
     def validate_nome(self, v):
@@ -236,6 +271,9 @@ class ReservaLojaCreateSerializer(serializers.ModelSerializer):
         if not v or len(v) < 2:
             raise serializers.ValidationError('Informe o nome (identificação).')
         return v
+
+    def validate_whatsapp(self, v):
+        return _validar_whatsapp_opcional(v)
 
     def validate(self, attrs):
         prod = attrs.get('produto')
@@ -263,6 +301,8 @@ class ReservaLojaCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         validated_data['criado_por'] = self.context['request'].user
+        if not validated_data.get('lote_reserva'):
+            validated_data['lote_reserva'] = uuid.uuid4()
         with transaction.atomic():
             r = super().create(validated_data)
             r = empenhar_ao_salvar_reserva(r)
@@ -279,6 +319,7 @@ class ReservaLojaLoteSerializer(serializers.Serializer):
 
     data = serializers.DateField()
     nome = serializers.CharField(max_length=200)
+    whatsapp = serializers.CharField(max_length=30, allow_blank=True, required=False, default='')
     observacao = serializers.CharField(allow_blank=True, required=False, default='')
     itens = ReservaLojaLoteItemSerializer(many=True)
 
@@ -287,6 +328,9 @@ class ReservaLojaLoteSerializer(serializers.Serializer):
         if not v or len(v) < 2:
             raise serializers.ValidationError('Informe o nome (identificação).')
         return v
+
+    def validate_whatsapp(self, v):
+        return _validar_whatsapp_opcional(v)
 
     def validate_itens(self, itens):
         if not itens:

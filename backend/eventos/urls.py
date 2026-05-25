@@ -42,6 +42,7 @@ from loja.recibo import (
     recibo_loja_publico,
     enviar_recibo_whatsapp,
     enviar_lembrete_reserva_whatsapp,
+    diagnostico_whatsapp_loja,
 )
 
 # Router que inclui Mercado Pago e outras rotas no Api Root
@@ -138,6 +139,7 @@ urlpatterns = [
     path('loja/mercadopago/criar-pix-embutido/', criar_pagamento_pix_embutido_loja, name='mp_criar_pix_embutido_loja'),
     path('loja/dashboard-financeiro/', dashboard_financeiro_loja, name='loja_dashboard_financeiro'),
     path('loja/recibo/<str:codigo>/', recibo_loja_publico, name='loja_recibo_publico'),
+    path('loja/whatsapp/diagnostico/', diagnostico_whatsapp_loja, name='loja_whatsapp_diagnostico'),
     path('loja/recibo/<str:codigo>/enviar-whatsapp/', enviar_recibo_whatsapp, name='loja_recibo_enviar_whatsapp'),
     path(
         'loja/reservas/<int:reserva_id>/enviar-whatsapp/',

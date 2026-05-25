@@ -13,12 +13,109 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from eventos.evolution_go import enviar_texto_evolution_go, normalizar_telefone_whatsapp
+from eventos.evolution_go import (
+    enviar_texto_evolution_go,
+    diagnosticar_conexao_evolution_go,
+    normalizar_telefone_whatsapp,
+)
 from eventos.models import ConfiguracaoSite
 
 from .models import CobrancaLoja, ReservaLoja
 
 logger = logging.getLogger(__name__)
+
+
+def _mensagem_diagnostico_whatsapp_loja(diagnostico: dict) -> str:
+    motivo = (diagnostico.get('motivo') or '').strip()
+    if motivo == 'ok':
+        return ''
+    if motivo == 'instancia_nao_configurada':
+        return (
+            'Instância WhatsApp da cantina não está configurada. '
+            'Em Configurações → WhatsApp → Credenciais (Loja/Cantina), informe a instância e teste a conexão.'
+        )
+    if motivo == 'token_nao_configurado':
+        return (
+            'Token WhatsApp da cantina não está configurado. '
+            'Em Configurações → WhatsApp → Credenciais (Loja/Cantina), informe a API key da instância.'
+        )
+    if motivo == 'configuracao_incompleta':
+        return (
+            'WhatsApp da cantina incompleto. '
+            'Configure a URL da API Evolution, a instância e o token em Configurações → WhatsApp (Loja/Cantina).'
+        )
+    if motivo == 'whatsapp_desconectado':
+        return (
+            'WhatsApp da cantina está desconectado. '
+            'Acesse Configurações → WhatsApp → Loja/Cantina, teste a conexão e escaneie o QR Code para conectar.'
+        )
+    if motivo == 'nao_autorizado':
+        return (
+            'Credencial WhatsApp da cantina recusada pelo servidor. '
+            'Verifique a API key da instância em Configurações → WhatsApp (Loja/Cantina).'
+        )
+    if motivo == 'requisicao_erro':
+        return (
+            'Não foi possível contactar o servidor WhatsApp (Evolution). '
+            'Confira se a URL da API está correta e se o serviço está online.'
+        )
+    detalhe = (diagnostico.get('detalhe') or '').strip()
+    if detalhe:
+        return detalhe[:400]
+    return 'WhatsApp da cantina indisponível. Verifique a conexão em Configurações → WhatsApp (Loja/Cantina).'
+
+
+def _diagnostico_whatsapp_loja_config(config) -> dict:
+    instancia_loja = (getattr(config, 'evolution_api_instance_loja', '') or '').strip()
+    api_key_loja = (getattr(config, 'evolution_api_key_loja', '') or '').strip()
+    api_key_global = (getattr(config, 'evolution_api_key', '') or '').strip()
+    api_url = (getattr(config, 'evolution_api_url', '') or '').strip()
+    api_key_efetiva = api_key_loja or api_key_global
+
+    if not instancia_loja:
+        return {
+            'ok': False,
+            'motivo': 'instancia_nao_configurada',
+            'mensagem': _mensagem_diagnostico_whatsapp_loja({'motivo': 'instancia_nao_configurada'}),
+            'instancia': None,
+        }
+    if not api_url:
+        return {
+            'ok': False,
+            'motivo': 'configuracao_incompleta',
+            'mensagem': _mensagem_diagnostico_whatsapp_loja({'motivo': 'configuracao_incompleta'}),
+            'instancia': instancia_loja,
+        }
+    if not api_key_efetiva:
+        return {
+            'ok': False,
+            'motivo': 'token_nao_configurado',
+            'mensagem': _mensagem_diagnostico_whatsapp_loja({'motivo': 'token_nao_configurado'}),
+            'instancia': instancia_loja,
+        }
+
+    class _CfgTeste:
+        pass
+
+    cfg_teste = _CfgTeste()
+    cfg_teste.evolution_api_url = api_url
+    cfg_teste.evolution_api_key = api_key_efetiva
+    cfg_teste.evolution_api_instance = instancia_loja
+
+    diagnostico = diagnosticar_conexao_evolution_go(cfg_teste)
+    diagnostico['instancia'] = instancia_loja
+    diagnostico['mensagem'] = _mensagem_diagnostico_whatsapp_loja(diagnostico)
+    return diagnostico
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def diagnostico_whatsapp_loja(request):
+    """Verifica se a instância WhatsApp da loja/cantina está configurada e conectada."""
+    config = ConfiguracaoSite.get_config()
+    diagnostico = _diagnostico_whatsapp_loja_config(config)
+    http_status = status.HTTP_200_OK if diagnostico.get('ok') else status.HTTP_400_BAD_REQUEST
+    return Response(diagnostico, status=http_status)
 
 
 def _formatar_valor(valor) -> str:
@@ -293,6 +390,19 @@ def enviar_lembrete_reserva_whatsapp(request, reserva_id: int):
             status=status.HTTP_404_NOT_FOUND,
         )
 
+    config = ConfiguracaoSite.get_config()
+    diagnostico = _diagnostico_whatsapp_loja_config(config)
+    if not diagnostico.get('ok'):
+        return Response(
+            {
+                'success': False,
+                'error': diagnostico.get('mensagem') or 'WhatsApp da cantina indisponível.',
+                'motivo': diagnostico.get('motivo'),
+                'detalhe': diagnostico.get('detalhe'),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     nome_grupo = (reserva.nome or '').strip()
     if not nome_grupo:
         return Response(
@@ -305,30 +415,22 @@ def enviar_lembrete_reserva_whatsapp(request, reserva_id: int):
         .select_related('produto')
         .filter(
             data=reserva.data,
-            nome__iexact=nome_grupo,
             status__in=('pendente', 'em_cobranca'),
         )
-        .order_by('id')
     )
+    if reserva.lote_reserva_id:
+        grupo = grupo.filter(lote_reserva=reserva.lote_reserva)
+    else:
+        grupo = grupo.filter(nome__iexact=nome_grupo, pk=reserva.pk)
+    grupo = grupo.order_by('id')
     if not grupo.exists():
         return Response(
             {'error': 'Não há reservas pendentes para este nome nesta data.'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    config = ConfiguracaoSite.get_config()
     instancia_loja = (getattr(config, 'evolution_api_instance_loja', '') or '').strip()
     api_key_loja = (getattr(config, 'evolution_api_key_loja', '') or '').strip()
-    if not instancia_loja:
-        return Response(
-            {
-                'error': (
-                    'Instância WhatsApp da loja não está configurada. '
-                    'Em Configurações → WhatsApp → Credenciais (Loja/Cantina), informe a instância.'
-                )
-            },
-            status=status.HTTP_400_BAD_REQUEST,
-        )
 
     itens_resumo = ', '.join(
         f"{(r.produto.nome if r.produto else 'Item').strip()} x{int(r.quantidade or 1)}"

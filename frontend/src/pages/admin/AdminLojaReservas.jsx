@@ -14,6 +14,10 @@ import {
   MessageCircle,
   Send,
   X,
+  CheckCircle2,
+  Clock,
+  ShoppingBag,
+  AlertTriangle,
 } from 'lucide-react'
 import api, { formatApiError } from '../../services/api'
 import LoadingSpinner from '../../components/LoadingSpinner'
@@ -27,11 +31,135 @@ function hojeISODate() {
   return `${y}-${m}-${day}`
 }
 
+function formatarPreco(valor) {
+  return Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+/** Exibe WhatsApp salvo (com DDI) de forma legível no formulário/modal. */
+function formatWhatsappParaInput(valor) {
+  const digits = String(valor || '').replace(/\D/g, '')
+  if (!digits) return ''
+  let local = digits
+  if (digits.startsWith('55') && digits.length >= 12) {
+    local = digits.slice(2)
+  }
+  if (local.length === 11) {
+    return `(${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7)}`
+  }
+  if (local.length === 10) {
+    return `(${local.slice(0, 2)}) ${local.slice(2, 6)}-${local.slice(6)}`
+  }
+  return valor
+}
+
+function whatsappDoGrupo(itens) {
+  for (const r of itens) {
+    const w = (r.whatsapp || '').trim()
+    if (w) return w
+  }
+  return ''
+}
+
+function precoUnitarioReserva(r) {
+  return Number(r?.produto_preco ?? 0)
+}
+
+function subtotalReserva(r) {
+  return precoUnitarioReserva(r) * (Number(r?.quantidade) || 0)
+}
+
+function totalItensReserva(itens) {
+  return (itens || []).reduce((s, r) => s + subtotalReserva(r), 0)
+}
+
 const STATUS = {
-  pendente: 'Pendente',
-  em_cobranca: 'Pendente',
+  pendente: 'Não pago',
+  em_cobranca: 'Aguardando pagamento',
   pago: 'Pago',
   cancelada: 'Cancelada',
+}
+
+function reservaNaoPaga(r) {
+  const st = stReserva(r)
+  return st === 'pendente' || st === 'em_cobranca'
+}
+
+function reservaPaga(r) {
+  return stReserva(r) === 'pago'
+}
+
+/** Situação do pedido (grupo por nome) para cor do cartão e badge. */
+function situacaoGrupo(itens) {
+  if (!itens?.length) return 'vazio'
+  const relevantes = itens.filter((r) => stReserva(r) !== 'cancelada')
+  if (!relevantes.length) return 'cancelada'
+  if (relevantes.every(reservaPaga)) return 'pago'
+  return 'nao_pago'
+}
+
+function rotuloSituacaoGrupo(situacao) {
+  if (situacao === 'pago') return 'Pago'
+  if (situacao === 'nao_pago') return 'Aguardando pagamento'
+  if (situacao === 'cancelada') return 'Cancelada'
+  return '—'
+}
+
+function classesCartaoGrupo(situacao) {
+  if (situacao === 'pago') {
+    return {
+      card: 'border-green-300 ring-1 ring-green-100',
+      header: 'bg-gradient-to-r from-green-50 to-emerald-50/40 border-green-100',
+      badge: 'bg-green-600 text-white border-green-700',
+    }
+  }
+  if (situacao === 'cancelada') {
+    return {
+      card: 'border-gray-200 ring-1 ring-gray-100',
+      header: 'bg-gray-50 border-gray-100',
+      badge: 'bg-gray-500 text-white border-gray-600',
+    }
+  }
+  return {
+    card: 'border-amber-300 ring-1 ring-amber-100',
+    header: 'bg-gradient-to-r from-amber-50 to-amber-50/30 border-amber-100',
+    badge: 'bg-amber-600 text-white border-amber-700',
+  }
+}
+
+function BadgeStatusLinha({ status }) {
+  const st = stReserva({ status })
+  if (st === 'pago') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-green-100 text-green-800 border border-green-200">
+        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden />
+        Pago
+      </span>
+    )
+  }
+  if (st === 'em_cobranca') {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-sky-100 text-sky-900 border border-sky-200"
+        title="Venda aberta no PDV — falta concluir o pagamento"
+      >
+        <ShoppingBag className="w-3.5 h-3.5 shrink-0" aria-hidden />
+        Aguardando pagamento
+      </span>
+    )
+  }
+  if (st === 'pendente') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-amber-100 text-amber-900 border border-amber-300">
+        <Clock className="w-3.5 h-3.5 shrink-0" aria-hidden />
+        Não pago
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex rounded-full px-2.5 py-1 text-xs font-medium bg-gray-100 text-gray-700">
+      {STATUS[st] || status}
+    </span>
+  )
 }
 
 /** Garante comparação com a API (string / casing). */
@@ -70,17 +198,44 @@ function AdminLojaReservas() {
   const [cobrandoGrupoChave, setCobrandoGrupoChave] = useState(null)
 
   const [nomeReserva, setNomeReserva] = useState('')
+  const [whatsappReserva, setWhatsappReserva] = useState('')
   const [carrinho, setCarrinho] = useState(() => [])
   const [reservaWhats, setReservaWhats] = useState(null)
   const [whatsTelefone, setWhatsTelefone] = useState('')
   const [whatsNome, setWhatsNome] = useState('')
   const [whatsEnviando, setWhatsEnviando] = useState(false)
   const [whatsFeedback, setWhatsFeedback] = useState(null)
+  const [whatsappVerificandoChave, setWhatsappVerificandoChave] = useState(null)
+  const [whatsappAviso, setWhatsappAviso] = useState(null)
   const [carrinhoListaExpandida, setCarrinhoListaExpandida] = useState(false)
   /** Por chave do grupo: tabela de itens expandida. Default: 1 item = expandido, 2+ = recolhido (resumo). */
   const [grupoTabelaExpandida, setGrupoTabelaExpandida] = useState({})
   const [addProduto, setAddProduto] = useState('')
   const [addQtd, setAddQtd] = useState('1')
+  /** '' | 'nao_pago' | 'pago' */
+  const [fPagamento, setFPagamento] = useState('')
+
+  const contagemPagamento = useMemo(() => {
+    const list = Array.isArray(rows) ? rows : []
+    let pagos = 0
+    let naoPagos = 0
+    for (const r of list) {
+      if (reservaPaga(r)) pagos += 1
+      else if (reservaNaoPaga(r)) naoPagos += 1
+    }
+    return { pagos, naoPagos, total: list.length }
+  }, [rows])
+
+  const rowsFiltradas = useMemo(() => {
+    const list = Array.isArray(rows) ? rows : []
+    if (fPagamento === 'nao_pago') {
+      return list.filter(reservaNaoPaga)
+    }
+    if (fPagamento === 'pago') {
+      return list.filter(reservaPaga)
+    }
+    return list
+  }, [rows, fPagamento])
 
   const comReserva = useMemo(
     () =>
@@ -95,27 +250,38 @@ function AdminLojaReservas() {
     [produtos],
   )
 
-  /** Lista plana -> grupos por nome (mesma data já vem filtrada). */
-  const gruposPorNome = useMemo(() => {
-    const list = Array.isArray(rows) ? rows : []
+  /** Lista plana -> grupos por lote (cada confirmação de reserva é um pedido). */
+  const gruposPorPedido = useMemo(() => {
+    const list = rowsFiltradas
     const map = new Map()
     for (const r of list) {
+      const lote = (r.lote_reserva || '').toString().trim()
+      const chave = lote || `_id_${r.id}`
       const raw = (r.nome || '').trim()
-      const chave = raw ? raw.toLowerCase() : `_id_${r.id}`
       if (!map.has(chave)) {
-        map.set(chave, { chave, nomeExibicao: raw || '—', itens: [] })
+        map.set(chave, {
+          chave,
+          loteReserva: lote || null,
+          nomeExibicao: raw || '—',
+          whatsapp: '',
+          itens: [],
+        })
       }
       const g = map.get(chave)
       if (raw && (g.nomeExibicao === '—' || !g.nomeExibicao)) g.nomeExibicao = raw
+      const w = (r.whatsapp || '').trim()
+      if (w && !g.whatsapp) g.whatsapp = w
       g.itens.push(r)
     }
     for (const g of map.values()) {
       g.itens.sort((a, b) => (a.id ?? 0) - (b.id ?? 0))
     }
-    return Array.from(map.values()).sort((a, b) =>
-      a.nomeExibicao.localeCompare(b.nomeExibicao, 'pt-BR', { sensitivity: 'base' }),
-    )
-  }, [rows])
+    return Array.from(map.values()).sort((a, b) => {
+      const idA = Math.min(...a.itens.map((r) => r.id ?? 0))
+      const idB = Math.min(...b.itens.map((r) => r.id ?? 0))
+      return idB - idA
+    })
+  }, [rowsFiltradas])
 
   const isGrupoTabelaExpandida = (g) => {
     if (!g.itens.length) return false
@@ -200,7 +366,7 @@ function AdminLojaReservas() {
   useEffect(() => {
     setGrupoTabelaExpandida({})
     setCarrinhoListaExpandida(false)
-  }, [data])
+  }, [data, fPagamento])
 
   const carrinhoTotais = useMemo(() => {
     const n = carrinho.length
@@ -267,10 +433,12 @@ function AdminLojaReservas() {
       await api.post('/loja/reservas/criar-lote/', {
         data,
         nome: nomeReserva.trim(),
+        whatsapp: whatsappReserva.trim(),
         observacao: '',
         itens: carrinho.map((l) => ({ produto: l.produtoId, quantidade: l.quantidade })),
       })
       setNomeReserva('')
+      setWhatsappReserva('')
       setCarrinho([])
       setAddProduto('')
       setAddQtd('1')
@@ -310,11 +478,44 @@ function AdminLojaReservas() {
     }
   }
 
-  const abrirEnvioWhatsappReserva = (g) => {
+  const verificarWhatsappLoja = async () => {
+    try {
+      const { data } = await api.get('/loja/whatsapp/diagnostico/')
+      if (data?.ok) return { ok: true }
+      return {
+        ok: false,
+        mensagem:
+          data?.mensagem ||
+          data?.detalhe ||
+          'WhatsApp da cantina indisponível. Verifique em Configurações → WhatsApp (Loja/Cantina).',
+      }
+    } catch (e) {
+      const d = e?.response?.data
+      return {
+        ok: false,
+        mensagem:
+          d?.mensagem ||
+          d?.error ||
+          d?.detalhe ||
+          formatApiError(e, 'Não foi possível verificar o WhatsApp da cantina.'),
+      }
+    }
+  }
+
+  const abrirEnvioWhatsappReserva = async (g) => {
     const primeiraPendente = g.itens.find((r) =>
       ['pendente', 'em_cobranca'].includes(stReserva(r)),
     )
     if (!primeiraPendente) return
+
+    setWhatsappVerificandoChave(g.chave)
+    const check = await verificarWhatsappLoja()
+    setWhatsappVerificandoChave(null)
+    if (!check.ok) {
+      setWhatsappAviso({ mensagem: check.mensagem })
+      return
+    }
+
     setReservaWhats({
       reservaId: primeiraPendente.id,
       nomeExibicao: g.nomeExibicao,
@@ -326,7 +527,7 @@ function AdminLojaReservas() {
         })),
     })
     setWhatsNome(g.nomeExibicao || '')
-    setWhatsTelefone('')
+    setWhatsTelefone(formatWhatsappParaInput(g.whatsapp || whatsappDoGrupo(g.itens)))
     setWhatsFeedback(null)
   }
 
@@ -347,6 +548,12 @@ function AdminLojaReservas() {
     setWhatsEnviando(true)
     setWhatsFeedback(null)
     try {
+      const check = await verificarWhatsappLoja()
+      if (!check.ok) {
+        setWhatsFeedback({ tipo: 'erro', texto: check.mensagem })
+        return
+      }
+
       const { data } = await api.post(
         `/loja/reservas/${reservaWhats.reservaId}/enviar-whatsapp/`,
         { telefone: whatsTelefone, nome: whatsNome },
@@ -361,7 +568,10 @@ function AdminLojaReservas() {
         })
       }
     } catch (e) {
-      const detalhe = e?.response?.data?.error || e?.response?.data?.detalhe
+      const detalhe =
+        e?.response?.data?.error ||
+        e?.response?.data?.mensagem ||
+        e?.response?.data?.detalhe
       setWhatsFeedback({
         tipo: 'erro',
         texto: detalhe || formatApiError(e, 'Falha ao enviar pelo WhatsApp.'),
@@ -390,6 +600,7 @@ function AdminLojaReservas() {
       const { data: out } = await api.post('/loja/reservas/iniciar-cobranca-grupo/', {
         data,
         nome: g.nomeExibicao,
+        ...(g.loteReserva ? { lote_reserva: g.loteReserva } : {}),
       })
       const cat =
         out.categoria && ['cantina', 'loja'].includes(String(out.categoria)) ? out.categoria : 'cantina'
@@ -432,7 +643,7 @@ function AdminLojaReservas() {
             <strong> Expandir</strong> na lista de itens para ver a tabela.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-end gap-2">
           <label className="text-sm text-gray-700">
             Data do culto
             <input
@@ -441,6 +652,18 @@ function AdminLojaReservas() {
               value={data}
               onChange={(e) => setData(e.target.value)}
             />
+          </label>
+          <label className="text-sm text-gray-700">
+            Pagamento
+            <select
+              className="mt-1 block rounded-xl border border-gray-200 px-3 py-2 text-base min-w-[10rem]"
+              value={fPagamento}
+              onChange={(e) => setFPagamento(e.target.value)}
+            >
+              <option value="">Todos ({contagemPagamento.total})</option>
+              <option value="nao_pago">Não pagos ({contagemPagamento.naoPagos})</option>
+              <option value="pago">Pagos ({contagemPagamento.pagos})</option>
+            </select>
           </label>
           <button
             type="button"
@@ -451,6 +674,49 @@ function AdminLojaReservas() {
           </button>
         </div>
       </div>
+
+      {!loading && contagemPagamento.total > 0 && (
+        <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Filtrar por pagamento">
+          <button
+            type="button"
+            onClick={() => setFPagamento('')}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium border transition ${
+              fPagamento === ''
+                ? 'bg-gray-900 text-white border-gray-900'
+                : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+            }`}
+          >
+            Todos
+            <span className="tabular-nums opacity-90">{contagemPagamento.total}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setFPagamento('nao_pago')}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold border transition ${
+              fPagamento === 'nao_pago'
+                ? 'bg-amber-600 text-white border-amber-700'
+                : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+            }`}
+          >
+            <Clock className="w-4 h-4 shrink-0" aria-hidden />
+            Não pagos
+            <span className="tabular-nums">{contagemPagamento.naoPagos}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setFPagamento('pago')}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold border transition ${
+              fPagamento === 'pago'
+                ? 'bg-green-600 text-white border-green-700'
+                : 'bg-green-50 text-green-800 border-green-300 hover:bg-green-100'
+            }`}
+          >
+            <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden />
+            Pagos
+            <span className="tabular-nums">{contagemPagamento.pagos}</span>
+          </button>
+        </div>
+      )}
 
       <form
         onSubmit={onConfirmarReserva}
@@ -463,18 +729,32 @@ function AdminLojaReservas() {
           A lista <strong>inicia resumida</strong> (1 ou mais itens); toque em <strong>Expandir</strong> para ver quantidade,
           remover linhas e ajustar.
         </p>
-        <label className="block text-sm font-medium text-gray-800 max-w-md">
-          Nome (quem reserva)
-          <input
-            className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-3 min-h-[48px] text-base"
-            value={nomeReserva}
-            onChange={(e) => setNomeReserva(e.target.value)}
-            placeholder="Ex.: Maria Souza"
-            maxLength={200}
-            autoComplete="name"
-            required
-          />
-        </label>
+        <div className="grid gap-3 sm:grid-cols-2 max-w-2xl">
+          <label className="block text-sm font-medium text-gray-800">
+            Nome (quem reserva)
+            <input
+              className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-3 min-h-[48px] text-base"
+              value={nomeReserva}
+              onChange={(e) => setNomeReserva(e.target.value)}
+              placeholder="Ex.: Maria Souza"
+              maxLength={200}
+              autoComplete="name"
+              required
+            />
+          </label>
+          <label className="block text-sm font-medium text-gray-800">
+            WhatsApp <span className="font-normal text-gray-500">(opcional)</span>
+            <input
+              type="tel"
+              inputMode="tel"
+              className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-3 min-h-[48px] text-base"
+              value={whatsappReserva}
+              onChange={(e) => setWhatsappReserva(e.target.value)}
+              placeholder="Ex.: (11) 98765-4321"
+              autoComplete="tel"
+            />
+          </label>
+        </div>
 
         <div className="rounded-xl border border-amber-200/80 bg-white/80 p-3 space-y-3">
           <div className="text-sm font-medium text-amber-950 flex items-center gap-2">
@@ -491,10 +771,7 @@ function AdminLojaReservas() {
                 <option value="">Selecione…</option>
                 {comReserva.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.nome}
-                    {p.controla_estoque
-                      ? ` (até ${p.estoque} un. pelo estoque hoje)`
-                      : ' (sem teto)'}
+                    {p.nome} - {formatarPreco(p.preco)}
                   </option>
                 ))}
               </select>
@@ -646,42 +923,78 @@ function AdminLojaReservas() {
         <LoadingSpinner size="lg" text="Carregando reservas…" />
       ) : (
         <div className="space-y-4">
-          {!gruposPorNome.length && (
+          {!gruposPorPedido.length && (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-500 text-sm">
-              Nenhuma reserva nesta data.
+              {rows.length && fPagamento
+                ? 'Nenhuma reserva com este filtro nesta data.'
+                : 'Nenhuma reserva nesta data.'}
             </div>
           )}
-          {gruposPorNome.map((g) => {
+          {gruposPorPedido.map((g) => {
+            const situacao = situacaoGrupo(g.itens)
+            const estilo = classesCartaoGrupo(situacao)
+            const nPagos = g.itens.filter(reservaPaga).length
+            const nNaoPagos = g.itens.filter(reservaNaoPaga).length
             const tabelaGrupoVisivel = isGrupoTabelaExpandida(g)
             const resumoGrupoFechado = g.itens.length > 0 && !tabelaGrupoVisivel
             const { n: nGr, un: unGr, primeiro: priGr } = totaisGrupo(g)
+            const totalGrupo = totalItensReserva(g.itens)
             return (
               <div
                 key={g.chave}
-                className="bg-white rounded-xl border border-amber-200/80 shadow-sm overflow-hidden"
+                className={`bg-white rounded-xl shadow-sm overflow-hidden ${estilo.card}`}
               >
-                <div className="px-4 py-3 bg-gradient-to-r from-amber-50 to-amber-50/30 border-b border-amber-100 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div
+                  className={`px-4 py-3 border-b flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 ${estilo.header}`}
+                >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h2 className="text-lg font-semibold text-amber-950 leading-tight">
+                      <h2 className="text-lg font-semibold text-gray-900 leading-tight">
                         {g.nomeExibicao}
                       </h2>
-                      {g.itens.some((r) =>
-                        ['pendente', 'em_cobranca'].includes(stReserva(r)),
-                      ) && (
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold border shadow-sm ${estilo.badge}`}
+                      >
+                        {situacao === 'pago' && <CheckCircle2 className="w-3.5 h-3.5" aria-hidden />}
+                        {situacao === 'nao_pago' && <Clock className="w-3.5 h-3.5" aria-hidden />}
+                        {rotuloSituacaoGrupo(situacao)}
+                      </span>
+                      {g.itens.some((r) => reservaNaoPaga(r)) && (
                         <button
                           type="button"
                           onClick={() => abrirEnvioWhatsappReserva(g)}
-                          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs text-green-700 hover:bg-green-50 border border-green-200"
+                          disabled={whatsappVerificandoChave === g.chave}
+                          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs text-green-700 hover:bg-green-50 border border-green-200 disabled:opacity-60"
                           title="Enviar lembrete pelo WhatsApp"
                         >
-                          <MessageCircle className="w-3.5 h-3.5" />
-                          WhatsApp
+                          {whatsappVerificandoChave === g.chave ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" aria-hidden />
+                          ) : (
+                            <MessageCircle className="w-3.5 h-3.5" aria-hidden />
+                          )}
+                          {whatsappVerificandoChave === g.chave ? 'Verificando…' : 'WhatsApp'}
                         </button>
                       )}
                     </div>
-                    <p className="text-xs text-amber-800/80 mt-0.5">
-                      {g.itens.length} {g.itens.length === 1 ? 'item' : 'itens'}
+                    <p className="text-xs text-gray-700/90 mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                      <span>
+                        {g.itens.length} {g.itens.length === 1 ? 'item' : 'itens'} · {unGr} un.
+                      </span>
+                      {g.whatsapp && (
+                        <span className="text-green-800 font-medium">
+                          WhatsApp: {formatWhatsappParaInput(g.whatsapp)}
+                        </span>
+                      )}
+                      {nPagos > 0 && (
+                        <span className="text-green-800 font-medium">
+                          {nPagos} pago{nPagos !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                      {nNaoPagos > 0 && (
+                        <span className="text-amber-900 font-medium">
+                          {nNaoPagos} não pago{nNaoPagos !== 1 ? 's' : ''}
+                        </span>
+                      )}
                     </p>
                   </div>
                   <div className="flex flex-col items-stretch sm:items-end gap-2 shrink-0 w-full sm:w-auto">
@@ -731,6 +1044,16 @@ function AdminLojaReservas() {
                           </span>
                           <span className="text-amber-800/90"> · {unGr} un.</span>
                         </p>
+                        <p className="text-xs text-gray-600 mt-0.5 flex flex-wrap gap-x-2">
+                          {nPagos > 0 && (
+                            <span className="text-green-700 font-medium">{nPagos} pago{nPagos !== 1 ? 's' : ''}</span>
+                          )}
+                          {nNaoPagos > 0 && (
+                            <span className="text-amber-800 font-medium">
+                              {nNaoPagos} não pago{nNaoPagos !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                        </p>
                         <p
                           className="text-xs text-amber-900/80 mt-0.5 truncate"
                           title={g.itens.map((r) => r.produto_nome).join(', ')}
@@ -766,17 +1089,31 @@ function AdminLojaReservas() {
                           <th className="p-2 pl-4">#</th>
                           <th className="p-2">Produto</th>
                           <th className="p-2 w-16">Qtd</th>
+                          <th className="p-2 text-right">Subtotal</th>
                           <th className="p-2">Status</th>
                           <th className="p-2 pr-4 text-right w-16">Excluir</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {g.itens.map((r) => (
-                          <tr key={r.id} className="border-t border-gray-100 hover:bg-amber-50/20">
+                        {g.itens.map((r) => {
+                          const st = stReserva(r)
+                          const rowBg =
+                            st === 'pago'
+                              ? 'bg-green-50/40 hover:bg-green-50/70'
+                              : st === 'em_cobranca'
+                                ? 'bg-sky-50/30 hover:bg-sky-50/50'
+                                : 'bg-amber-50/20 hover:bg-amber-50/40'
+                          return (
+                          <tr key={r.id} className={`border-t border-gray-100 ${rowBg}`}>
                             <td className="p-2 pl-4 font-mono text-gray-500 tabular-nums">{r.id}</td>
                             <td className="p-2 font-medium text-gray-900">{r.produto_nome}</td>
                             <td className="p-2 tabular-nums">{r.quantidade}</td>
-                            <td className="p-2">{STATUS[stReserva(r)] || r.status}</td>
+                            <td className="p-2 text-right tabular-nums text-gray-800">
+                              {formatarPreco(subtotalReserva(r))}
+                            </td>
+                            <td className="p-2">
+                              <BadgeStatusLinha status={r.status} />
+                            </td>
                         <td className="p-2 pr-4 text-right whitespace-nowrap">
                           {stReserva(r) === 'pendente' || stReserva(r) === 'em_cobranca' ? (
                             <button
@@ -795,8 +1132,20 @@ function AdminLojaReservas() {
                           )}
                         </td>
                           </tr>
-                        ))}
+                          )
+                        })}
                       </tbody>
+                      <tfoot>
+                        <tr className="border-t-2 border-amber-200 bg-amber-50/50">
+                          <td className="p-2 pl-4 text-right font-semibold text-amber-950" colSpan={3}>
+                            Total
+                          </td>
+                          <td className="p-2 text-right font-bold text-amber-950 tabular-nums">
+                            {formatarPreco(totalGrupo)}
+                          </td>
+                          <td className="p-2" colSpan={2} />
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 )}
@@ -881,6 +1230,54 @@ function AdminLojaReservas() {
                   {whatsFeedback.texto}
                 </p>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {whatsappAviso && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-3 overflow-y-auto"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="whatsapp-aviso-titulo"
+          onClick={() => setWhatsappAviso(null)}
+        >
+          <div
+            className="relative max-w-md w-full bg-white rounded-2xl shadow-lg p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setWhatsappAviso(null)}
+              className="absolute top-2 right-2 text-gray-500 hover:text-gray-800 p-1.5"
+              aria-label="Fechar"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <h3
+              id="whatsapp-aviso-titulo"
+              className="text-base font-semibold text-gray-900 flex items-center gap-2"
+            >
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" aria-hidden />
+              WhatsApp indisponível
+            </h3>
+            <p className="text-sm text-gray-700 mt-3 leading-relaxed">{whatsappAviso.mensagem}</p>
+            <div className="mt-4 flex flex-col sm:flex-row gap-2">
+              <Link
+                to="/admin/configuracoes"
+                className="btn btn-primary flex-1 inline-flex items-center justify-center gap-2 text-center"
+                onClick={() => setWhatsappAviso(null)}
+              >
+                Ir para Configurações
+              </Link>
+              <button
+                type="button"
+                onClick={() => setWhatsappAviso(null)}
+                className="btn btn-secondary flex-1"
+              >
+                Fechar
+              </button>
             </div>
           </div>
         </div>

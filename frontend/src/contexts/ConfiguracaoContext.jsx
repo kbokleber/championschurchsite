@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import api from '../services/api'
+import { getMediaUrl } from '../services/utils'
 
 const ConfiguracaoContext = createContext(null)
 
@@ -52,15 +53,7 @@ export function ConfiguracaoProvider({ children }) {
     carregarConfiguracao()
   }
 
-  // Helper para obter URL completa de imagem
-  const getImageUrl = (path) => {
-    if (!path) return null
-    if (path.startsWith('http')) return path
-    const isProd = import.meta.env.MODE === 'production'
-    const baseUrl = isProd ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:8000')
-    const pathFromRoot = path.startsWith('/') ? path : `/${path}`
-    return `${baseUrl}${pathFromRoot}`
-  }
+  const getImageUrl = (path) => getMediaUrl(path)
 
   return (
     <ConfiguracaoContext.Provider value={{

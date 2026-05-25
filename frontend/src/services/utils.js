@@ -3,10 +3,19 @@
  */
 
 // URL base para arquivos de mídia
-// Em produção com Nginx: usar '' (mesma origem) para /media/ ser proxyado - evita ERR_CERT_AUTHORITY_INVALID
-// Em dev: usar localhost:8000 ou deixar o proxy do Vite tratar
+// Produção e dev local (sem VITE_API_URL): mesma origem (/media via proxy Nginx ou Vite)
+// Dev apontando para API remota: prefixo VITE_API_URL
 const isProduction = import.meta.env.MODE === 'production' || import.meta.env.PROD
-const BACKEND_URL = isProduction ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:8000')
+const remoteApi = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
+const BACKEND_URL = isProduction ? '' : (remoteApi || '')
+
+function normalizeMediaPath(path) {
+  let normalized = String(path).replace(/^\//, '')
+  if (!normalized.startsWith('media/')) {
+    normalized = `media/${normalized}`
+  }
+  return normalized
+}
 
 /**
  * Retorna a URL completa para um arquivo de mídia
@@ -15,16 +24,23 @@ const BACKEND_URL = isProduction ? '' : (import.meta.env.VITE_API_URL || 'http:/
  */
 export function getMediaUrl(path) {
   if (!path) return null
-  
-  // Se já é uma URL completa, retorna como está
+
+  // URLs absolutas de outro ambiente → usar só o caminho /media/...
   if (path.startsWith('http://') || path.startsWith('https://')) {
+    try {
+      const parsed = new URL(path)
+      if (parsed.pathname.includes('/media/')) {
+        return getMediaUrl(parsed.pathname)
+      }
+    } catch {
+      // ignore
+    }
     return path
   }
 
-  let normalized = path.replace(/^\//, '')
-  // Django ImageField pode vir como "loja/produtos/x.jpg" (sem prefixo /media/)
-  if (!normalized.startsWith('media/')) {
-    normalized = `media/${normalized}`
+  const normalized = normalizeMediaPath(path)
+  if (!BACKEND_URL) {
+    return `/${normalized}`
   }
   return `${BACKEND_URL}/${normalized}`
 }

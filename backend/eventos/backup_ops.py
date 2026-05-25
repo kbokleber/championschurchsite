@@ -130,6 +130,44 @@ def restaurar_media_de_backup(media_src_path: Path, media_root: Path, *, prefixo
     }
 
 
+def substituir_media_de_backup(media_src_path: Path, media_root: Path) -> dict:
+    """Substitui MEDIA_ROOT pelo conteúdo do backup (restore completo, não merge)."""
+    media_root = Path(media_root).resolve()
+    if media_root.exists():
+        shutil.rmtree(media_root)
+    media_root.mkdir(parents=True, exist_ok=True)
+    return restaurar_media_de_backup(media_src_path, media_root)
+
+
+def regenerar_qrcodes_inscricoes_ausentes() -> dict:
+    """Recria PNGs de QR Code quando o banco referencia arquivo ausente após restore."""
+    from eventos.models import Inscricao
+
+    media_root = Path(settings.MEDIA_ROOT)
+    regenerados = 0
+    ja_presentes = 0
+
+    for ins in Inscricao.objects.filter(status__in=['confirmada', 'pendente']).iterator():
+        if ins.status_pagamento == 'pendente':
+            continue
+        rel = (ins.qrcode.name if ins.qrcode else '').strip()
+        if rel and (media_root / rel).is_file():
+            ja_presentes += 1
+            continue
+        if not ins.codigo:
+            continue
+        ins.gerar_qrcode()
+        regenerados += 1
+
+    qrcodes_dir = media_root / 'qrcodes'
+    n_disk = sum(1 for f in qrcodes_dir.iterdir() if f.is_file()) if qrcodes_dir.is_dir() else 0
+    return {
+        'regenerados': regenerados,
+        'ja_presentes': ja_presentes,
+        'qrcodes_no_disco': n_disk,
+    }
+
+
 def gerar_backup_package(host_header: str) -> tuple[bytes, str]:
     erro = validar_requisitos_backup(mode='export')
     if erro:
@@ -204,6 +242,7 @@ def importar_backup_de_arquivo(backup_file: Path) -> dict:
     engine_kind = database_engine_kind()
     media_root = Path(settings.MEDIA_ROOT)
     media_stats = None
+    qrcode_stats = None
 
     with tempfile.TemporaryDirectory(prefix='champions_restore_') as tmpdir:
         tmp_path = Path(tmpdir)
@@ -272,7 +311,8 @@ def importar_backup_de_arquivo(backup_file: Path) -> dict:
 
             if media_root.exists():
                 shutil.copytree(media_root, media_backup_path, dirs_exist_ok=True)
-            media_stats = restaurar_media_de_backup(media_src_path, media_root)
+            media_stats = substituir_media_de_backup(media_src_path, media_root)
+            qrcode_stats = regenerar_qrcodes_inscricoes_ausentes()
         except Exception:
             if engine_kind == 'sqlite' and sqlite_backup_path.exists():
                 try:
@@ -299,4 +339,9 @@ def importar_backup_de_arquivo(backup_file: Path) -> dict:
             f" Mídia: {media_stats['arquivos_copiados']} arquivo(s) copiado(s); "
             f"{media_stats['loja_produtos_no_disco']} foto(s) em loja/produtos."
         )
-    return {'detail': detail, 'media': media_stats}
+    if qrcode_stats:
+        detail += (
+            f" QR Codes: {qrcode_stats['qrcodes_no_disco']} no disco; "
+            f"{qrcode_stats['regenerados']} regenerado(s)."
+        )
+    return {'detail': detail, 'media': media_stats, 'qrcodes': qrcode_stats}

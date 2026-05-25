@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { 
   Church, LayoutDashboard, Calendar, Users, 
   FileText, Mail, LogOut, Menu, X, ChevronDown,
-  Home, QrCode, Settings, Tags, DollarSign, Shield, Store, DatabaseBackup, KeyRound
+  Home, QrCode, Settings, Tags, DollarSign, Shield, Store, DatabaseBackup, KeyRound, Map
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useConfiguracao } from '../contexts/ConfiguracaoContext'
@@ -109,11 +109,14 @@ function AdminLayout({ children }) {
     return Boolean(user?.is_superuser) && menusPermitidos.includes('loja')
   }, [user, menusPermitidos])
 
+  const showRoadmapMenu = Boolean(user?.is_superuser)
+
   const pathname = location.pathname
   const auditoriaLojaAtiva =
     pathname === '/admin/loja/auditoria' || pathname.startsWith('/admin/loja/auditoria/')
   const lojaPrincipalAtiva =
     pathname.startsWith('/admin/loja') && !auditoriaLojaAtiva
+  const roadmapAtiva = pathname === '/admin/roadmap' || pathname.startsWith('/admin/roadmap/')
 
   const isActive = (path) => {
     if (path === '/admin') {
@@ -237,6 +240,21 @@ function AdminLayout({ children }) {
             >
               <Shield className="h-5 w-5" />
               <span>Auditoria Loja</span>
+            </Link>
+          )}
+          {showRoadmapMenu && (
+            <Link
+              to="/admin/roadmap"
+              onClick={() => setSidebarOpen(false)}
+              className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
+                roadmapAtiva
+                  ? corMenuDestaque ? 'text-white' : 'bg-primary-500 text-white'
+                  : 'text-gray-300 hover:bg-gray-600'
+              }`}
+              style={roadmapAtiva && corMenuDestaque ? { backgroundColor: corMenuDestaque } : undefined}
+            >
+              <Map className="h-5 w-5" />
+              <span>Roadmap</span>
             </Link>
           )}
         </nav>

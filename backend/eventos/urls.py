@@ -41,6 +41,7 @@ from .backup_views import (
     admin_backup_exportar,
     admin_backup_importar,
 )
+from .roadmap_views import admin_roadmap_commits
 from loja.recibo import (
     recibo_loja_publico,
     enviar_recibo_whatsapp,
@@ -94,8 +95,7 @@ urlpatterns = [
     path('admin/popular-permissoes/', popular_permissoes_menu, name='popular_permissoes_menu'),
     path('admin/backup/exportar/', admin_backup_exportar, name='admin_backup_exportar'),
     path('admin/backup/importar/', admin_backup_importar, name='admin_backup_importar'),
-    
-    # Dashboard
+    path('admin/roadmap/commits/', admin_roadmap_commits, name='admin_roadmap_commits'),
     path('dashboard/stats/', dashboard_stats, name='dashboard_stats'),
     
     # Autenticação de participantes

@@ -48,6 +48,8 @@ import AdminLojaReservas from './pages/admin/AdminLojaReservas'
 import AdminLojaAuditoria from './pages/admin/AdminLojaAuditoria'
 import AdminLojaFinanceiro from './pages/admin/AdminLojaFinanceiro'
 import AdminBackupImport from './pages/admin/AdminBackupImport'
+import AdminRoadmap from './pages/admin/AdminRoadmap'
+import SuperuserRoute from './components/SuperuserRoute'
 
 const MENU_HOME_PATH = {
   dashboard: '/admin',
@@ -304,6 +306,13 @@ function App() {
             <PermissionRoute permission="backup_import">
               <AdminLayout><AdminBackupImport /></AdminLayout>
             </PermissionRoute>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/roadmap" element={
+          <ProtectedRoute>
+            <SuperuserRoute>
+              <AdminLayout><AdminRoadmap /></AdminLayout>
+            </SuperuserRoute>
           </ProtectedRoute>
         } />
       </Routes>

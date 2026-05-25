@@ -32,6 +32,11 @@ export function formatGoogleOAuthError(message) {
       'de consentimento, cadastre a URI de redirecionamento exata e inclua seu e-mail em usuários de teste.'
     )
   }
+  if (lower.includes('redirect_uri_mismatch')) {
+    return (
+      `URI de redirecionamento não cadastrada no Google Cloud. Adicione exatamente: ${driveOAuthRedirectUri()}`
+    )
+  }
   return msg || 'Falha ao entrar no Google.'
 }
 
@@ -236,18 +241,7 @@ export async function processarRetornoOAuthRedirect(clientId, { onToken, onError
   return true
 }
 
-export function preferirOAuthRedirect() {
-  if (typeof window === 'undefined') return false
-  const host = window.location.hostname
-  return window.location.protocol === 'https:' && host !== 'localhost' && host !== '127.0.0.1'
-}
-
 export async function solicitarTokenGoogleComFallback(clientId, intent) {
-  if (preferirOAuthRedirect()) {
-    iniciarTokenGoogleRedirect(clientId, intent)
-    return null
-  }
-
   try {
     return await solicitarTokenGooglePopup(clientId)
   } catch (error) {

@@ -26,7 +26,46 @@ export function formatGoogleOAuthError(message) {
   if (lower.includes('access_denied') || lower.includes('cancel')) {
     return 'Login Google cancelado. Tente novamente e autorize o acesso ao Drive.'
   }
+  if (lower.includes('server_error') || lower.includes('500')) {
+    return (
+      'Erro 500 do Google ao autorizar o app. No Google Cloud: adicione os escopos do Drive na tela ' +
+      'de consentimento, cadastre a URI de redirecionamento exata e inclua seu e-mail em usuários de teste.'
+    )
+  }
   return msg || 'Falha ao entrar no Google.'
+}
+
+/** Lê token ou erro OAuth no hash (#access_token= / #error=) após redirect. */
+export function consumirRetornoOAuthNoHash() {
+  const hash = window.location.hash?.replace(/^#/, '')
+  if (!hash) return null
+
+  const params = new URLSearchParams(hash)
+  const cleanUrl = `${window.location.pathname}${window.location.search}`
+  window.history.replaceState(null, '', cleanUrl)
+
+  const error = params.get('error')
+  if (error) {
+    sessionStorage.removeItem(DRIVE_OAUTH_PENDING_KEY)
+    return {
+      error: formatGoogleOAuthError(params.get('error_description') || error),
+    }
+  }
+
+  const accessToken = params.get('access_token')
+  if (!accessToken) return null
+
+  const intent = sessionStorage.getItem(DRIVE_OAUTH_PENDING_KEY)
+  sessionStorage.removeItem(DRIVE_OAUTH_PENDING_KEY)
+  if (!intent) return null
+
+  return { accessToken, intent }
+}
+
+/** @deprecated use consumirRetornoOAuthNoHash */
+export function consumirErroOAuthNoHash() {
+  const result = consumirRetornoOAuthNoHash()
+  return result?.error || null
 }
 
 export function isPopupOAuthFailure(error) {
@@ -157,83 +196,44 @@ export async function solicitarTokenGoogle(clientId, options) {
 }
 
 /**
- * Login Google redirecionando a aba atual (fallback quando pop-up falha).
+ * Login Google redirecionando a aba inteira (mais confiável que GIS redirect no Brave).
  * intent: 'export' | 'import'
  */
-export async function iniciarTokenGoogleRedirect(clientId, intent) {
+export function iniciarTokenGoogleRedirect(clientId, intent) {
   if (!clientId) {
     throw new Error('VITE_GOOGLE_CLIENT_ID não configurado no frontend.')
   }
   sessionStorage.setItem(DRIVE_OAUTH_PENDING_KEY, intent)
-  await ensureGoogleIdentityLoaded()
-  assertGoogleOAuthReady()
 
-  const redirect_uri = driveOAuthRedirectUri()
-  const client = window.google.accounts.oauth2.initTokenClient({
+  const params = new URLSearchParams({
     client_id: clientId,
+    redirect_uri: driveOAuthRedirectUri(),
+    response_type: 'token',
     scope: DRIVE_SCOPE,
-    ux_mode: 'redirect',
-    redirect_uri,
-    callback: () => {},
+    prompt: 'consent select_account',
+    include_granted_scopes: 'true',
   })
-  client.requestAccessToken({ prompt: 'consent select_account' })
+
+  window.location.assign(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`)
 }
 
 /**
- * Após redirect do Google, processa o token e abre o fluxo pendente.
+ * Após redirect do Google, processa token no hash da URL.
  * Retorna true se havia retorno OAuth pendente.
  */
 export async function processarRetornoOAuthRedirect(clientId, { onToken, onError }) {
-  const pending = sessionStorage.getItem(DRIVE_OAUTH_PENDING_KEY)
-  if (!pending || !clientId) return false
+  if (!clientId) return false
 
-  await ensureGoogleIdentityLoaded()
-  assertGoogleOAuthReady()
+  const retorno = consumirRetornoOAuthNoHash()
+  if (!retorno) return false
 
-  const redirect_uri = driveOAuthRedirectUri()
+  if (retorno.error) {
+    onError(new Error(retorno.error))
+    return true
+  }
 
-  return new Promise((resolve) => {
-    let settled = false
-    const finish = (handled) => {
-      if (settled) return
-      settled = true
-      resolve(handled)
-    }
-
-    const timer = setTimeout(() => {
-      sessionStorage.removeItem(DRIVE_OAUTH_PENDING_KEY)
-      finish(false)
-    }, 4000)
-
-    window.google.accounts.oauth2.initTokenClient({
-      client_id: clientId,
-      scope: DRIVE_SCOPE,
-      ux_mode: 'redirect',
-      redirect_uri,
-      callback: (response) => {
-        clearTimeout(timer)
-        sessionStorage.removeItem(DRIVE_OAUTH_PENDING_KEY)
-        if (response.error) {
-          onError(new Error(formatGoogleOAuthError(response.error_description || response.error)))
-          finish(true)
-          return
-        }
-        if (!response.access_token) {
-          onError(new Error('Google não devolveu token de acesso.'))
-          finish(true)
-          return
-        }
-        onToken(response.access_token, pending)
-        finish(true)
-      },
-      error_callback: (err) => {
-        clearTimeout(timer)
-        sessionStorage.removeItem(DRIVE_OAUTH_PENDING_KEY)
-        onError(new Error(formatGoogleOAuthError(err?.message || err?.type)))
-        finish(true)
-      },
-    })
-  })
+  onToken(retorno.accessToken, retorno.intent)
+  return true
 }
 
 export function preferirOAuthRedirect() {
@@ -244,7 +244,7 @@ export function preferirOAuthRedirect() {
 
 export async function solicitarTokenGoogleComFallback(clientId, intent) {
   if (preferirOAuthRedirect()) {
-    await iniciarTokenGoogleRedirect(clientId, intent)
+    iniciarTokenGoogleRedirect(clientId, intent)
     return null
   }
 
@@ -252,7 +252,7 @@ export async function solicitarTokenGoogleComFallback(clientId, intent) {
     return await solicitarTokenGooglePopup(clientId)
   } catch (error) {
     if (isPopupOAuthFailure(error)) {
-      await iniciarTokenGoogleRedirect(clientId, intent)
+      iniciarTokenGoogleRedirect(clientId, intent)
       return null
     }
     throw error

@@ -5,8 +5,8 @@ import ConfirmModal from '../../components/ConfirmModal'
 import DriveBrowseModal from '../../components/admin/DriveBrowseModal'
 import {
   baixarBackupDoDrive,
+  consumirRetornoOAuthNoHash,
   DRIVE_OAUTH_PENDING_KEY,
-  processarRetornoOAuthRedirect,
   solicitarTokenGoogleComFallback,
   solicitarTokenGooglePopup,
   uploadBackupParaDrive,
@@ -50,35 +50,39 @@ function AdminBackupImport() {
     })
   }
 
-  useEffect(() => {
-    if (!googlePronto || !sessionStorage.getItem(DRIVE_OAUTH_PENDING_KEY)) return undefined
-
-    let cancelled = false
-    setAutenticandoGoogle(true)
-
-    processarRetornoOAuthRedirect(GOOGLE_CLIENT_ID, {
-      onToken: async (accessToken, intent) => {
-        if (cancelled) return
-        try {
-          await abrirDriveModalAposLogin(accessToken, intent)
-        } catch (error) {
-          setErro(error.message || 'Falha ao validar acesso ao Google Drive.')
-        } finally {
-          if (!cancelled) setAutenticandoGoogle(false)
-        }
-      },
-      onError: (error) => {
-        if (cancelled) return
-        setErro(error.message || 'Falha ao entrar no Google.')
+  const liberarOAuthSeTravado = () => {
+    window.setTimeout(() => {
+      if (!sessionStorage.getItem(DRIVE_OAUTH_PENDING_KEY)) {
         setAutenticandoGoogle(false)
-      },
-    }).then((handled) => {
-      if (!cancelled && !handled) setAutenticandoGoogle(false)
-    })
+        return
+      }
+      sessionStorage.removeItem(DRIVE_OAUTH_PENDING_KEY)
+      setAutenticandoGoogle(false)
+      setErro(
+        'O login Google não redirecionou. Recarregue a página e tente de novo. ' +
+        'Confira no Google Cloud a URI de redirecionamento: ' +
+        `${window.location.origin}/admin/backup-import`
+      )
+    }, 5000)
+  }
 
-    return () => {
-      cancelled = true
+  useEffect(() => {
+    if (!googlePronto) return undefined
+
+    const retornoHash = consumirRetornoOAuthNoHash()
+    if (retornoHash?.error) {
+      setErro(retornoHash.error)
+      setAutenticandoGoogle(false)
+      return undefined
     }
+    if (retornoHash?.accessToken) {
+      setAutenticandoGoogle(true)
+      abrirDriveModalAposLogin(retornoHash.accessToken, retornoHash.intent)
+        .catch((error) => setErro(error.message || 'Falha ao validar acesso ao Google Drive.'))
+        .finally(() => setAutenticandoGoogle(false))
+    }
+
+    return undefined
   }, [googlePronto])
 
   const limparFeedback = () => {
@@ -160,6 +164,7 @@ function AdminBackupImport() {
         setMensagem(
           'Abrindo login Google nesta aba. Se aparecer "app não verificado", clique em Avançado e continue.'
         )
+        liberarOAuthSeTravado()
         return
       }
       await abrirDriveModalAposLogin(accessToken, 'export')
@@ -200,6 +205,7 @@ function AdminBackupImport() {
         setMensagem(
           'Abrindo login Google nesta aba. Se aparecer "app não verificado", clique em Avançado e continue.'
         )
+        liberarOAuthSeTravado()
         return
       }
       await abrirDriveModalAposLogin(accessToken, 'import')

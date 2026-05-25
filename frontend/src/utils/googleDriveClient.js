@@ -5,6 +5,36 @@ export const DRIVE_SCOPE = [
   'https://www.googleapis.com/auth/drive.readonly',
 ].join(' ')
 
+export const DRIVE_OAUTH_PENDING_KEY = 'champions_drive_oauth_pending'
+
+export function driveOAuthRedirectUri() {
+  return `${window.location.origin}/admin/backup-import`
+}
+
+export function formatGoogleOAuthError(message) {
+  const msg = String(message || '').trim()
+  const lower = msg.toLowerCase()
+  if (lower.includes('popup') && lower.includes('closed')) {
+    return 'A janela do Google fechou antes de concluir o login. Aguarde — abriremos o login nesta aba.'
+  }
+  if (lower.includes('popup') && lower.includes('block')) {
+    return 'O navegador bloqueou a janela do Google. Permita pop-ups para este site ou use o login nesta aba.'
+  }
+  if (lower.includes('access_denied') || lower.includes('cancel')) {
+    return 'Login Google cancelado. Tente novamente e autorize o acesso ao Drive.'
+  }
+  return msg || 'Falha ao entrar no Google.'
+}
+
+export function isPopupOAuthFailure(error) {
+  const msg = String(error?.message || error || '').toLowerCase()
+  return (
+    (msg.includes('popup') && (msg.includes('closed') || msg.includes('block'))) ||
+    msg.includes('popup_failed') ||
+    msg.includes('popup_closed')
+  )
+}
+
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) {
@@ -57,19 +87,23 @@ export async function validarAcessoDrive(accessToken) {
   await driveFetch(accessToken, url.toString())
 }
 
+function assertGoogleOAuthReady() {
+  if (!window.google?.accounts?.oauth2?.initTokenClient) {
+    throw new Error(
+      'Não foi possível carregar o login Google. Recarregue a página e tente novamente.'
+    )
+  }
+}
+
 /**
- * Abre popup do Google para o usuário entrar e autorizar (token efêmero, só na sessão).
+ * Login Google via pop-up (rápido quando o navegador permite).
  */
-export async function solicitarTokenGoogle(clientId, { timeoutMs = 120000, prompt = 'consent select_account' } = {}) {
+export async function solicitarTokenGooglePopup(clientId, { timeoutMs = 120000, prompt = 'consent select_account' } = {}) {
   if (!clientId) {
     throw new Error('VITE_GOOGLE_CLIENT_ID não configurado no frontend.')
   }
   await ensureGoogleIdentityLoaded()
-  if (!window.google?.accounts?.oauth2?.initTokenClient) {
-    throw new Error(
-      'Não foi possível carregar o login Google. Desbloqueie pop-ups para dev.championschurch.com.br e recarregue a página.'
-    )
-  }
+  assertGoogleOAuthReady()
 
   return new Promise((resolve, reject) => {
     let settled = false
@@ -83,9 +117,7 @@ export async function solicitarTokenGoogle(clientId, { timeoutMs = 120000, promp
     const timer = setTimeout(() => {
       finish(
         reject,
-        new Error(
-          'Login Google não concluiu a tempo. Desbloqueie pop-ups do navegador ou feche e abra o login do Google.'
-        )
+        new Error('Login Google não concluiu a tempo. Tente de novo — usaremos o login nesta aba.')
       )
     }, timeoutMs)
 
@@ -94,7 +126,7 @@ export async function solicitarTokenGoogle(clientId, { timeoutMs = 120000, promp
       scope: DRIVE_SCOPE,
       callback: (response) => {
         if (response.error) {
-          finish(reject, new Error(response.error_description || response.error))
+          finish(reject, new Error(formatGoogleOAuthError(response.error_description || response.error)))
           return
         }
         if (!response.access_token) {
@@ -104,17 +136,113 @@ export async function solicitarTokenGoogle(clientId, { timeoutMs = 120000, promp
         finish(resolve, response.access_token)
       },
       error_callback: (err) => {
-        const msg = err?.message || err?.type || 'Login Google cancelado ou bloqueado.'
-        finish(reject, new Error(msg))
+        finish(reject, new Error(formatGoogleOAuthError(err?.message || err?.type)))
       },
     })
 
     try {
-      client.requestAccessToken({ prompt, use_fedcm_for_prompt: false })
+      client.requestAccessToken({ prompt })
     } catch (err) {
       finish(reject, err instanceof Error ? err : new Error('Falha ao abrir login Google.'))
     }
   })
+}
+
+/** @deprecated use solicitarTokenGooglePopup */
+export async function solicitarTokenGoogle(clientId, options) {
+  return solicitarTokenGooglePopup(clientId, options)
+}
+
+/**
+ * Login Google redirecionando a aba atual (fallback quando pop-up falha).
+ * intent: 'export' | 'import'
+ */
+export async function iniciarTokenGoogleRedirect(clientId, intent) {
+  if (!clientId) {
+    throw new Error('VITE_GOOGLE_CLIENT_ID não configurado no frontend.')
+  }
+  sessionStorage.setItem(DRIVE_OAUTH_PENDING_KEY, intent)
+  await ensureGoogleIdentityLoaded()
+  assertGoogleOAuthReady()
+
+  const redirect_uri = driveOAuthRedirectUri()
+  const client = window.google.accounts.oauth2.initTokenClient({
+    client_id: clientId,
+    scope: DRIVE_SCOPE,
+    ux_mode: 'redirect',
+    redirect_uri,
+    callback: () => {},
+  })
+  client.requestAccessToken({ prompt: 'consent select_account' })
+}
+
+/**
+ * Após redirect do Google, processa o token e abre o fluxo pendente.
+ * Retorna true se havia retorno OAuth pendente.
+ */
+export async function processarRetornoOAuthRedirect(clientId, { onToken, onError }) {
+  const pending = sessionStorage.getItem(DRIVE_OAUTH_PENDING_KEY)
+  if (!pending || !clientId) return false
+
+  await ensureGoogleIdentityLoaded()
+  assertGoogleOAuthReady()
+
+  const redirect_uri = driveOAuthRedirectUri()
+
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (handled) => {
+      if (settled) return
+      settled = true
+      resolve(handled)
+    }
+
+    const timer = setTimeout(() => {
+      sessionStorage.removeItem(DRIVE_OAUTH_PENDING_KEY)
+      finish(false)
+    }, 4000)
+
+    window.google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: DRIVE_SCOPE,
+      ux_mode: 'redirect',
+      redirect_uri,
+      callback: (response) => {
+        clearTimeout(timer)
+        sessionStorage.removeItem(DRIVE_OAUTH_PENDING_KEY)
+        if (response.error) {
+          onError(new Error(formatGoogleOAuthError(response.error_description || response.error)))
+          finish(true)
+          return
+        }
+        if (!response.access_token) {
+          onError(new Error('Google não devolveu token de acesso.'))
+          finish(true)
+          return
+        }
+        onToken(response.access_token, pending)
+        finish(true)
+      },
+      error_callback: (err) => {
+        clearTimeout(timer)
+        sessionStorage.removeItem(DRIVE_OAUTH_PENDING_KEY)
+        onError(new Error(formatGoogleOAuthError(err?.message || err?.type)))
+        finish(true)
+      },
+    })
+  })
+}
+
+export async function solicitarTokenGoogleComFallback(clientId, intent) {
+  try {
+    return await solicitarTokenGooglePopup(clientId)
+  } catch (error) {
+    if (isPopupOAuthFailure(error)) {
+      await iniciarTokenGoogleRedirect(clientId, intent)
+      return null
+    }
+    throw error
+  }
 }
 
 export async function listarPastasDrive(accessToken, parentId = 'root') {

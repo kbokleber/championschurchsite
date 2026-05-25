@@ -1,11 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { DatabaseBackup, Upload, AlertTriangle, Loader2, Cloud, HardDrive } from 'lucide-react'
 import api, { formatApiError, parseApiErrorDetail, resolveBackupApiBaseUrl } from '../../services/api'
 import ConfirmModal from '../../components/ConfirmModal'
 import DriveBrowseModal from '../../components/admin/DriveBrowseModal'
 import {
   baixarBackupDoDrive,
-  solicitarTokenGoogle,
+  DRIVE_OAUTH_PENDING_KEY,
+  processarRetornoOAuthRedirect,
+  solicitarTokenGoogleComFallback,
+  solicitarTokenGooglePopup,
   uploadBackupParaDrive,
   validarAcessoDrive,
 } from '../../utils/googleDriveClient'
@@ -37,6 +40,46 @@ function AdminBackupImport() {
   })
 
   const googlePronto = Boolean(GOOGLE_CLIENT_ID)
+
+  const abrirDriveModalAposLogin = async (accessToken, intent) => {
+    await validarAcessoDrive(accessToken)
+    setDriveModal({
+      open: true,
+      mode: intent === 'import' ? 'file' : 'folder',
+      accessToken,
+    })
+  }
+
+  useEffect(() => {
+    if (!googlePronto || !sessionStorage.getItem(DRIVE_OAUTH_PENDING_KEY)) return undefined
+
+    let cancelled = false
+    setAutenticandoGoogle(true)
+
+    processarRetornoOAuthRedirect(GOOGLE_CLIENT_ID, {
+      onToken: async (accessToken, intent) => {
+        if (cancelled) return
+        try {
+          await abrirDriveModalAposLogin(accessToken, intent)
+        } catch (error) {
+          setErro(error.message || 'Falha ao validar acesso ao Google Drive.')
+        } finally {
+          if (!cancelled) setAutenticandoGoogle(false)
+        }
+      },
+      onError: (error) => {
+        if (cancelled) return
+        setErro(error.message || 'Falha ao entrar no Google.')
+        setAutenticandoGoogle(false)
+      },
+    }).then((handled) => {
+      if (!cancelled && !handled) setAutenticandoGoogle(false)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [googlePronto])
 
   const limparFeedback = () => {
     setMensagem(null)
@@ -109,14 +152,19 @@ function AdminBackupImport() {
       return
     }
     setAutenticandoGoogle(true)
+    let redirecionando = false
     try {
-      const accessToken = await solicitarTokenGoogle(GOOGLE_CLIENT_ID)
-      await validarAcessoDrive(accessToken)
-      setDriveModal({ open: true, mode: 'folder', accessToken })
+      const accessToken = await solicitarTokenGoogleComFallback(GOOGLE_CLIENT_ID, 'export')
+      if (!accessToken) {
+        redirecionando = true
+        setMensagem('Redirecionando para o login Google nesta aba...')
+        return
+      }
+      await abrirDriveModalAposLogin(accessToken, 'export')
     } catch (error) {
       setErro(error.message || formatApiError(error, 'Falha ao entrar no Google.'))
     } finally {
-      setAutenticandoGoogle(false)
+      if (!redirecionando) setAutenticandoGoogle(false)
     }
   }
 
@@ -142,14 +190,19 @@ function AdminBackupImport() {
       return
     }
     setAutenticandoGoogle(true)
+    let redirecionando = false
     try {
-      const accessToken = await solicitarTokenGoogle(GOOGLE_CLIENT_ID)
-      await validarAcessoDrive(accessToken)
-      setDriveModal({ open: true, mode: 'file', accessToken })
+      const accessToken = await solicitarTokenGoogleComFallback(GOOGLE_CLIENT_ID, 'import')
+      if (!accessToken) {
+        redirecionando = true
+        setMensagem('Redirecionando para o login Google nesta aba...')
+        return
+      }
+      await abrirDriveModalAposLogin(accessToken, 'import')
     } catch (error) {
       setErro(error.message || 'Falha ao entrar no Google.')
     } finally {
-      setAutenticandoGoogle(false)
+      if (!redirecionando) setAutenticandoGoogle(false)
     }
   }
 
@@ -165,7 +218,7 @@ function AdminBackupImport() {
         if (!googlePronto) {
           throw new Error('Google Drive não configurado no frontend.')
         }
-        const accessToken = await solicitarTokenGoogle(GOOGLE_CLIENT_ID)
+        const accessToken = await solicitarTokenGooglePopup(GOOGLE_CLIENT_ID)
         const { blob, name } = await baixarBackupDoDrive(accessToken, driveFileId)
         const formData = new FormData()
         formData.append('arquivo', blob, name)

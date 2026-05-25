@@ -7,6 +7,7 @@ import {
   baixarBackupDoDrive,
   solicitarTokenGoogle,
   uploadBackupParaDrive,
+  validarAcessoDrive,
 } from '../../utils/googleDriveClient'
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
@@ -18,7 +19,9 @@ const backupViaServidorRemoto = Boolean(
 )
 
 function AdminBackupImport() {
-  const [exportando, setExportando] = useState(false)
+  const [exportandoLocal, setExportandoLocal] = useState(false)
+  const [salvandoDrive, setSalvandoDrive] = useState(false)
+  const [autenticandoGoogle, setAutenticandoGoogle] = useState(false)
   const [importando, setImportando] = useState(false)
   const [arquivo, setArquivo] = useState(null)
   const [mensagem, setMensagem] = useState(null)
@@ -80,7 +83,7 @@ function AdminBackupImport() {
 
   const handleExportarDownload = async () => {
     limparFeedback()
-    setExportando(true)
+    setExportandoLocal(true)
     try {
       const { blob, fileName } = await gerarBackupBlob()
       const url = window.URL.createObjectURL(blob)
@@ -95,29 +98,32 @@ function AdminBackupImport() {
     } catch (error) {
       setErro(error.message || formatApiError(error, 'Não foi possível gerar o backup.'))
     } finally {
-      setExportando(false)
+      setExportandoLocal(false)
     }
   }
 
   const handleExportarDrive = async () => {
     limparFeedback()
     if (!googlePronto) {
-      setErro('Configure VITE_GOOGLE_CLIENT_ID no frontend (.env.local).')
+      setErro('Configure VITE_GOOGLE_CLIENT_ID no build do frontend (Coolify) e faça rebuild.')
       return
     }
-    setExportando(true)
+    setAutenticandoGoogle(true)
     try {
       const accessToken = await solicitarTokenGoogle(GOOGLE_CLIENT_ID)
+      await validarAcessoDrive(accessToken)
       setDriveModal({ open: true, mode: 'folder', accessToken })
     } catch (error) {
-      setErro(formatApiError(error, error.message || 'Falha ao entrar no Google.'))
-      setExportando(false)
+      setErro(error.message || formatApiError(error, 'Falha ao entrar no Google.'))
+    } finally {
+      setAutenticandoGoogle(false)
     }
   }
 
   const concluirExportDrive = async (pasta) => {
     const accessToken = driveModal.accessToken
     setDriveModal((m) => ({ ...m, open: false }))
+    setSalvandoDrive(true)
     try {
       const { blob, fileName } = await gerarBackupBlob()
       const uploaded = await uploadBackupParaDrive(accessToken, pasta.id, fileName, blob)
@@ -125,24 +131,25 @@ function AdminBackupImport() {
     } catch (error) {
       setErro(error.message || formatApiError(error, error.message || 'Falha ao exportar para o Google Drive.'))
     } finally {
-      setExportando(false)
+      setSalvandoDrive(false)
     }
   }
 
   const handleSelecionarArquivoDrive = async () => {
     limparFeedback()
     if (!googlePronto) {
-      setErro('Configure VITE_GOOGLE_CLIENT_ID no frontend (.env.local).')
+      setErro('Configure VITE_GOOGLE_CLIENT_ID no build do frontend (Coolify) e faça rebuild.')
       return
     }
-    setImportando(true)
+    setAutenticandoGoogle(true)
     try {
       const accessToken = await solicitarTokenGoogle(GOOGLE_CLIENT_ID)
+      await validarAcessoDrive(accessToken)
       setDriveModal({ open: true, mode: 'file', accessToken })
     } catch (error) {
       setErro(error.message || 'Falha ao entrar no Google.')
     } finally {
-      setImportando(false)
+      setAutenticandoGoogle(false)
     }
   }
 
@@ -256,20 +263,20 @@ function AdminBackupImport() {
             <button
               type="button"
               onClick={handleExportarDownload}
-              disabled={exportando || importando}
+              disabled={exportandoLocal || salvandoDrive || importando}
               className="btn-primary inline-flex items-center justify-center gap-2 disabled:opacity-60"
             >
-              {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <HardDrive className="h-4 w-4" />}
+              {exportandoLocal ? <Loader2 className="h-4 w-4 animate-spin" /> : <HardDrive className="h-4 w-4" />}
               Baixar localmente
             </button>
             <button
               type="button"
               onClick={handleExportarDrive}
-              disabled={exportando || importando || !googlePronto}
+              disabled={exportandoLocal || salvandoDrive || importando || autenticandoGoogle || !googlePronto}
               className="btn-secondary inline-flex items-center justify-center gap-2 disabled:opacity-60"
             >
-              {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}
-              Salvar no meu Google Drive
+              {salvandoDrive || autenticandoGoogle ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}
+              {autenticandoGoogle ? 'Abrindo Google...' : salvandoDrive ? 'Salvando...' : 'Salvar no meu Google Drive'}
             </button>
           </div>
         </div>
@@ -295,7 +302,7 @@ function AdminBackupImport() {
                   setDriveFileId('')
                   setDriveFileName('')
                 }}
-                disabled={importando || exportando}
+                disabled={importando || exportandoLocal || salvandoDrive}
               />
               Arquivo local
             </label>
@@ -309,7 +316,7 @@ function AdminBackupImport() {
                   setImportOrigem('drive')
                   setArquivo(null)
                 }}
-                disabled={importando || exportando || !googlePronto}
+                disabled={importando || exportandoLocal || salvandoDrive || autenticandoGoogle || !googlePronto}
               />
               Meu Google Drive
             </label>
@@ -321,18 +328,18 @@ function AdminBackupImport() {
               accept=".tar.gz,.tgz,application/gzip"
               onChange={(event) => setArquivo(event.target.files?.[0] || null)}
               className="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"
-              disabled={importando || exportando}
+              disabled={importando || exportandoLocal || salvandoDrive}
             />
           ) : (
             <div className="space-y-2">
               <button
                 type="button"
                 onClick={handleSelecionarArquivoDrive}
-                disabled={importando || exportando || !googlePronto}
+                disabled={importando || exportandoLocal || salvandoDrive || autenticandoGoogle || !googlePronto}
                 className="btn-secondary inline-flex items-center gap-2 disabled:opacity-60"
               >
-                <Cloud className="h-4 w-4" />
-                Escolher arquivo no meu Drive
+                {autenticandoGoogle ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}
+                {autenticandoGoogle ? 'Abrindo Google...' : 'Escolher arquivo no meu Drive'}
               </button>
               {driveFileName && (
                 <p className="text-sm text-gray-600 truncate">Selecionado: {driveFileName}</p>
@@ -342,7 +349,7 @@ function AdminBackupImport() {
 
           <button
             type="submit"
-            disabled={importando || exportando}
+            disabled={importando || exportandoLocal || salvandoDrive}
             className="btn-primary inline-flex items-center gap-2 disabled:opacity-60"
           >
             {importando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
@@ -357,7 +364,8 @@ function AdminBackupImport() {
         accessToken={driveModal.accessToken}
         onClose={() => {
           setDriveModal((m) => ({ ...m, open: false }))
-          setExportando(false)
+          setSalvandoDrive(false)
+          setAutenticandoGoogle(false)
         }}
         onSelectFolder={concluirExportDrive}
         onSelectFile={(arq) => {

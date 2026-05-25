@@ -30,41 +30,90 @@ async function driveFetch(accessToken, url) {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (!resp.ok) {
-    const detail = await resp.text().catch(() => '')
-    throw new Error(
-      detail.includes('insufficient') || resp.status === 403
-        ? 'Sem permissão no Google Drive. Confira as origens JavaScript no Google Cloud (ex.: http://localhost:5174).'
-        : 'Não foi possível acessar o Google Drive.'
-    )
+    let googleMsg = ''
+    try {
+      const data = await resp.json()
+      googleMsg = data?.error?.message || ''
+    } catch {
+      googleMsg = await resp.text().catch(() => '')
+    }
+    if (resp.status === 401) {
+      throw new Error('Sessão Google expirou. Clique de novo em Salvar no Google Drive.')
+    }
+    if (resp.status === 403) {
+      throw new Error(
+        googleMsg ||
+          'Sem permissão no Google Drive. Autorize o acesso ao Drive na conta Google e confira se a Drive API está ativa no Google Cloud.'
+      )
+    }
+    throw new Error(googleMsg || 'Não foi possível acessar o Google Drive.')
   }
   return resp.json()
+}
+
+export async function validarAcessoDrive(accessToken) {
+  const url = new URL('https://www.googleapis.com/drive/v3/about')
+  url.searchParams.set('fields', 'user(displayName)')
+  await driveFetch(accessToken, url.toString())
 }
 
 /**
  * Abre popup do Google para o usuário entrar e autorizar (token efêmero, só na sessão).
  */
-export async function solicitarTokenGoogle(clientId) {
+export async function solicitarTokenGoogle(clientId, { timeoutMs = 120000, prompt = 'consent select_account' } = {}) {
   if (!clientId) {
     throw new Error('VITE_GOOGLE_CLIENT_ID não configurado no frontend.')
   }
   await ensureGoogleIdentityLoaded()
+  if (!window.google?.accounts?.oauth2?.initTokenClient) {
+    throw new Error(
+      'Não foi possível carregar o login Google. Desbloqueie pop-ups para dev.championschurch.com.br e recarregue a página.'
+    )
+  }
+
   return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (fn, value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      fn(value)
+    }
+
+    const timer = setTimeout(() => {
+      finish(
+        reject,
+        new Error(
+          'Login Google não concluiu a tempo. Desbloqueie pop-ups do navegador ou feche e abra o login do Google.'
+        )
+      )
+    }, timeoutMs)
+
     const client = window.google.accounts.oauth2.initTokenClient({
       client_id: clientId,
       scope: DRIVE_SCOPE,
       callback: (response) => {
         if (response.error) {
-          reject(new Error(response.error_description || response.error))
+          finish(reject, new Error(response.error_description || response.error))
           return
         }
         if (!response.access_token) {
-          reject(new Error('Google não devolveu token de acesso.'))
+          finish(reject, new Error('Google não devolveu token de acesso.'))
           return
         }
-        resolve(response.access_token)
+        finish(resolve, response.access_token)
+      },
+      error_callback: (err) => {
+        const msg = err?.message || err?.type || 'Login Google cancelado ou bloqueado.'
+        finish(reject, new Error(msg))
       },
     })
-    client.requestAccessToken({ prompt: 'select_account consent' })
+
+    try {
+      client.requestAccessToken({ prompt, use_fedcm_for_prompt: false })
+    } catch (err) {
+      finish(reject, err instanceof Error ? err : new Error('Falha ao abrir login Google.'))
+    }
   })
 }
 

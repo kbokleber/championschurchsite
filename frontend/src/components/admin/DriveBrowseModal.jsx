@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronRight, Folder, FileArchive, Loader2, X } from 'lucide-react'
 import { listarArquivosBackupDrive, listarPastasDrive } from '../../utils/googleDriveClient'
 
@@ -45,6 +46,15 @@ export default function DriveBrowseModal({
   }, [open])
 
   useEffect(() => {
+    if (!open) return undefined
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prevOverflow
+    }
+  }, [open])
+
+  useEffect(() => {
     carregar()
   }, [carregar])
 
@@ -63,8 +73,8 @@ export default function DriveBrowseModal({
 
   const pastaAtualInfo = caminho[caminho.length - 1]
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+  const conteudo = (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <h3 className="font-semibold text-gray-900">
@@ -74,6 +84,12 @@ export default function DriveBrowseModal({
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {mode === 'folder' && (
+          <div className="px-4 py-3 text-sm text-primary-800 bg-primary-50 border-b border-primary-100">
+            Navegue pelas pastas ou clique em <strong>Salvar nesta pasta</strong> para usar a pasta atual.
+          </div>
+        )}
 
         <div className="px-4 py-2 text-sm text-gray-600 flex flex-wrap items-center gap-1 border-b bg-gray-50">
           {caminho.map((item, index) => (
@@ -124,14 +140,18 @@ export default function DriveBrowseModal({
                 </button>
               ))}
               {!carregando && pastas.length === 0 && (mode === 'folder' || arquivos.length === 0) && (
-                <p className="text-sm text-gray-500 text-center py-8">Nenhum item nesta pasta.</p>
+                <p className="text-sm text-gray-500 text-center py-8">
+                  {mode === 'folder'
+                    ? 'Nenhuma subpasta aqui. Use o botão abaixo para salvar nesta pasta.'
+                    : 'Nenhum item nesta pasta.'}
+                </p>
               )}
             </>
           )}
         </div>
 
         {mode === 'folder' && (
-          <div className="px-4 py-3 border-t flex justify-end gap-2">
+          <div className="px-4 py-3 border-t flex justify-end gap-2 bg-gray-50">
             <button type="button" onClick={onClose} className="btn-secondary">
               Cancelar
             </button>
@@ -140,11 +160,13 @@ export default function DriveBrowseModal({
               onClick={() => onSelectFolder({ id: pastaAtualInfo.id, name: pastaAtualInfo.name })}
               className="btn-primary"
             >
-              Usar pasta &quot;{pastaAtualInfo.name}&quot;
+              Salvar nesta pasta ({pastaAtualInfo.name})
             </button>
           </div>
         )}
       </div>
     </div>
   )
+
+  return createPortal(conteudo, document.body)
 }

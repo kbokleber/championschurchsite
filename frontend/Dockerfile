@@ -20,10 +20,13 @@ COPY . .
 # Coolify (opcional): VITE_APP_VERSION / APP_VERSION para forçar uma versão no build
 ARG VITE_APP_VERSION=
 ENV VITE_APP_VERSION=${VITE_APP_VERSION}
+ARG VITE_GOOGLE_CLIENT_ID=
+ENV VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}
 
 # Logs no Coolify: confirma o que entra no bundle (env vazia → usa package.json no vite.config.js)
 RUN node -e "console.log('[build] package.json version:', require('./package.json').version)" && \
     echo "[build] VITE_APP_VERSION (se vazio, ignora-se)=$VITE_APP_VERSION" && \
+    echo "[build] VITE_GOOGLE_CLIENT_ID (se vazio, backup Drive desabilitado)=${VITE_GOOGLE_CLIENT_ID:+definido}" && \
     npm run build
 
 # Stage 2: Runtime com Nginx

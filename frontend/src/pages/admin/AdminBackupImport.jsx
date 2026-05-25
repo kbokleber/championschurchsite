@@ -162,7 +162,8 @@ function AdminBackupImport() {
       if (!accessToken) {
         redirecionando = true
         setMensagem(
-          'Abrindo login Google nesta aba. Se aparecer "app não verificado", clique em Avançado e continue.'
+          'Abrindo login Google nesta aba. Na tela do Google, role até o final e clique em Permitir. ' +
+          'Se aparecer "app não verificado", use Avançado e continue.'
         )
         liberarOAuthSeTravado()
         return
@@ -203,7 +204,8 @@ function AdminBackupImport() {
       if (!accessToken) {
         redirecionando = true
         setMensagem(
-          'Abrindo login Google nesta aba. Se aparecer "app não verificado", clique em Avançado e continue.'
+          'Abrindo login Google nesta aba. Na tela do Google, role até o final e clique em Permitir. ' +
+          'Se aparecer "app não verificado", use Avançado e continue.'
         )
         liberarOAuthSeTravado()
         return

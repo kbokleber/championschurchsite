@@ -6,9 +6,28 @@ export const DRIVE_SCOPE = [
 ].join(' ')
 
 export const DRIVE_OAUTH_PENDING_KEY = 'champions_drive_oauth_pending'
+export const DRIVE_OAUTH_RESULT_KEY = 'champions_drive_oauth_result'
 
 export function driveOAuthRedirectUri() {
   return `${window.location.origin}/admin/backup-import`
+}
+
+function isLocalDevHost() {
+  if (typeof window === 'undefined') return false
+  const host = window.location.hostname
+  return host === 'localhost' || host === '127.0.0.1'
+}
+
+function buildGoogleOAuthUrl(clientId) {
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: driveOAuthRedirectUri(),
+    response_type: 'token',
+    scope: DRIVE_SCOPE,
+    prompt: 'consent select_account',
+    include_granted_scopes: 'true',
+  })
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
 }
 
 export function formatGoogleOAuthError(message) {
@@ -16,8 +35,10 @@ export function formatGoogleOAuthError(message) {
   const lower = msg.toLowerCase()
   if (lower.includes('popup') && lower.includes('closed')) {
     return (
-      'Login Google não concluído. Se apareceu "O Google não verificou este app", clique em Avançado e em ' +
-      '"Acessar… (não seguro)" para continuar, ou clique de novo — o login abrirá nesta aba.'
+      'Login Google não concluído. Na tela do Google, role até o final e clique em Permitir. ' +
+      'Se aparecer "app não verificado", clique em Avançado e em "Acessar… (não seguro)". ' +
+      'Se o erro for redirect_uri_mismatch, cadastre no Google Cloud a URI: ' +
+      `${driveOAuthRedirectUri()}`
     )
   }
   if (lower.includes('popup') && lower.includes('block')) {
@@ -40,31 +61,48 @@ export function formatGoogleOAuthError(message) {
   return msg || 'Falha ao entrar no Google.'
 }
 
-/** Lê token ou erro OAuth no hash (#access_token= / #error=) após redirect. */
-export function consumirRetornoOAuthNoHash() {
+/**
+ * Processa retorno OAuth no hash (#access_token= / #error=).
+ * Se abriu em pop-up, repassa o resultado ao opener via localStorage e fecha a janela.
+ */
+export function processarRetornoOAuthNaPagina() {
   const hash = window.location.hash?.replace(/^#/, '')
   if (!hash) return null
 
   const params = new URLSearchParams(hash)
+  if (!params.get('access_token') && !params.get('error')) return null
+
   const cleanUrl = `${window.location.pathname}${window.location.search}`
   window.history.replaceState(null, '', cleanUrl)
 
+  const intent = sessionStorage.getItem(DRIVE_OAUTH_PENDING_KEY) || 'export'
+  sessionStorage.removeItem(DRIVE_OAUTH_PENDING_KEY)
+
   const error = params.get('error')
-  if (error) {
-    sessionStorage.removeItem(DRIVE_OAUTH_PENDING_KEY)
-    return {
-      error: formatGoogleOAuthError(params.get('error_description') || error),
+  const payload = error
+    ? { error: formatGoogleOAuthError(params.get('error_description') || error) }
+    : { accessToken: params.get('access_token'), intent }
+
+  if (window.opener && !window.opener.closed) {
+    try {
+      localStorage.setItem(DRIVE_OAUTH_RESULT_KEY, JSON.stringify(payload))
+    } catch {
+      // ignore quota / private mode
     }
+    window.close()
+    return { deliveredToOpener: true }
   }
 
-  const accessToken = params.get('access_token')
-  if (!accessToken) return null
+  return payload
+}
 
-  const intent = sessionStorage.getItem(DRIVE_OAUTH_PENDING_KEY)
-  sessionStorage.removeItem(DRIVE_OAUTH_PENDING_KEY)
-  if (!intent) return null
-
-  return { accessToken, intent }
+/** Lê token ou erro OAuth no hash (#access_token= / #error=) após redirect na mesma aba. */
+export function consumirRetornoOAuthNoHash() {
+  const retorno = processarRetornoOAuthNaPagina()
+  if (!retorno || retorno.deliveredToOpener) return null
+  if (retorno.error) return { error: retorno.error }
+  if (!retorno.accessToken) return null
+  return { accessToken: retorno.accessToken, intent: retorno.intent }
 }
 
 /** @deprecated use consumirRetornoOAuthNoHash */
@@ -209,17 +247,98 @@ export function iniciarTokenGoogleRedirect(clientId, intent) {
     throw new Error('VITE_GOOGLE_CLIENT_ID não configurado no frontend.')
   }
   sessionStorage.setItem(DRIVE_OAUTH_PENDING_KEY, intent)
+  window.location.assign(buildGoogleOAuthUrl(clientId))
+}
 
-  const params = new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: driveOAuthRedirectUri(),
-    response_type: 'token',
-    scope: DRIVE_SCOPE,
-    prompt: 'consent select_account',
-    include_granted_scopes: 'true',
+/**
+ * Pop-up OAuth clássico: após consentimento o Google redireciona para nossa rota
+ * e o token volta ao opener (mais confiável que GIS com app não verificado).
+ */
+export async function solicitarTokenGooglePopupRedirect(
+  clientId,
+  intent,
+  { timeoutMs = 180000 } = {}
+) {
+  if (!clientId) {
+    throw new Error('VITE_GOOGLE_CLIENT_ID não configurado no frontend.')
+  }
+
+  sessionStorage.setItem(DRIVE_OAUTH_PENDING_KEY, intent)
+  try {
+    localStorage.removeItem(DRIVE_OAUTH_RESULT_KEY)
+  } catch {
+    // ignore
+  }
+
+  const popup = window.open(
+    buildGoogleOAuthUrl(clientId),
+    'champions_google_oauth',
+    'popup=yes,width=520,height=720,left=80,top=40'
+  )
+
+  if (!popup) {
+    throw new Error('O navegador bloqueou a janela do Google. Permita pop-ups para este site.')
+  }
+
+  const startedAt = Date.now()
+
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (fn, value) => {
+      if (settled) return
+      settled = true
+      clearInterval(timer)
+      fn(value)
+    }
+
+    const timer = setInterval(() => {
+      try {
+        const raw = localStorage.getItem(DRIVE_OAUTH_RESULT_KEY)
+        if (raw) {
+          localStorage.removeItem(DRIVE_OAUTH_RESULT_KEY)
+          try {
+            popup.close()
+          } catch {
+            // ignore
+          }
+          const data = JSON.parse(raw)
+          if (data.error) {
+            finish(reject, new Error(data.error))
+            return
+          }
+          if (!data.accessToken) {
+            finish(reject, new Error('Google não devolveu token de acesso.'))
+            return
+          }
+          finish(resolve, data.accessToken)
+          return
+        }
+      } catch {
+        // ignore parse errors
+      }
+
+      if (popup.closed) {
+        finish(
+          reject,
+          new Error(
+            'Login Google não concluído. Na tela do Google, role até Permitir. ' +
+              'Se aparecer redirect_uri_mismatch, cadastre no Google Cloud: ' +
+              driveOAuthRedirectUri()
+          )
+        )
+        return
+      }
+
+      if (Date.now() - startedAt > timeoutMs) {
+        try {
+          popup.close()
+        } catch {
+          // ignore
+        }
+        finish(reject, new Error('Login Google não concluiu a tempo. Tente novamente.'))
+      }
+    }, 350)
   })
-
-  window.location.assign(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`)
 }
 
 /**
@@ -242,10 +361,23 @@ export async function processarRetornoOAuthRedirect(clientId, { onToken, onError
 }
 
 export async function solicitarTokenGoogleComFallback(clientId, intent) {
+  if (isLocalDevHost()) {
+    try {
+      return await solicitarTokenGooglePopup(clientId)
+    } catch (error) {
+      if (isPopupOAuthFailure(error)) {
+        iniciarTokenGoogleRedirect(clientId, intent)
+        return null
+      }
+      throw error
+    }
+  }
+
   try {
-    return await solicitarTokenGooglePopup(clientId)
+    return await solicitarTokenGooglePopupRedirect(clientId, intent)
   } catch (error) {
-    if (isPopupOAuthFailure(error)) {
+    const msg = String(error?.message || error || '').toLowerCase()
+    if (msg.includes('bloqueou') || isPopupOAuthFailure(error)) {
       iniciarTokenGoogleRedirect(clientId, intent)
       return null
     }

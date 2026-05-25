@@ -9,6 +9,7 @@ import secrets
 import string
 from io import BytesIO
 from django.db import models
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.validators import RegexValidator
 from django.contrib.auth.hashers import make_password, check_password
@@ -1367,6 +1368,7 @@ class PermissaoMenu(models.Model):
         {'codigo': 'grupos', 'nome': 'Grupos', 'ordem': 12, 'descricao': 'Gerenciar grupos e permissões'},
         # Loja / cantina (apenas painel admin; rotas /admin/loja/*) — atribua ao grupo no ecrã Grupos
         {'codigo': 'loja', 'nome': 'Loja / Cantina', 'ordem': 13, 'descricao': 'Produtos, PDV e vendas (interno)'},
+        {'codigo': 'backup_import', 'nome': 'Backup e Restore', 'ordem': 14, 'descricao': 'Exportar e restaurar banco e mídia (local ou Google Drive)'},
     ]
     
     codigo = models.CharField(
@@ -1528,3 +1530,24 @@ class Grupo(models.Model):
         ).distinct().values_list('codigo', flat=True)
         
         return list(permissoes)
+
+
+class GoogleDriveCredential(models.Model):
+    """Tokens OAuth do Google Drive por usuário admin (backup/restaurar)."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='google_drive_credential',
+        verbose_name='Usuário',
+    )
+    refresh_token_encrypted = models.TextField(blank=True, verbose_name='Refresh token (criptografado)')
+    email = models.EmailField(blank=True, verbose_name='E-mail Google')
+    connected_at = models.DateTimeField(null=True, blank=True, verbose_name='Conectado em')
+
+    class Meta:
+        verbose_name = 'Credencial Google Drive'
+        verbose_name_plural = 'Credenciais Google Drive'
+
+    def __str__(self):
+        return f'Google Drive — {self.email or self.user_id}'

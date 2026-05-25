@@ -18,7 +18,6 @@ from .views import (
     configuracao_publica, configuracao_admin,
     admin_testar_conexao_whatsapp, admin_testar_conexao_mercadopago,
     verificar_permissao_menu, menus_permitidos, popular_permissoes_menu,
-    admin_backup_exportar, admin_backup_importar,
     # Mercado Pago
     criar_pagamento_pix,
     criar_pagamento_pix_embutido,
@@ -37,6 +36,10 @@ from loja.views import (
     pagar_cartao_loja,
     criar_pagamento_pix_embutido_loja,
     dashboard_financeiro_loja,
+)
+from .backup_views import (
+    admin_backup_exportar,
+    admin_backup_importar,
 )
 from loja.recibo import (
     recibo_loja_publico,

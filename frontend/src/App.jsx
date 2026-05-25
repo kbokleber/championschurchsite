@@ -7,6 +7,7 @@ import { ConfiguracaoProvider } from './contexts/ConfiguracaoContext'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
 import ProtectedRoute from './components/ProtectedRoute'
+import PermissionRoute from './components/PermissionRoute'
 import AdminLayout from './components/AdminLayout'
 import LoadingSpinner from './components/LoadingSpinner'
 import EnvironmentBadge from './components/EnvironmentBadge'
@@ -63,28 +64,6 @@ const MENU_HOME_PATH = {
   formularios_inscricao: '/admin/formularios',
   loja: '/admin/loja',
   backup_import: '/admin/backup-import',
-}
-
-function SuperuserRoute({ children }) {
-  const { user, loading, isAuthenticated } = useAuth()
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner size="lg" text="Verificando permissões..." />
-      </div>
-    )
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/admin/login" replace />
-  }
-
-  if (!user?.is_superuser) {
-    return <Navigate to="/admin" replace />
-  }
-
-  return children
 }
 
 function AdminHome() {
@@ -322,9 +301,9 @@ function App() {
         } />
         <Route path="/admin/backup-import" element={
           <ProtectedRoute>
-            <SuperuserRoute>
+            <PermissionRoute permission="backup_import">
               <AdminLayout><AdminBackupImport /></AdminLayout>
-            </SuperuserRoute>
+            </PermissionRoute>
           </ProtectedRoute>
         } />
       </Routes>

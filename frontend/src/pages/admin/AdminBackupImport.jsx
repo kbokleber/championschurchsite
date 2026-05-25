@@ -1,7 +1,15 @@
 import { useState } from 'react'
-import { DatabaseBackup, Upload, AlertTriangle, Loader2 } from 'lucide-react'
+import { DatabaseBackup, Upload, AlertTriangle, Loader2, Cloud, HardDrive } from 'lucide-react'
 import api, { formatApiError } from '../../services/api'
 import ConfirmModal from '../../components/ConfirmModal'
+import DriveBrowseModal from '../../components/admin/DriveBrowseModal'
+import {
+  baixarBackupDoDrive,
+  solicitarTokenGoogle,
+  uploadBackupParaDrive,
+} from '../../utils/googleDriveClient'
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
 
 function AdminBackupImport() {
   const [exportando, setExportando] = useState(false)
@@ -10,29 +18,52 @@ function AdminBackupImport() {
   const [mensagem, setMensagem] = useState(null)
   const [erro, setErro] = useState(null)
   const [showImportConfirm, setShowImportConfirm] = useState(false)
+  const [importOrigem, setImportOrigem] = useState('local')
+  const [driveFileId, setDriveFileId] = useState('')
+  const [driveFileName, setDriveFileName] = useState('')
+  const [driveModal, setDriveModal] = useState({
+    open: false,
+    mode: 'folder',
+    accessToken: '',
+  })
+
+  const googlePronto = Boolean(GOOGLE_CLIENT_ID)
 
   const limparFeedback = () => {
     setMensagem(null)
     setErro(null)
   }
 
-  const handleExportar = async () => {
+  const extrairNomeBackup = (response, fallback) => {
+    const disposition = response.headers['content-disposition'] || ''
+    const match = disposition.match(/filename="?([^"]+)"?/)
+    return match?.[1] || fallback
+  }
+
+  const gerarBackupBlob = async () => {
+    const response = await api.post('/admin/backup/exportar/', {}, {
+      responseType: 'blob',
+      timeout: 600000,
+    })
+    const contentType = response.headers['content-type'] || ''
+    if (contentType.includes('application/json')) {
+      const text = await response.data.text()
+      const data = JSON.parse(text)
+      throw new Error(data.detail || 'Falha ao exportar backup.')
+    }
+    const fileName = extrairNomeBackup(
+      response,
+      `champions_backup_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.tar.gz`
+    )
+    return { blob: response.data, fileName }
+  }
+
+  const handleExportarDownload = async () => {
     limparFeedback()
     setExportando(true)
     try {
-      const response = await api.post('/admin/backup/exportar/', {}, { responseType: 'blob', timeout: 600000 })
-      const contentType = response.headers['content-type'] || ''
-      if (contentType.includes('application/json')) {
-        const text = await response.data.text()
-        const data = JSON.parse(text)
-        throw new Error(data.detail || 'Falha ao exportar backup.')
-      }
-
-      const disposition = response.headers['content-disposition'] || ''
-      const match = disposition.match(/filename="?([^"]+)"?/)
-      const fileName = match?.[1] || `champions_backup_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.tar.gz`
-
-      const url = window.URL.createObjectURL(response.data)
+      const { blob, fileName } = await gerarBackupBlob()
+      const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
       a.download = fileName
@@ -42,24 +73,85 @@ function AdminBackupImport() {
       window.URL.revokeObjectURL(url)
       setMensagem('Backup gerado e download iniciado com sucesso.')
     } catch (error) {
-      const fallback = error.message || 'Não foi possível gerar o backup.'
-      setErro(formatApiError(error, fallback))
+      setErro(formatApiError(error, error.message || 'Não foi possível gerar o backup.'))
     } finally {
       setExportando(false)
     }
   }
 
-  const handleImportar = async () => {
-    if (!arquivo) {
-      setErro('Selecione um arquivo .tar.gz para importar.')
+  const handleExportarDrive = async () => {
+    limparFeedback()
+    if (!googlePronto) {
+      setErro('Configure VITE_GOOGLE_CLIENT_ID no frontend (.env.local).')
       return
     }
+    setExportando(true)
+    try {
+      const accessToken = await solicitarTokenGoogle(GOOGLE_CLIENT_ID)
+      setDriveModal({ open: true, mode: 'folder', accessToken })
+    } catch (error) {
+      setErro(formatApiError(error, error.message || 'Falha ao entrar no Google.'))
+      setExportando(false)
+    }
+  }
+
+  const concluirExportDrive = async (pasta) => {
+    const accessToken = driveModal.accessToken
+    setDriveModal((m) => ({ ...m, open: false }))
+    try {
+      const { blob, fileName } = await gerarBackupBlob()
+      const uploaded = await uploadBackupParaDrive(accessToken, pasta.id, fileName, blob)
+      setMensagem(`Backup salvo no seu Google Drive: ${uploaded.name} (pasta ${pasta.name}).`)
+    } catch (error) {
+      setErro(formatApiError(error, error.message || 'Falha ao exportar para o Google Drive.'))
+    } finally {
+      setExportando(false)
+    }
+  }
+
+  const handleSelecionarArquivoDrive = async () => {
+    limparFeedback()
+    if (!googlePronto) {
+      setErro('Configure VITE_GOOGLE_CLIENT_ID no frontend (.env.local).')
+      return
+    }
+    setImportando(true)
+    try {
+      const accessToken = await solicitarTokenGoogle(GOOGLE_CLIENT_ID)
+      setDriveModal({ open: true, mode: 'file', accessToken })
+    } catch (error) {
+      setErro(error.message || 'Falha ao entrar no Google.')
+    } finally {
+      setImportando(false)
+    }
+  }
+
+  const executarImportacao = async () => {
     limparFeedback()
     setImportando(true)
     try {
-      const formData = new FormData()
-      formData.append('arquivo', arquivo)
-      const response = await api.post('/admin/backup/importar/', formData, { timeout: 600000 })
+      let response
+      if (importOrigem === 'drive') {
+        if (!driveFileId) {
+          throw new Error('Selecione um arquivo .tar.gz no Google Drive.')
+        }
+        if (!googlePronto) {
+          throw new Error('Google Drive não configurado no frontend.')
+        }
+        const accessToken = await solicitarTokenGoogle(GOOGLE_CLIENT_ID)
+        const { blob, name } = await baixarBackupDoDrive(accessToken, driveFileId)
+        const formData = new FormData()
+        formData.append('arquivo', blob, name)
+        response = await api.post('/admin/backup/importar/', formData, { timeout: 600000 })
+      } else {
+        if (!arquivo) {
+          throw new Error('Selecione um arquivo .tar.gz para importar.')
+        }
+        const formData = new FormData()
+        formData.append('arquivo', arquivo)
+        response = await api.post('/admin/backup/importar/', formData, { timeout: 600000 })
+      }
+
       const detail = response?.data?.detail || 'Backup importado com sucesso.'
       const media = response?.data?.media
       setMensagem(
@@ -68,6 +160,8 @@ function AdminBackupImport() {
           : detail
       )
       setArquivo(null)
+      setDriveFileId('')
+      setDriveFileName('')
       setShowImportConfirm(false)
     } catch (error) {
       setErro(formatApiError(error, 'Falha ao importar backup.'))
@@ -79,7 +173,12 @@ function AdminBackupImport() {
   const handleSubmitImport = (e) => {
     e.preventDefault()
     limparFeedback()
-    if (!arquivo) {
+    if (importOrigem === 'drive') {
+      if (!driveFileId) {
+        setErro('Selecione um arquivo .tar.gz no Google Drive.')
+        return
+      }
+    } else if (!arquivo) {
       setErro('Selecione um arquivo .tar.gz para importar.')
       return
     }
@@ -90,7 +189,9 @@ function AdminBackupImport() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Backup e Restore</h1>
-        <p className="text-gray-600">Ferramenta administrativa para backup completo do banco e dos arquivos de mídia.</p>
+        <p className="text-gray-600">
+          Download local ou Google Drive — cada operação pede login na conta Google de quem está usando.
+        </p>
       </div>
 
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
@@ -99,7 +200,7 @@ function AdminBackupImport() {
           <div>
             <p className="font-semibold text-amber-800">Atenção</p>
             <p className="text-sm text-amber-700">
-              O restore substitui os dados atuais (PostgreSQL + media). Faça download de um backup antes de importar.
+              O restore substitui os dados atuais (PostgreSQL + media). Faça backup antes de importar.
             </p>
           </div>
         </div>
@@ -116,6 +217,23 @@ function AdminBackupImport() {
         </div>
       )}
 
+      <div className="bg-white rounded-xl shadow-md p-6 space-y-3 border border-primary-100">
+        <div className="flex items-center gap-2">
+          <Cloud className="h-5 w-5 text-primary-600" />
+          <h2 className="text-lg font-semibold text-gray-900">Google Drive (login na hora)</h2>
+        </div>
+        <p className="text-sm text-gray-600">
+          Ao usar Drive, o Google pede login e permissão. O backup vai para <strong>a sua</strong> conta —
+          nada fica salvo no servidor.
+        </p>
+        {!googlePronto && (
+          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            Falta <code className="text-xs bg-amber-100 px-1 rounded">VITE_GOOGLE_CLIENT_ID</code> em{' '}
+            <code className="text-xs bg-amber-100 px-1 rounded">frontend/.env.local</code>.
+          </p>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-xl shadow-md p-6 space-y-4">
           <div className="flex items-center gap-2">
@@ -123,17 +241,28 @@ function AdminBackupImport() {
             <h2 className="text-lg font-semibold text-gray-900">Gerar backup completo</h2>
           </div>
           <p className="text-sm text-gray-600">
-            Gera um arquivo `.tar.gz` contendo dump do PostgreSQL e pasta de mídia.
+            Gera um `.tar.gz` com dump do PostgreSQL e pasta de mídia.
           </p>
-          <button
-            type="button"
-            onClick={handleExportar}
-            disabled={exportando || importando}
-            className="btn-primary inline-flex items-center gap-2 disabled:opacity-60"
-          >
-            {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <DatabaseBackup className="h-4 w-4" />}
-            {exportando ? 'Gerando backup...' : 'Gerar e baixar backup'}
-          </button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button
+              type="button"
+              onClick={handleExportarDownload}
+              disabled={exportando || importando}
+              className="btn-primary inline-flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <HardDrive className="h-4 w-4" />}
+              Baixar localmente
+            </button>
+            <button
+              type="button"
+              onClick={handleExportarDrive}
+              disabled={exportando || importando || !googlePronto}
+              className="btn-secondary inline-flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}
+              Salvar no meu Google Drive
+            </button>
+          </div>
         </div>
 
         <form onSubmit={handleSubmitImport} className="bg-white rounded-xl shadow-md p-6 space-y-4">
@@ -142,15 +271,66 @@ function AdminBackupImport() {
             <h2 className="text-lg font-semibold text-gray-900">Importar backup completo</h2>
           </div>
           <p className="text-sm text-gray-600">
-            Envie um backup `.tar.gz` gerado pelo sistema para restaurar banco e mídia.
+            Restaure um backup `.tar.gz` gerado pelo sistema (local ou Google Drive).
           </p>
-          <input
-            type="file"
-            accept=".tar.gz,.tgz,application/gzip"
-            onChange={(event) => setArquivo(event.target.files?.[0] || null)}
-            className="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"
-            disabled={importando || exportando}
-          />
+
+          <div className="flex flex-wrap gap-4 text-sm">
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="importOrigem"
+                value="local"
+                checked={importOrigem === 'local'}
+                onChange={() => {
+                  setImportOrigem('local')
+                  setDriveFileId('')
+                  setDriveFileName('')
+                }}
+                disabled={importando || exportando}
+              />
+              Arquivo local
+            </label>
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="importOrigem"
+                value="drive"
+                checked={importOrigem === 'drive'}
+                onChange={() => {
+                  setImportOrigem('drive')
+                  setArquivo(null)
+                }}
+                disabled={importando || exportando || !googlePronto}
+              />
+              Meu Google Drive
+            </label>
+          </div>
+
+          {importOrigem === 'local' ? (
+            <input
+              type="file"
+              accept=".tar.gz,.tgz,application/gzip"
+              onChange={(event) => setArquivo(event.target.files?.[0] || null)}
+              className="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"
+              disabled={importando || exportando}
+            />
+          ) : (
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={handleSelecionarArquivoDrive}
+                disabled={importando || exportando || !googlePronto}
+                className="btn-secondary inline-flex items-center gap-2 disabled:opacity-60"
+              >
+                <Cloud className="h-4 w-4" />
+                Escolher arquivo no meu Drive
+              </button>
+              {driveFileName && (
+                <p className="text-sm text-gray-600 truncate">Selecionado: {driveFileName}</p>
+              )}
+            </div>
+          )}
+
           <button
             type="submit"
             disabled={importando || exportando}
@@ -162,10 +342,29 @@ function AdminBackupImport() {
         </form>
       </div>
 
+      <DriveBrowseModal
+        open={driveModal.open}
+        mode={driveModal.mode}
+        accessToken={driveModal.accessToken}
+        onClose={() => {
+          setDriveModal((m) => ({ ...m, open: false }))
+          setExportando(false)
+        }}
+        onSelectFolder={concluirExportDrive}
+        onSelectFile={(arq) => {
+          setDriveFileId(arq.id)
+          setDriveFileName(arq.name)
+          setImportOrigem('drive')
+          setArquivo(null)
+          setDriveModal((m) => ({ ...m, open: false }))
+          setMensagem(`Arquivo selecionado no seu Drive: ${arq.name}`)
+        }}
+      />
+
       <ConfirmModal
         isOpen={showImportConfirm}
         onClose={() => !importando && setShowImportConfirm(false)}
-        onConfirm={handleImportar}
+        onConfirm={executarImportacao}
         type="danger"
         title="Confirmação de Restore"
         message="Este processo é irreversível e substituirá o banco PostgreSQL e os arquivos de mídia atuais."

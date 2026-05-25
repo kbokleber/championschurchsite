@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { useParams, Navigate, Link } from 'react-router-dom'
+import { useParams, Navigate } from 'react-router-dom'
 import { Plus, Edit, Pencil, X, Tag, ImageIcon, Trash2 } from 'lucide-react'
 import api from '../../services/api'
 import { formatApiError } from '../../services/api'
@@ -9,13 +9,6 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import AdminLojaSecaoNav from '../../components/AdminLojaSecaoNav'
 
 const CATEGORIAS = ['cantina', 'loja']
-
-function resumoNomesProdutos(prods, max = 4) {
-  if (!prods?.length) return '.'
-  const names = prods.slice(0, max).map((p) => `«${p.nome}»`)
-  const extra = prods.length > max ? ` e mais ${prods.length - max}` : ''
-  return ` (${names.join(', ')}${extra})`
-}
 
 function getEmptyForm(categoria) {
   return {
@@ -67,15 +60,10 @@ function AdminLojaProdutos() {
     if (!modal) setForm(getEmptyForm(area))
   }, [area, modal])
 
-  const outraArea = area === 'cantina' ? 'loja' : 'cantina'
-  const outraAreaLabel = outraArea === 'cantina' ? 'Cantina' : 'Loja (mercadoria)'
-
-  const { list, outrosNestaConta } = useMemo(() => {
+  const list = useMemo(() => {
     const raw = Array.isArray(allProducts) ? allProducts : []
-    const listFiltrada = raw.filter((p) => p.categoria === area)
-    const fora = raw.filter((p) => p.categoria === outraArea)
-    return { list: listFiltrada, outrosNestaConta: fora }
-  }, [allProducts, area, outraArea])
+    return raw.filter((p) => p.categoria === area)
+  }, [allProducts, area])
 
   const load = async () => {
     try {
@@ -299,32 +287,6 @@ function AdminLojaProdutos() {
         </div>
       )}
 
-      {!loadError && !list.length && outrosNestaConta.length > 0 && (
-        <div
-          className={`mb-4 rounded-2xl border p-4 sm:p-5 ${
-            isCantina
-              ? 'border-sky-200 bg-sky-50/80 text-sky-950'
-              : 'border-amber-200 bg-amber-50/80 text-amber-950'
-          }`}
-        >
-          <p className="font-semibold">Nada nesta seção, mas existem produtos em outro contexto</p>
-          <p className="mt-1.5 text-sm leading-relaxed opacity-95">
-            A lista de <strong>{areaLabel}</strong> só mostra o que tiver categoria
-            {area === 'cantina' ? ' «cantina»' : ' «loja»'}. Há {outrosNestaConta.length} produto(s) em{' '}
-            <strong>{outraAreaLabel}</strong>
-            {resumoNomesProdutos(outrosNestaConta)}
-          </p>
-          <Link
-            to={`/admin/loja/${outraArea}/produtos`}
-            className={`mt-3 inline-flex items-center gap-2 text-sm font-semibold underline ${
-              isCantina ? 'text-sky-800' : 'text-amber-800'
-            }`}
-          >
-            Abrir cadastro de produtos — {outraAreaLabel}
-          </Link>
-        </div>
-      )}
-
       {/* Mobile: cards */}
       <ul className="md:hidden space-y-3">
         {list.map((p) => {
@@ -404,12 +366,12 @@ function AdminLojaProdutos() {
           </li>
           )
         })}
-        {!list.length && !outrosNestaConta.length && !loadError && (
+        {!list.length && !loadError && (
           <li className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center text-gray-500 text-sm">
-            Nenhum produto em cantina nem em loja. Toque em &quot;Novo produto&quot; para adicionar.
+            Nenhum produto cadastrado {isCantina ? 'na cantina' : 'nesta loja'}. Toque em &quot;Novo produto&quot; para adicionar.
           </li>
         )}
-        {!list.length && !outrosNestaConta.length && loadError && (
+        {!list.length && loadError && (
           <li className="rounded-2xl border border-dashed border-red-100 bg-red-50/30 p-8 text-center text-red-800 text-sm">
             Corrija o erro acima e atualize a página, ou tente fazer login de novo.
           </li>
@@ -492,10 +454,10 @@ function AdminLojaProdutos() {
                 </td>
               </tr>
             ))}
-            {!list.length && !outrosNestaConta.length && !loadError && (
+            {!list.length && !loadError && (
               <tr>
                 <td colSpan={isCantina ? 7 : 6} className="p-6 text-center text-gray-500">
-                  Nenhum produto em cantina nem em loja. Clique em &quot;Novo produto&quot;.
+                  Nenhum produto cadastrado {isCantina ? 'na cantina' : 'nesta loja'}. Clique em &quot;Novo produto&quot;.
                 </td>
               </tr>
             )}

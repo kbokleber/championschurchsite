@@ -15,7 +15,7 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from eventos.views import _restaurar_media_de_backup, _safe_extract_tar
+from eventos.backup_ops import restaurar_media_de_backup, safe_extract_tar
 
 
 class Command(BaseCommand):
@@ -47,7 +47,7 @@ class Command(BaseCommand):
             extract_dir.mkdir(parents=True, exist_ok=True)
 
             with tarfile.open(inp, 'r:gz') as tar:
-                _safe_extract_tar(tar, extract_dir)
+                safe_extract_tar(tar, extract_dir)
 
             manifest_path = extract_dir / 'manifest.json'
             media_src = extract_dir / 'media'
@@ -72,7 +72,7 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.SUCCESS(f'[dry-run] {total} arquivo(s) seriam copiados.'))
                 return
 
-            stats = _restaurar_media_de_backup(media_src, media_root, prefixo=prefixo)
+            stats = restaurar_media_de_backup(media_src, media_root, prefixo=prefixo)
             self.stdout.write(self.style.SUCCESS(
                 f"Concluído: {stats['arquivos_copiados']} arquivo(s) → {stats['media_root']}"
             ))

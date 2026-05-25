@@ -96,11 +96,37 @@ export async function parseApiErrorDetail(error, fallback = 'Ocorreu um erro. Te
   return formatApiError(error, fallback)
 }
 
-export function resolveBackupApiBaseUrl() {
-  // Dev/prod publicados: sempre mesma origem (/api via Nginx) — funciona em dev e prod sem VITE_* extra
-  if (isProduction) return API_BASE_URL
+function isLocalFrontendHost() {
+  if (typeof window === 'undefined') return false
+  const host = window.location.hostname.toLowerCase()
+  return host === 'localhost' || host === '127.0.0.1'
+}
+
+function remoteBackupApiBase() {
   const backup = (import.meta.env.VITE_BACKUP_API_URL || import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
-  return backup ? `${backup}/api` : API_BASE_URL
+  return backup ? `${backup}/api` : ''
+}
+
+/** Export de backup (exige PostgreSQL — pode apontar para dev remoto). */
+export function resolveBackupExportApiBaseUrl() {
+  if (isProduction) return API_BASE_URL
+  return remoteBackupApiBase() || API_BASE_URL
+}
+
+const LOCAL_BACKEND_API = (import.meta.env.VITE_LOCAL_API_URL || 'http://localhost:8000').replace(/\/+$/, '')
+
+/** Import de backup: em localhost sempre no backend local (SQLite), direto na :8000. */
+export function resolveBackupImportApiBaseUrl() {
+  if (isProduction) return API_BASE_URL
+  const importOverride = (import.meta.env.VITE_BACKUP_IMPORT_API_URL || '').replace(/\/+$/, '')
+  if (importOverride) return `${importOverride}/api`
+  if (isLocalFrontendHost()) return `${LOCAL_BACKEND_API}/api`
+  return remoteBackupApiBase() || API_BASE_URL
+}
+
+/** @deprecated use resolveBackupExportApiBaseUrl ou resolveBackupImportApiBaseUrl */
+export function resolveBackupApiBaseUrl() {
+  return resolveBackupExportApiBaseUrl()
 }
 
 // Interceptor para adicionar token de autenticação (apenas para rotas do admin)

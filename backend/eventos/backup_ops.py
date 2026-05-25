@@ -131,12 +131,97 @@ def restaurar_media_de_backup(media_src_path: Path, media_root: Path, *, prefixo
 
 
 def substituir_media_de_backup(media_src_path: Path, media_root: Path) -> dict:
-    """Substitui MEDIA_ROOT pelo conteúdo do backup (restore completo, não merge)."""
+    """Substitui MEDIA_ROOT pelo conteúdo do backup (restore completo, não merge).
+
+    Evita shutil.rmtree na raiz de MEDIA_ROOT — no Windows arquivos abertos pelo
+    runserver impedem apagar a pasta inteira e derrubam o import com PermissionError.
+    """
     media_root = Path(media_root).resolve()
-    if media_root.exists():
-        shutil.rmtree(media_root)
+    media_src_path = Path(media_src_path).resolve()
     media_root.mkdir(parents=True, exist_ok=True)
-    return restaurar_media_de_backup(media_src_path, media_root)
+
+    backup_files = {
+        p.relative_to(media_src_path)
+        for p in media_src_path.rglob('*')
+        if p.is_file()
+    }
+
+    copiados = 0
+    for rel in backup_files:
+        src = media_src_path / rel
+        dest = media_root / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
+        copiados += 1
+
+    removidos = 0
+    for dest in media_root.rglob('*'):
+        if not dest.is_file():
+            continue
+        if dest.relative_to(media_root) not in backup_files:
+            try:
+                dest.unlink()
+                removidos += 1
+            except OSError as exc:
+                logger.warning('Não foi possível remover arquivo órfão em media: %s (%s)', dest, exc)
+
+    for directory in sorted(
+        (p for p in media_root.rglob('*') if p.is_dir()),
+        key=lambda p: len(p.parts),
+        reverse=True,
+    ):
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+
+    loja_dir = media_root / 'loja' / 'produtos'
+    n_loja = sum(1 for _ in loja_dir.iterdir()) if loja_dir.is_dir() else 0
+    return {
+        'arquivos_copiados': copiados,
+        'arquivos_removidos': removidos,
+        'loja_produtos_no_disco': n_loja,
+        'media_root': str(media_root),
+    }
+
+
+def restaurar_sqlite_de_fixture(db_fixture_path: Path, sqlite_backup_path: Path) -> None:
+    """Restaura SQLite a partir do database.json do backup (dev local / Windows)."""
+    from django.core.management.base import CommandError
+
+    db_fixture_path = Path(db_fixture_path)
+    if not db_fixture_path.is_file():
+        raise ValueError('Backup não contém fixture JSON para restauração em SQLite.')
+
+    fixture_mb = db_fixture_path.stat().st_size / (1024 * 1024)
+    logger.info('Import SQLite: carregando fixture %.2f MB de %s', fixture_mb, db_fixture_path)
+
+    call_command('migrate', '--no-input', verbosity=0)
+
+    db_name = settings.DATABASES.get('default', {}).get('NAME')
+    if not db_name:
+        raise ValueError('Configuração SQLite inválida: DATABASES.default.NAME ausente.')
+    sqlite_db_path = Path(str(db_name))
+    connections['default'].close()
+    if sqlite_db_path.exists():
+        shutil.copy2(sqlite_db_path, sqlite_backup_path)
+
+    call_command('flush', '--no-input', verbosity=0)
+
+    try:
+        call_command('loaddata', str(db_fixture_path), verbosity=0)
+    except CommandError as exc:
+        msg = str(exc).strip()
+        hint = ''
+        lower = msg.lower()
+        if 'no such table' in lower:
+            hint = ' Atualize o código (git pull), rode "python manage.py migrate" e tente de novo.'
+        elif 'problem installing fixture' in lower or 'integrity' in lower:
+            hint = (
+                ' O backup pode ser de uma versão diferente do sistema. '
+                'Confirme que o backend local está na mesma versão do deploy de produção.'
+            )
+        raise ValueError(f'Falha ao carregar dados no SQLite.{hint} Detalhe: {msg}') from exc
 
 
 def regenerar_qrcodes_inscricoes_ausentes() -> dict:
@@ -279,40 +364,37 @@ def importar_backup_de_arquivo(backup_file: Path) -> dict:
                     raise ValueError('Backup sem arquivo database.dump para restauração PostgreSQL.')
                 env = os.environ.copy()
                 env['PGPASSWORD'] = cfg['password']
-                run_command(
-                    [
-                        'pg_restore',
-                        '--host', cfg['host'],
-                        '--port', cfg['port'],
-                        '--username', cfg['user'],
-                        '--dbname', cfg['db'],
-                        '--clean',
-                        '--if-exists',
-                        '--no-owner',
-                        '--no-privileges',
-                        str(db_dump_path),
-                    ],
-                    env=env,
-                )
+                try:
+                    run_command(
+                        [
+                            'pg_restore',
+                            '--host', cfg['host'],
+                            '--port', cfg['port'],
+                            '--username', cfg['user'],
+                            '--dbname', cfg['db'],
+                            '--clean',
+                            '--if-exists',
+                            '--no-owner',
+                            '--no-privileges',
+                            str(db_dump_path),
+                        ],
+                        env=env,
+                    )
+                except RuntimeError as exc:
+                    raise ValueError(f'Falha ao restaurar PostgreSQL: {exc}') from exc
             elif engine_kind == 'sqlite':
                 fixture_file_name = manifest.get('database_fixture_file') or 'database.json'
                 db_fixture_from_manifest = extract_dir / fixture_file_name
-                if not db_fixture_from_manifest.exists():
-                    raise ValueError('Backup não contém fixture JSON para restauração em SQLite.')
-                db_name = settings.DATABASES.get('default', {}).get('NAME')
-                if not db_name:
-                    raise ValueError('Configuração SQLite inválida: DATABASES.default.NAME ausente.')
-                sqlite_db_path = Path(str(db_name))
-                connections['default'].close()
-                if sqlite_db_path.exists():
-                    shutil.copy2(sqlite_db_path, sqlite_backup_path)
-                call_command('flush', '--no-input', verbosity=0)
-                call_command('loaddata', str(db_fixture_from_manifest), verbosity=0)
+                restaurar_sqlite_de_fixture(db_fixture_from_manifest, sqlite_backup_path)
 
             if media_root.exists():
                 shutil.copytree(media_root, media_backup_path, dirs_exist_ok=True)
             media_stats = substituir_media_de_backup(media_src_path, media_root)
-            qrcode_stats = regenerar_qrcodes_inscricoes_ausentes()
+            try:
+                qrcode_stats = regenerar_qrcodes_inscricoes_ausentes()
+            except Exception as exc:
+                logger.warning('Regeneração parcial de QR Codes após import: %s', exc, exc_info=True)
+                qrcode_stats = {'regenerados': 0, 'aviso': str(exc)}
         except Exception:
             if engine_kind == 'sqlite' and sqlite_backup_path.exists():
                 try:
@@ -326,9 +408,7 @@ def importar_backup_de_arquivo(backup_file: Path) -> dict:
                     logger.error('Falha ao restaurar SQLite anterior após erro de import.', exc_info=True)
             if media_backup_path.exists():
                 try:
-                    if media_root.exists():
-                        shutil.rmtree(media_root)
-                    shutil.copytree(media_backup_path, media_root)
+                    substituir_media_de_backup(media_backup_path, media_root)
                 except Exception:
                     logger.error('Falha ao restaurar mídia anterior após erro de import.', exc_info=True)
             raise

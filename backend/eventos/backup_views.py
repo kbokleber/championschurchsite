@@ -83,6 +83,15 @@ def admin_backup_importar(request):
             result = importar_backup_de_arquivo(backup_file)
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except RuntimeError as exc:
+            logger.error('Erro ao importar backup (pg_restore/comando): %s', exc, exc_info=True)
+            return Response({'detail': f'Falha ao restaurar banco: {exc}'}, status=status.HTTP_400_BAD_REQUEST)
+        except OSError as exc:
+            logger.error('Erro ao importar backup (arquivo/mídia): %s', exc, exc_info=True)
+            return Response(
+                {'detail': f'Falha ao restaurar arquivos de mídia: {exc}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as exc:
             logger.error('Erro ao importar backup completo: %s', exc, exc_info=True)
             return Response({'detail': f'Falha ao importar backup: {exc}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react'
 import { DatabaseBackup, Upload, AlertTriangle, Loader2, Cloud, HardDrive } from 'lucide-react'
-import api, { formatApiError, parseApiErrorDetail, resolveBackupApiBaseUrl } from '../../services/api'
+import api, {
+  formatApiError,
+  parseApiErrorDetail,
+  resolveBackupExportApiBaseUrl,
+  resolveBackupImportApiBaseUrl,
+} from '../../services/api'
 import ConfirmModal from '../../components/ConfirmModal'
 import DriveBrowseModal from '../../components/admin/DriveBrowseModal'
 import {
@@ -15,12 +20,14 @@ import {
 } from '../../utils/googleDriveClient'
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
-const BACKUP_API_BASE = resolveBackupApiBaseUrl()
+const BACKUP_EXPORT_API_BASE = resolveBackupExportApiBaseUrl()
+const BACKUP_IMPORT_API_BASE = resolveBackupImportApiBaseUrl()
 const MAIN_API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 const BACKUP_API_URL = (import.meta.env.VITE_BACKUP_API_URL || import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 const backupViaServidorRemoto = Boolean(
   BACKUP_API_URL && MAIN_API_URL && BACKUP_API_URL !== MAIN_API_URL
 )
+const importViaBackendLocal = BACKUP_IMPORT_API_BASE.includes('127.0.0.1:8000') || BACKUP_IMPORT_API_BASE.includes('localhost:8000')
 
 function AdminBackupImport() {
   const [exportandoLocal, setExportandoLocal] = useState(false)
@@ -91,7 +98,7 @@ function AdminBackupImport() {
   const gerarBackupBlob = async () => {
     try {
       const response = await api.post('/admin/backup/exportar/', {}, {
-        baseURL: BACKUP_API_BASE,
+        baseURL: BACKUP_EXPORT_API_BASE,
         responseType: 'blob',
         timeout: 600000,
       })
@@ -223,7 +230,7 @@ function AdminBackupImport() {
         const formData = new FormData()
         formData.append('arquivo', blob, name)
         response = await api.post('/admin/backup/importar/', formData, {
-          baseURL: BACKUP_API_BASE,
+          baseURL: BACKUP_IMPORT_API_BASE,
           timeout: 600000,
         })
       } else {
@@ -233,7 +240,7 @@ function AdminBackupImport() {
         const formData = new FormData()
         formData.append('arquivo', arquivo)
         response = await api.post('/admin/backup/importar/', formData, {
-          baseURL: BACKUP_API_BASE,
+          baseURL: BACKUP_IMPORT_API_BASE,
           timeout: 600000,
         })
       }
@@ -250,7 +257,16 @@ function AdminBackupImport() {
       setDriveFileName('')
       setShowImportConfirm(false)
     } catch (error) {
-      setErro(formatApiError(error, 'Falha ao importar backup.'))
+      if (error.response?.status === 401 && importViaBackendLocal) {
+        setErro(
+          'O import usa o backend local (localhost:8000), mas você está logado no servidor remoto. '
+          + 'Comente VITE_API_URL em frontend/.env.local, reinicie o Vite, faça login de novo '
+          + '(se necessário: python manage.py createsuperuser no backend) e tente o import.'
+        )
+      } else {
+        setErro(formatApiError(error, 'Falha ao importar backup.'))
+      }
+      setShowImportConfirm(false)
     } finally {
       setImportando(false)
     }
@@ -286,8 +302,20 @@ function AdminBackupImport() {
           <div>
             <p className="font-semibold text-amber-800">Atenção</p>
             <p className="text-sm text-amber-700">
-              O restore substitui os dados atuais (PostgreSQL + media). Faça backup antes de importar.
+              O restore substitui os dados atuais (banco + media). Faça backup antes de importar.
             </p>
+            {import.meta.env.DEV && (
+              <p className="text-xs text-amber-600 mt-2">
+                Export: <code className="bg-amber-100 px-1 rounded">{BACKUP_EXPORT_API_BASE}</code>
+                {' · '}
+                Import: <code className="bg-amber-100 px-1 rounded">{BACKUP_IMPORT_API_BASE}</code>
+                {importViaBackendLocal
+                  ? ' — import no seu PC (localhost:8000). Faça login com usuário do backend local.'
+                  : BACKUP_API_URL
+                    ? ' — import remoto (VITE_API_URL). O restore altera esse servidor.'
+                    : ' — backend local. No Windows use CHURCH_USE_SQLITE=1 no backend/.env.'}
+              </p>
+            )}
           </div>
         </div>
       </div>

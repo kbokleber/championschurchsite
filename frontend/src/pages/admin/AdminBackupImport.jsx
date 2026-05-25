@@ -157,7 +157,9 @@ function AdminBackupImport() {
       const accessToken = await solicitarTokenGoogleComFallback(GOOGLE_CLIENT_ID, 'export')
       if (!accessToken) {
         redirecionando = true
-        setMensagem('Redirecionando para o login Google nesta aba...')
+        setMensagem(
+          'Abrindo login Google nesta aba. Se aparecer "app não verificado", clique em Avançado e continue.'
+        )
         return
       }
       await abrirDriveModalAposLogin(accessToken, 'export')
@@ -195,7 +197,9 @@ function AdminBackupImport() {
       const accessToken = await solicitarTokenGoogleComFallback(GOOGLE_CLIENT_ID, 'import')
       if (!accessToken) {
         redirecionando = true
-        setMensagem('Redirecionando para o login Google nesta aba...')
+        setMensagem(
+          'Abrindo login Google nesta aba. Se aparecer "app não verificado", clique em Avançado e continue.'
+        )
         return
       }
       await abrirDriveModalAposLogin(accessToken, 'import')

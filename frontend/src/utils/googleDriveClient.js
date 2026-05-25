@@ -15,7 +15,10 @@ export function formatGoogleOAuthError(message) {
   const msg = String(message || '').trim()
   const lower = msg.toLowerCase()
   if (lower.includes('popup') && lower.includes('closed')) {
-    return 'A janela do Google fechou antes de concluir o login. Aguarde — abriremos o login nesta aba.'
+    return (
+      'Login Google não concluído. Se apareceu "O Google não verificou este app", clique em Avançado e em ' +
+      '"Acessar… (não seguro)" para continuar, ou clique de novo — o login abrirá nesta aba.'
+    )
   }
   if (lower.includes('popup') && lower.includes('block')) {
     return 'O navegador bloqueou a janela do Google. Permita pop-ups para este site ou use o login nesta aba.'
@@ -233,7 +236,18 @@ export async function processarRetornoOAuthRedirect(clientId, { onToken, onError
   })
 }
 
+export function preferirOAuthRedirect() {
+  if (typeof window === 'undefined') return false
+  const host = window.location.hostname
+  return window.location.protocol === 'https:' && host !== 'localhost' && host !== '127.0.0.1'
+}
+
 export async function solicitarTokenGoogleComFallback(clientId, intent) {
+  if (preferirOAuthRedirect()) {
+    await iniciarTokenGoogleRedirect(clientId, intent)
+    return null
+  }
+
   try {
     return await solicitarTokenGooglePopup(clientId)
   } catch (error) {

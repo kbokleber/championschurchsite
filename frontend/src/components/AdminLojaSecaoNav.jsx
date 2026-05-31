@@ -88,11 +88,11 @@ function AdminLojaSecaoNav({ area }) {
                 </Link>
               </>
             )}
-            {current === 'cantina' && (
+            {hasArea && (
               <Link
-                to="/admin/loja/cantina/reservas"
+                to={`${base}/reservas`}
                 className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2.5 min-h-[44px] text-sm font-medium ${
-                  loc.pathname === '/admin/loja/cantina/reservas'
+                  loc.pathname === `${base}/reservas`
                     ? 'bg-gray-900 text-white'
                     : 'text-gray-600 border border-gray-200 hover:bg-gray-50'
                 }`}

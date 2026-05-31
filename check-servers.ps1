@@ -10,7 +10,7 @@ if ($backend) {
     Write-Host "  URL: http://localhost:8000" -ForegroundColor Gray
 } else {
     Write-Host "  [ERRO] Backend NAO esta rodando na porta 8000" -ForegroundColor Red
-    Write-Host "  Execute: cd backend; python manage.py runserver" -ForegroundColor Yellow
+    Write-Host "  Execute: cd backend; .\venv\Scripts\python.exe manage.py runserver" -ForegroundColor Yellow
 }
 
 Write-Host ""

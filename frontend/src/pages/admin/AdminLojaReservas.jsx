@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, useParams, Navigate } from 'react-router-dom'
 import {
   Calendar,
   Plus,
@@ -20,6 +20,7 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import api, { formatApiError } from '../../services/api'
+import { formatDateBR } from '../../services/utils'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import AdminLojaSecaoNav from '../../components/AdminLojaSecaoNav'
 
@@ -33,6 +34,86 @@ function hojeISODate() {
 
 function formatarPreco(valor) {
   return Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+/** Cores da UI por área (cantina = âmbar; loja = azul). Badges de status de linha ficam fixos. */
+function temaReserva(area) {
+  if (area === 'loja') {
+    return {
+      icon: 'text-sky-600',
+      btnPrimary: 'bg-sky-600 hover:bg-sky-700 text-white',
+      btnOutline:
+        'border-2 border-sky-500 bg-sky-50 text-sky-900 font-semibold hover:bg-sky-100',
+      btnSecondary:
+        'border-2 border-sky-500 bg-sky-50 text-sky-900 font-semibold hover:bg-sky-100',
+      pillNaoPagosActive: 'bg-sky-600 text-white border-sky-700',
+      pillNaoPagosIdle: 'bg-sky-50 text-sky-900 border-sky-300 hover:bg-sky-100',
+      form: 'border-sky-200 bg-sky-50/40',
+      formTitle: 'text-sky-950',
+      formSub: 'text-sky-950/80',
+      panel: 'border-sky-200/80',
+      panelTitle: 'text-sky-950',
+      listWrap: 'border-sky-300/60',
+      listTitle: 'text-sky-950',
+      listSummaryBtn: 'border-sky-200 bg-sky-50/50 hover:bg-sky-50',
+      chevron: 'text-sky-800',
+      textEmphasis: 'text-sky-950',
+      textSoft: 'text-sky-800/90',
+      textMuted: 'text-sky-900/80',
+      textLink: 'text-sky-800 hover:text-sky-900',
+      textAccent: 'text-sky-800',
+      qtyBtn: 'bg-sky-100 text-sky-900 hover:bg-sky-200',
+      listDivider: 'border-sky-100/80',
+      summarySection: 'border-sky-100/80 bg-sky-50/20',
+      summaryLabel: 'text-sky-900/80',
+      tableFooter: 'border-sky-200 bg-sky-50/50',
+      tableFooterText: 'text-sky-950',
+      addSection: 'border-sky-100 bg-sky-50/30',
+      addSectionTitle: 'text-sky-900/80',
+      rowPendente: 'bg-sky-50/20 hover:bg-sky-50/40',
+      msgEmpty: 'text-sky-900',
+      naoPagosCount: 'text-sky-900',
+      warnText: 'text-sky-900/90',
+      warnIcon: 'text-sky-600',
+    }
+  }
+  return {
+    icon: 'text-amber-600',
+    btnPrimary: 'bg-amber-600 hover:bg-amber-700 text-white',
+    btnOutline:
+      'border-2 border-amber-500 bg-amber-50 text-amber-900 font-semibold hover:bg-amber-100',
+    btnSecondary:
+      'border-2 border-amber-500 bg-amber-50 text-amber-900 font-semibold hover:bg-amber-100',
+    pillNaoPagosActive: 'bg-amber-600 text-white border-amber-700',
+    pillNaoPagosIdle: 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100',
+    form: 'border-amber-200 bg-amber-50/40',
+    formTitle: 'text-amber-950',
+    formSub: 'text-amber-950/80',
+    panel: 'border-amber-200/80',
+    panelTitle: 'text-amber-950',
+    listWrap: 'border-amber-300/60',
+    listTitle: 'text-amber-950',
+    listSummaryBtn: 'border-amber-200 bg-amber-50/50 hover:bg-amber-50',
+    chevron: 'text-amber-800',
+    textEmphasis: 'text-amber-950',
+    textSoft: 'text-amber-800/90',
+    textMuted: 'text-amber-900/80',
+    textLink: 'text-amber-800 hover:text-amber-900',
+    textAccent: 'text-amber-800',
+    qtyBtn: 'bg-amber-100 text-amber-900 hover:bg-amber-200',
+    listDivider: 'border-amber-100/80',
+    summarySection: 'border-amber-100/80 bg-amber-50/20',
+    summaryLabel: 'text-amber-900/80',
+    tableFooter: 'border-amber-200 bg-amber-50/50',
+    tableFooterText: 'text-amber-950',
+    addSection: 'border-amber-100 bg-amber-50/30',
+    addSectionTitle: 'text-amber-900/80',
+    rowPendente: 'bg-amber-50/20 hover:bg-amber-50/40',
+    msgEmpty: 'text-amber-900',
+    naoPagosCount: 'text-amber-900',
+    warnText: 'text-amber-900/90',
+    warnIcon: 'text-amber-600',
+  }
 }
 
 /** Exibe WhatsApp salvo (com DDI) de forma legível no formulário/modal. */
@@ -80,18 +161,18 @@ const STATUS = {
 }
 
 function reservaNaoPaga(r) {
-  const st = stReserva(r)
+  const st = stEfetivoReserva(r)
   return st === 'pendente' || st === 'em_cobranca'
 }
 
 function reservaPaga(r) {
-  return stReserva(r) === 'pago'
+  return stEfetivoReserva(r) === 'pago'
 }
 
 /** Situação do pedido (grupo por nome) para cor do cartão e badge. */
 function situacaoGrupo(itens) {
   if (!itens?.length) return 'vazio'
-  const relevantes = itens.filter((r) => stReserva(r) !== 'cancelada')
+  const relevantes = itens.filter((r) => stEfetivoReserva(r) !== 'cancelada')
   if (!relevantes.length) return 'cancelada'
   if (relevantes.every(reservaPaga)) return 'pago'
   return 'nao_pago'
@@ -104,7 +185,7 @@ function rotuloSituacaoGrupo(situacao) {
   return '—'
 }
 
-function classesCartaoGrupo(situacao) {
+function classesCartaoGrupo(situacao, area) {
   if (situacao === 'pago') {
     return {
       card: 'border-green-300 ring-1 ring-green-100',
@@ -119,6 +200,13 @@ function classesCartaoGrupo(situacao) {
       badge: 'bg-gray-500 text-white border-gray-600',
     }
   }
+  if (area === 'loja') {
+    return {
+      card: 'border-sky-300 ring-1 ring-sky-100',
+      header: 'bg-gradient-to-r from-sky-50 to-sky-50/30 border-sky-100',
+      badge: 'bg-amber-600 text-white border-amber-700',
+    }
+  }
   return {
     card: 'border-amber-300 ring-1 ring-amber-100',
     header: 'bg-gradient-to-r from-amber-50 to-amber-50/30 border-amber-100',
@@ -126,8 +214,8 @@ function classesCartaoGrupo(situacao) {
   }
 }
 
-function BadgeStatusLinha({ status }) {
-  const st = stReserva({ status })
+function BadgeStatusLinha({ status, venda }) {
+  const st = stEfetivoReserva({ status, venda })
   if (st === 'pago') {
     return (
       <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-green-100 text-green-800 border border-green-200">
@@ -167,6 +255,13 @@ function stReserva(r) {
   return String(r?.status || '')
     .trim()
     .toLowerCase()
+}
+
+/** em_cobranca sem venda vinculada = rascunho do PDV foi removido; tratar como pendente. */
+function stEfetivoReserva(r) {
+  const st = stReserva(r)
+  if (st === 'em_cobranca' && vendaIdReserva(r) == null) return 'pendente'
+  return st
 }
 
 /**
@@ -220,9 +315,15 @@ function agruparReservasPorPedido(list) {
   })
 }
 
-function AdminLojaReservas() {
+function AdminLojaReservas({ area }) {
   const navigate = useNavigate()
-  const [data, setData] = useState(hojeISODate())
+  const tm = useMemo(() => temaReserva(area), [area])
+  const areaLabel = area === 'loja' ? 'Loja' : 'Cantina'
+  const produtosPath = `/admin/loja/${area}/produtos`
+  const hoje = hojeISODate()
+  const [periodoInicio, setPeriodoInicio] = useState(hoje)
+  const [periodoFim, setPeriodoFim] = useState(hoje)
+  const [dataCulto, setDataCulto] = useState(hoje)
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [produtos, setProdutos] = useState([])
@@ -244,8 +345,16 @@ function AdminLojaReservas() {
   const [grupoTabelaExpandida, setGrupoTabelaExpandida] = useState({})
   const [addProduto, setAddProduto] = useState('')
   const [addQtd, setAddQtd] = useState('1')
+  /** Por chave do grupo: formulário para incluir item no pedido existente. */
+  const [addGrupoForm, setAddGrupoForm] = useState({})
+  const [addGrupoSaving, setAddGrupoSaving] = useState(null)
   /** '' | 'nao_pago' | 'pago' */
   const [fPagamento, setFPagamento] = useState('')
+
+  const periodoVariosDias = useMemo(
+    () => periodoInicio !== periodoFim,
+    [periodoInicio, periodoFim],
+  )
 
   const contagemPagamento = useMemo(() => {
     const grupos = agruparReservasPorPedido(Array.isArray(rows) ? rows : [])
@@ -284,12 +393,12 @@ function AdminLojaReservas() {
       Array.isArray(produtos)
         ? produtos.filter(
             (p) =>
-              p.categoria === 'cantina' &&
+              p.categoria === area &&
               p.ativo &&
               (!p.controla_estoque || Number(p.estoque) > 0),
           )
         : [],
-    [produtos],
+    [produtos, area],
   )
 
   /** Lista plana -> grupos por lote (cada confirmação de reserva é um pedido). */
@@ -316,23 +425,23 @@ function AdminLojaReservas() {
   /** Há linhas pendentes a ir ao PDV e nenhuma já em venda rascunho. */
   const grupoPodeCobrarPedidoNoPdv = (g) => {
     if (!g.itens.length) return false
-    const hasPend = g.itens.some((r) => stReserva(r) === 'pendente')
-    const hasFila = g.itens.some((r) => stReserva(r) === 'em_cobranca')
+    const hasPend = g.itens.some((r) => stEfetivoReserva(r) === 'pendente')
+    const hasFila = g.itens.some((r) => stEfetivoReserva(r) === 'em_cobranca')
     return hasPend && !hasFila
   }
 
   const grupoMistoPendenteEfila = (g) => {
     if (!g.itens.length) return false
-    const hasPend = g.itens.some((r) => stReserva(r) === 'pendente')
-    const hasFila = g.itens.some((r) => stReserva(r) === 'em_cobranca')
+    const hasPend = g.itens.some((r) => stEfetivoReserva(r) === 'pendente')
+    const hasFila = g.itens.some((r) => stEfetivoReserva(r) === 'em_cobranca')
     return hasPend && hasFila
   }
 
   /** Só linhas em cobrança (mesma venda); linhas pagas no cartão não impedem reabrir. */
   const grupoPodeReabrirMesmaVenda = (g) => {
-    const fila = g.itens.filter((r) => stReserva(r) === 'em_cobranca')
+    const fila = g.itens.filter((r) => stEfetivoReserva(r) === 'em_cobranca')
     if (!fila.length) return null
-    if (g.itens.some((r) => stReserva(r) === 'pendente')) return null
+    if (g.itens.some((r) => stEfetivoReserva(r) === 'pendente')) return null
     if (!fila.every((r) => vendaIdReserva(r) != null)) return null
     const ids = fila.map((r) => vendaIdReserva(r))
     const s = new Set(ids)
@@ -340,23 +449,50 @@ function AdminLojaReservas() {
     return ids[0]
   }
 
+  const grupoPodeAdicionarItens = (g) => {
+    if (!g.loteReserva || !g.itens.length) return false
+    if (grupoMistoPendenteEfila(g)) return false
+    const abertos = g.itens.filter((r) => {
+      const st = stEfetivoReserva(r)
+      return st === 'pendente' || st === 'em_cobranca'
+    })
+    if (!abertos.length) return false
+    const hasFila = abertos.some((r) => stEfetivoReserva(r) === 'em_cobranca')
+    if (hasFila) return grupoPodeReabrirMesmaVenda(g) != null
+    return abertos.some((r) => stEfetivoReserva(r) === 'pendente')
+  }
+
+  const getAddGrupoForm = (chave) => addGrupoForm[chave] || { produto: '', qtd: '1' }
+
+  const setAddGrupoField = (chave, field, value) => {
+    setAddGrupoForm((prev) => ({
+      ...prev,
+      [chave]: { ...(prev[chave] || { produto: '', qtd: '1' }), [field]: value },
+    }))
+  }
+
   const loadProdutos = useCallback(async () => {
     try {
       const { data: d } = await api.get('/loja/produtos/', {
-        params: { categoria: 'cantina', ativo: 'true', page_size: 500 },
+        params: { categoria: area, ativo: 'true', page_size: 500 },
       })
       setProdutos(d.results || d)
     } catch (e) {
       console.error(e)
       setProdutos([])
     }
-  }, [])
+  }, [area])
 
   const load = useCallback(async () => {
     try {
       setLoading(true)
+      let ini = periodoInicio
+      let fim = periodoFim
+      if (ini && fim && ini > fim) {
+        ;[ini, fim] = [fim, ini]
+      }
       const { data: d } = await api.get('/loja/reservas/', {
-        params: { data, categoria: 'cantina', page_size: 200 },
+        params: { data_inicio: ini, data_fim: fim, categoria: area, page_size: 200 },
       })
       setRows(d.results || d)
     } catch (e) {
@@ -365,7 +501,15 @@ function AdminLojaReservas() {
     } finally {
       setLoading(false)
     }
-  }, [data])
+  }, [periodoInicio, periodoFim, area])
+
+  useEffect(() => {
+    setCarrinho([])
+    setNomeReserva('')
+    setWhatsappReserva('')
+    setFPagamento('')
+    setGrupoTabelaExpandida({})
+  }, [area])
 
   useEffect(() => {
     loadProdutos()
@@ -378,7 +522,22 @@ function AdminLojaReservas() {
   useEffect(() => {
     setGrupoTabelaExpandida({})
     setCarrinhoListaExpandida(false)
-  }, [data, fPagamento])
+  }, [periodoInicio, periodoFim, fPagamento])
+
+  const onPeriodoInicioChange = (e) => {
+    const v = e.target.value
+    setPeriodoInicio(v)
+    if (v && periodoFim && v > periodoFim) setPeriodoFim(v)
+  }
+
+  const onPeriodoFimChange = (e) => {
+    const v = e.target.value
+    if (periodoInicio && v && v < periodoInicio) {
+      setPeriodoFim(periodoInicio)
+      return
+    }
+    setPeriodoFim(v)
+  }
 
   const carrinhoTotais = useMemo(() => {
     const n = carrinho.length
@@ -443,7 +602,7 @@ function AdminLojaReservas() {
     setSaving(true)
     try {
       await api.post('/loja/reservas/criar-lote/', {
-        data,
+        data: dataCulto,
         nome: nomeReserva.trim(),
         whatsapp: whatsappReserva.trim(),
         observacao: '',
@@ -474,8 +633,34 @@ function AdminLojaReservas() {
     }
   }
 
+  const onAdicionarItensGrupo = async (g) => {
+    if (!g.loteReserva) {
+      alert('Este pedido não permite incluir itens (lote ausente).')
+      return
+    }
+    const form = getAddGrupoForm(g.chave)
+    if (!form.produto) {
+      alert('Escolha um produto para incluir.')
+      return
+    }
+    const q = Math.max(1, parseInt(String(form.qtd).replace(/\D/g, ''), 10) || 1)
+    setAddGrupoSaving(g.chave)
+    try {
+      await api.post('/loja/reservas/adicionar-itens-lote/', {
+        lote_reserva: g.loteReserva,
+        itens: [{ produto: parseInt(form.produto, 10), quantidade: q }],
+      })
+      setAddGrupoForm((prev) => ({ ...prev, [g.chave]: { produto: '', qtd: '1' } }))
+      await load()
+    } catch (e) {
+      alert(formatApiError(e, 'Não foi possível incluir o item no pedido.'))
+    } finally {
+      setAddGrupoSaving(null)
+    }
+  }
+
   const onCancelarReserva = async (r) => {
-    const st = stReserva(r)
+    const st = stEfetivoReserva(r)
     if (st === 'pago' || st === 'cancelada') return
     const msg =
       st === 'em_cobranca'
@@ -499,7 +684,7 @@ function AdminLojaReservas() {
         mensagem:
           data?.mensagem ||
           data?.detalhe ||
-          'WhatsApp da cantina indisponível. Verifique em Configurações → WhatsApp (Loja/Cantina).',
+          'WhatsApp indisponível. Verifique em Configurações → WhatsApp (Loja/Cantina).',
       }
     } catch (e) {
       const d = e?.response?.data
@@ -509,14 +694,14 @@ function AdminLojaReservas() {
           d?.mensagem ||
           d?.error ||
           d?.detalhe ||
-          formatApiError(e, 'Não foi possível verificar o WhatsApp da cantina.'),
+          formatApiError(e, 'Não foi possível verificar o WhatsApp.'),
       }
     }
   }
 
   const abrirEnvioWhatsappReserva = async (g) => {
     const primeiraPendente = g.itens.find((r) =>
-      ['pendente', 'em_cobranca'].includes(stReserva(r)),
+      ['pendente', 'em_cobranca'].includes(stEfetivoReserva(r)),
     )
     if (!primeiraPendente) return
 
@@ -532,7 +717,7 @@ function AdminLojaReservas() {
       reservaId: primeiraPendente.id,
       nomeExibicao: g.nomeExibicao,
       itens: g.itens
-        .filter((r) => ['pendente', 'em_cobranca'].includes(stReserva(r)))
+        .filter((r) => ['pendente', 'em_cobranca'].includes(stEfetivoReserva(r)))
         .map((r) => ({
           produto_nome: r.produto_nome,
           quantidade: r.quantidade,
@@ -596,7 +781,7 @@ function AdminLojaReservas() {
   const onCobrarTudoNoGrupo = async (g) => {
     const reabre = grupoPodeReabrirMesmaVenda(g)
     if (reabre) {
-      const cat = g.itens[0] ? areaPdvReserva(g.itens[0]) : 'cantina'
+      const cat = g.itens[0] ? areaPdvReserva(g.itens[0]) : area
       navigate(`/admin/loja/${cat}/nova-venda?venda=${reabre}`)
       return
     }
@@ -609,13 +794,15 @@ function AdminLojaReservas() {
     }
     setCobrandoGrupoChave(g.chave)
     try {
+      const dataReserva = g.itens[0]?.data || dataCulto
       const { data: out } = await api.post('/loja/reservas/iniciar-cobranca-grupo/', {
-        data,
+        data: dataReserva,
         nome: g.nomeExibicao,
+        categoria: area,
         ...(g.loteReserva ? { lote_reserva: g.loteReserva } : {}),
       })
       const cat =
-        out.categoria && ['cantina', 'loja'].includes(String(out.categoria)) ? out.categoria : 'cantina'
+        out.categoria && ['cantina', 'loja'].includes(String(out.categoria)) ? out.categoria : area
       const path = out.path_pdv || `/admin/loja/${cat}/nova-venda?venda=${out.venda_id}`
       navigate(path)
     } catch (e) {
@@ -637,45 +824,44 @@ function AdminLojaReservas() {
           <Home className="h-4 w-4" /> Loja / cantina
         </Link>
       </div>
-      <AdminLojaSecaoNav area="cantina" />
+      <AdminLojaSecaoNav area={area} />
 
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Calendar className="w-7 h-7 text-amber-600" />
-            Reservas (cantina)
+            <Calendar className={`w-7 h-7 ${tm.icon}`} />
+            Reservas ({areaLabel.toLowerCase()})
           </h1>
           <p className="text-gray-600 text-sm mt-1 max-w-2xl">
             Monte a <strong>lista de itens</strong> (como no pedido), informe o nome e confirme. Itens com estoque seguem
             o limite do saldo do dia. A cobrança é <strong>por nome</strong> (itens ainda pendentes desta pessoa nesta
             data): use <strong>Cobrar no PDV</strong> no canto do cartão do pedido (nova cobrança ou retomar venda em rascunho).
-            Reservas canceladas somem desta lista (permanecem no banco). Por linha só
-            dá para <strong>excluir</strong> itens ainda <strong>não pagos</strong> (só reserva ou já na venda de rascunho). Cada
+            Reservas canceladas somem desta lista (permanecem no banco). Por linha dá para{' '}
+            <strong>incluir</strong> ou <strong>excluir</strong> itens ainda <strong>não pagos</strong> (só reserva ou
+            já na venda de rascunho). Cada
             <strong> pedido</strong> abaixo fica <strong>resumido</strong> ao abrir; toque em
             <strong> Expandir</strong> na lista de itens para ver a tabela.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <label className="text-sm text-gray-700">
-            Data do culto
+            Período — de
             <input
               type="date"
               className="mt-1 block rounded-xl border border-gray-200 px-3 py-2 text-base"
-              value={data}
-              onChange={(e) => setData(e.target.value)}
+              value={periodoInicio}
+              onChange={onPeriodoInicioChange}
             />
           </label>
           <label className="text-sm text-gray-700">
-            Pagamento
-            <select
-              className="mt-1 block rounded-xl border border-gray-200 px-3 py-2 text-base min-w-[10rem]"
-              value={fPagamento}
-              onChange={(e) => setFPagamento(e.target.value)}
-            >
-              <option value="">Todos ({contagemPagamento.total})</option>
-              <option value="nao_pago">Não pagos ({contagemPagamento.naoPagos})</option>
-              <option value="pago">Pagos ({contagemPagamento.pagos})</option>
-            </select>
+            até
+            <input
+              type="date"
+              className="mt-1 block rounded-xl border border-gray-200 px-3 py-2 text-base"
+              value={periodoFim}
+              min={periodoInicio || undefined}
+              onChange={onPeriodoFimChange}
+            />
           </label>
           <button
             type="button"
@@ -705,9 +891,7 @@ function AdminLojaReservas() {
             type="button"
             onClick={() => setFPagamento('nao_pago')}
             className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold border transition ${
-              fPagamento === 'nao_pago'
-                ? 'bg-amber-600 text-white border-amber-700'
-                : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+              fPagamento === 'nao_pago' ? tm.pillNaoPagosActive : tm.pillNaoPagosIdle
             }`}
           >
             <Clock className="w-4 h-4 shrink-0" aria-hidden />
@@ -732,16 +916,26 @@ function AdminLojaReservas() {
 
       <form
         onSubmit={onConfirmarReserva}
-        className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/40 p-4 space-y-4"
+        className={`mb-6 rounded-2xl border p-4 space-y-4 ${tm.form}`}
       >
-        <h2 className="font-semibold text-amber-950 flex items-center gap-2">
+        <h2 className={`font-semibold flex items-center gap-2 ${tm.formTitle}`}>
           <ShoppingCart className="w-5 h-5" /> Nova reserva (lista, como o pedido)
         </h2>
-        <p className="text-sm text-amber-950/80 -mt-2">
+        <p className={`text-sm -mt-2 ${tm.formSub}`}>
           A lista <strong>inicia resumida</strong> (1 ou mais itens); toque em <strong>Expandir</strong> para ver quantidade,
           remover linhas e ajustar.
         </p>
         <div className="grid gap-3 sm:grid-cols-2 max-w-2xl">
+          <label className="block text-sm font-medium text-gray-800 sm:col-span-2">
+            Data do culto
+            <input
+              type="date"
+              className="mt-1 w-full max-w-xs rounded-xl border border-gray-200 bg-white px-3 py-3 min-h-[48px] text-base"
+              value={dataCulto}
+              onChange={(e) => setDataCulto(e.target.value)}
+              required
+            />
+          </label>
           <label className="block text-sm font-medium text-gray-800">
             Nome (quem reserva)
             <input
@@ -768,8 +962,8 @@ function AdminLojaReservas() {
           </label>
         </div>
 
-        <div className="rounded-xl border border-amber-200/80 bg-white/80 p-3 space-y-3">
-          <div className="text-sm font-medium text-amber-950 flex items-center gap-2">
+        <div className={`rounded-xl border bg-white/80 p-3 space-y-3 ${tm.panel}`}>
+          <div className={`text-sm font-medium flex items-center gap-2 ${tm.panelTitle}`}>
             <Plus className="w-4 h-4" /> Adicionar itens
           </div>
           <div className="flex flex-col sm:flex-row gap-2 sm:items-end sm:flex-wrap">
@@ -802,7 +996,7 @@ function AdminLojaReservas() {
               type="button"
               onClick={adicionarAoCarrinho}
               disabled={!comReserva.length}
-              className="min-h-[48px] rounded-xl border-2 border-amber-500 bg-amber-50 text-amber-900 font-semibold px-4 hover:bg-amber-100 disabled:opacity-50 w-full sm:w-auto"
+              className={`min-h-[48px] rounded-xl px-4 disabled:opacity-50 w-full sm:w-auto ${tm.btnSecondary}`}
             >
               Adicionar à lista
             </button>
@@ -814,26 +1008,26 @@ function AdminLojaReservas() {
           const primeiro = carrinho[0]
           const resumoFechado = !carrinhoListaExpandida
           return (
-            <div className="rounded-xl border border-amber-300/60 bg-white overflow-hidden">
+            <div className={`rounded-xl border bg-white overflow-hidden ${tm.listWrap}`}>
               {resumoFechado && (
                 <div className="p-3">
-                  <div className="text-sm font-semibold text-amber-950">Sua lista (resumida)</div>
+                  <div className={`text-sm font-semibold ${tm.listTitle}`}>Sua lista (resumida)</div>
                   <button
                     type="button"
                     onClick={() => setCarrinhoListaExpandida(true)}
-                    className="mt-2 w-full text-left flex items-center gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50/50 hover:bg-amber-50 transition min-h-[52px] touch-manipulation"
+                    className={`mt-2 w-full text-left flex items-center gap-3 p-3 rounded-xl border transition min-h-[52px] touch-manipulation ${tm.listSummaryBtn}`}
                     aria-expanded="false"
                   >
-                    <ChevronRight className="h-5 w-5 text-amber-800 shrink-0" aria-hidden />
+                    <ChevronRight className={`h-5 w-5 shrink-0 ${tm.chevron}`} aria-hidden />
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm text-amber-950">
+                      <p className={`text-sm ${tm.textEmphasis}`}>
                         <span className="font-semibold">
                           {n} {n === 1 ? 'item' : 'itens'}
                         </span>
-                        <span className="text-amber-800/90"> · {un} un.</span>
+                        <span className={tm.textSoft}> · {un} un.</span>
                       </p>
                       <p
-                        className="text-xs text-amber-900/80 mt-0.5 truncate"
+                        className={`text-xs mt-0.5 truncate ${tm.textMuted}`}
                         title={carrinho.map((c) => c.produtoNome).join(', ')}
                       >
                         {primeiro?.produtoNome}
@@ -846,18 +1040,18 @@ function AdminLojaReservas() {
                           : ''}
                       </p>
                     </div>
-                    <span className="text-sm font-medium text-amber-800 shrink-0">Expandir</span>
+                    <span className={`text-sm font-medium shrink-0 ${tm.textAccent}`}>Expandir</span>
                   </button>
                 </div>
               )}
               {carrinhoListaExpandida && (
                 <div className="p-3">
                   <div className="flex items-center justify-between gap-2 mb-2">
-                    <div className="text-sm font-semibold text-amber-950">Sua lista</div>
+                    <div className={`text-sm font-semibold ${tm.listTitle}`}>Sua lista</div>
                     <button
                       type="button"
                       onClick={() => setCarrinhoListaExpandida(false)}
-                      className="inline-flex items-center gap-1.5 text-sm font-medium text-amber-800 hover:text-amber-900 py-1"
+                      className={`inline-flex items-center gap-1.5 text-sm font-medium py-1 ${tm.textLink}`}
                       aria-expanded="true"
                     >
                       <ChevronDown className="h-4 w-4" />
@@ -868,14 +1062,14 @@ function AdminLojaReservas() {
                     {carrinho.map((l) => (
                       <li
                         key={l.produtoId}
-                        className="flex flex-wrap items-center gap-2 py-1.5 border-b border-amber-100/80 last:border-0"
+                        className={`flex flex-wrap items-center gap-2 py-1.5 border-b last:border-0 ${tm.listDivider}`}
                       >
                         <span className="flex-1 min-w-[140px] font-medium text-gray-900">{l.produtoNome}</span>
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
                             onClick={() => incLinha(l.produtoId, -1)}
-                            className="min-h-10 min-w-10 flex items-center justify-center rounded-lg bg-amber-100 text-amber-900 hover:bg-amber-200"
+                            className={`min-h-10 min-w-10 flex items-center justify-center rounded-lg ${tm.qtyBtn}`}
                             aria-label="Diminuir"
                           >
                             <Minus className="w-4 h-4" />
@@ -890,7 +1084,7 @@ function AdminLojaReservas() {
                           <button
                             type="button"
                             onClick={() => incLinha(l.produtoId, 1)}
-                            className="min-h-10 min-w-10 flex items-center justify-center rounded-lg bg-amber-100 text-amber-900 hover:bg-amber-200"
+                            className={`min-h-10 min-w-10 flex items-center justify-center rounded-lg ${tm.qtyBtn}`}
                             aria-label="Aumentar"
                           >
                             <Plus className="w-4 h-4" />
@@ -916,15 +1110,15 @@ function AdminLojaReservas() {
         <button
           type="submit"
           disabled={saving || !comReserva.length || !carrinho.length}
-          className="w-full sm:w-auto min-h-[48px] rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold px-8 disabled:opacity-50"
+          className={`w-full sm:w-auto min-h-[48px] rounded-xl font-semibold px-8 disabled:opacity-50 ${tm.btnPrimary}`}
         >
           {saving ? 'Salvando…' : 'Confirmar reserva da lista'}
         </button>
         {!comReserva.length && !loading && (
-          <p className="text-sm text-amber-900">
-            Não há produtos da cantina disponíveis (com estoque ou sem controle de estoque). Cadastre em{' '}
-            <Link to="/admin/loja/cantina/produtos" className="underline font-medium">
-              Produtos da cantina
+          <p className={`text-sm ${tm.msgEmpty}`}>
+            Não há produtos da {areaLabel.toLowerCase()} disponíveis (com estoque ou sem controle de estoque). Cadastre em{' '}
+            <Link to={produtosPath} className="underline font-medium">
+              Produtos da {areaLabel.toLowerCase()}
             </Link>
             .
           </p>
@@ -938,13 +1132,13 @@ function AdminLojaReservas() {
           {!gruposPorPedido.length && (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-500 text-sm">
               {rows.length && fPagamento
-                ? 'Nenhuma reserva com este filtro nesta data.'
-                : 'Nenhuma reserva nesta data.'}
+                ? 'Nenhuma reserva com este filtro no período.'
+                : 'Nenhuma reserva neste período.'}
             </div>
           )}
           {gruposPorPedido.map((g) => {
             const situacao = situacaoGrupo(g.itens)
-            const estilo = classesCartaoGrupo(situacao)
+            const estilo = classesCartaoGrupo(situacao, area)
             const nPagos = g.itens.filter(reservaPaga).length
             const nNaoPagos = g.itens.filter(reservaNaoPaga).length
             const tabelaGrupoVisivel = isGrupoTabelaExpandida(g)
@@ -964,6 +1158,11 @@ function AdminLojaReservas() {
                       <h2 className="text-lg font-semibold text-gray-900 leading-tight">
                         {g.nomeExibicao}
                       </h2>
+                      {periodoVariosDias && g.itens[0]?.data && (
+                        <span className="text-xs font-medium text-gray-600 bg-white/80 border border-gray-200 rounded-full px-2 py-0.5">
+                          Culto: {formatDateBR(g.itens[0].data)}
+                        </span>
+                      )}
                       <span
                         className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold border shadow-sm ${estilo.badge}`}
                       >
@@ -1003,7 +1202,7 @@ function AdminLojaReservas() {
                         </span>
                       )}
                       {nNaoPagos > 0 && (
-                        <span className="text-amber-900 font-medium">
+                        <span className={`font-medium ${tm.naoPagosCount}`}>
                           {nNaoPagos} não pago{nNaoPagos !== 1 ? 's' : ''}
                         </span>
                       )}
@@ -1015,7 +1214,7 @@ function AdminLojaReservas() {
                         type="button"
                         onClick={() => onCobrarTudoNoGrupo(g)}
                         disabled={cobrandoGrupoChave === g.chave}
-                        className="inline-flex items-center justify-center gap-2 min-h-[44px] rounded-xl bg-amber-600 text-white font-semibold px-4 py-2.5 text-sm hover:bg-amber-700 disabled:opacity-50 w-full sm:w-auto"
+                        className={`inline-flex items-center justify-center gap-2 min-h-[44px] rounded-xl font-semibold px-4 py-2.5 text-sm disabled:opacity-50 w-full sm:w-auto ${tm.btnPrimary}`}
                       >
                         <Banknote className="w-4 h-4" />
                         {cobrandoGrupoChave === g.chave ? 'Abrindo…' : 'Cobrar no PDV'}
@@ -1025,14 +1224,14 @@ function AdminLojaReservas() {
                       <button
                         type="button"
                         onClick={() => onCobrarTudoNoGrupo(g)}
-                        className="inline-flex items-center justify-center gap-2 min-h-[44px] rounded-xl border-2 border-amber-500 bg-amber-50 text-amber-900 font-semibold px-4 py-2.5 text-sm hover:bg-amber-100 w-full sm:w-auto"
+                        className={`inline-flex items-center justify-center gap-2 min-h-[44px] rounded-xl px-4 py-2.5 text-sm w-full sm:w-auto ${tm.btnOutline}`}
                       >
                         <Banknote className="w-4 h-4" />
                         Cobrar no PDV
                       </button>
                     )}
                     {grupoMistoPendenteEfila(g) && (
-                      <p className="text-xs text-amber-900/90 max-w-md sm:text-right">
+                      <p className={`text-xs max-w-md sm:text-right ${tm.warnText}`}>
                         Há itens pendentes e itens já na venda. Conclua ou cancele a venda aberta no PDV; se precisar, use
                         a lixeira em linhas ainda pendentes.
                       </p>
@@ -1040,34 +1239,34 @@ function AdminLojaReservas() {
                   </div>
                 </div>
                 {resumoGrupoFechado && (
-                  <div className="p-3 border-b border-amber-100/80 bg-amber-50/20">
-                    <p className="text-xs font-medium text-amber-900/80 mb-2">Itens do pedido (resumido)</p>
+                  <div className={`p-3 border-b ${tm.summarySection}`}>
+                    <p className={`text-xs font-medium mb-2 ${tm.summaryLabel}`}>Itens do pedido (resumido)</p>
                     <button
                       type="button"
                       onClick={() => setGrupoTabelaExpandidaChave(g, true)}
-                      className="w-full text-left flex items-center gap-3 p-3 rounded-xl border border-amber-200 bg-white hover:bg-amber-50/50 transition min-h-[52px] touch-manipulation"
+                      className={`w-full text-left flex items-center gap-3 p-3 rounded-xl border bg-white transition min-h-[52px] touch-manipulation ${tm.listSummaryBtn}`}
                       aria-expanded="false"
                     >
-                      <ChevronRight className="h-5 w-5 text-amber-800 shrink-0" aria-hidden />
+                      <ChevronRight className={`h-5 w-5 shrink-0 ${tm.chevron}`} aria-hidden />
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm text-amber-950">
+                        <p className={`text-sm ${tm.textEmphasis}`}>
                           <span className="font-semibold">
                             {nGr} {nGr === 1 ? 'item' : 'itens'}
                           </span>
-                          <span className="text-amber-800/90"> · {unGr} un.</span>
+                          <span className={tm.textSoft}> · {unGr} un.</span>
                         </p>
                         <p className="text-xs text-gray-600 mt-0.5 flex flex-wrap gap-x-2">
                           {nPagos > 0 && (
                             <span className="text-green-700 font-medium">{nPagos} pago{nPagos !== 1 ? 's' : ''}</span>
                           )}
                           {nNaoPagos > 0 && (
-                            <span className="text-amber-800 font-medium">
+                            <span className={`font-medium ${tm.textAccent}`}>
                               {nNaoPagos} não pago{nNaoPagos !== 1 ? 's' : ''}
                             </span>
                           )}
                         </p>
                         <p
-                          className="text-xs text-amber-900/80 mt-0.5 truncate"
+                          className={`text-xs mt-0.5 truncate ${tm.textMuted}`}
                           title={g.itens.map((r) => r.produto_nome).join(', ')}
                         >
                           {priGr}
@@ -1078,7 +1277,7 @@ function AdminLojaReservas() {
                             : ''}
                         </p>
                       </div>
-                      <span className="text-sm font-medium text-amber-800 shrink-0">Expandir</span>
+                      <span className={`text-sm font-medium shrink-0 ${tm.textAccent}`}>Expandir</span>
                     </button>
                   </div>
                 )}
@@ -1088,7 +1287,7 @@ function AdminLojaReservas() {
                       <button
                         type="button"
                         onClick={() => setGrupoTabelaExpandidaChave(g, false)}
-                        className="inline-flex items-center gap-1.5 text-sm font-medium text-amber-800 hover:text-amber-900 py-1"
+                        className={`inline-flex items-center gap-1.5 text-sm font-medium py-1 ${tm.textLink}`}
                         aria-expanded="true"
                       >
                         <ChevronDown className="h-4 w-4" />
@@ -1108,13 +1307,13 @@ function AdminLojaReservas() {
                       </thead>
                       <tbody>
                         {g.itens.map((r) => {
-                          const st = stReserva(r)
+                          const st = stEfetivoReserva(r)
                           const rowBg =
                             st === 'pago'
                               ? 'bg-green-50/40 hover:bg-green-50/70'
                               : st === 'em_cobranca'
                                 ? 'bg-sky-50/30 hover:bg-sky-50/50'
-                                : 'bg-amber-50/20 hover:bg-amber-50/40'
+                                : tm.rowPendente
                           return (
                           <tr key={r.id} className={`border-t border-gray-100 ${rowBg}`}>
                             <td className="p-2 pl-4 font-mono text-gray-500 tabular-nums">{r.id}</td>
@@ -1124,10 +1323,10 @@ function AdminLojaReservas() {
                               {formatarPreco(subtotalReserva(r))}
                             </td>
                             <td className="p-2">
-                              <BadgeStatusLinha status={r.status} />
+                              <BadgeStatusLinha status={r.status} venda={r.venda} />
                             </td>
                         <td className="p-2 pr-4 text-right whitespace-nowrap">
-                          {stReserva(r) === 'pendente' || stReserva(r) === 'em_cobranca' ? (
+                          {stEfetivoReserva(r) === 'pendente' || stEfetivoReserva(r) === 'em_cobranca' ? (
                             <button
                               type="button"
                               onClick={() => onCancelarReserva(r)}
@@ -1148,17 +1347,60 @@ function AdminLojaReservas() {
                         })}
                       </tbody>
                       <tfoot>
-                        <tr className="border-t-2 border-amber-200 bg-amber-50/50">
-                          <td className="p-2 pl-4 text-right font-semibold text-amber-950" colSpan={3}>
+                        <tr className={`border-t-2 ${tm.tableFooter}`}>
+                          <td className={`p-2 pl-4 text-right font-semibold ${tm.tableFooterText}`} colSpan={3}>
                             Total
                           </td>
-                          <td className="p-2 text-right font-bold text-amber-950 tabular-nums">
+                          <td className={`p-2 text-right font-bold tabular-nums ${tm.tableFooterText}`}>
                             {formatarPreco(totalGrupo)}
                           </td>
                           <td className="p-2" colSpan={2} />
                         </tr>
                       </tfoot>
                     </table>
+                    {grupoPodeAdicionarItens(g) && (
+                      <div className={`p-3 border-t ${tm.addSection}`}>
+                        <p className={`text-xs font-medium mb-2 flex items-center gap-1.5 ${tm.addSectionTitle}`}>
+                          <Plus className="w-3.5 h-3.5" aria-hidden />
+                          Incluir item no pedido
+                        </p>
+                        <div className="flex flex-col sm:flex-row gap-2 sm:items-end sm:flex-wrap">
+                          <label className="block text-sm text-gray-800 flex-1 min-w-[160px]">
+                            Produto
+                            <select
+                              className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 min-h-[44px]"
+                              value={getAddGrupoForm(g.chave).produto}
+                              onChange={(e) => setAddGrupoField(g.chave, 'produto', e.target.value)}
+                            >
+                              <option value="">Selecione…</option>
+                              {comReserva.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.nome} - {formatarPreco(p.preco)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="text-sm text-gray-800 w-full sm:w-24">
+                            Qtd
+                            <input
+                              type="number"
+                              min={1}
+                              className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 min-h-[44px] text-base"
+                              value={getAddGrupoForm(g.chave).qtd}
+                              onChange={(e) => setAddGrupoField(g.chave, 'qtd', e.target.value)}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => onAdicionarItensGrupo(g)}
+                            disabled={addGrupoSaving === g.chave || !comReserva.length}
+                            className={`min-h-[44px] rounded-xl font-semibold px-4 disabled:opacity-50 w-full sm:w-auto ${tm.btnPrimary}`}
+                          >
+                            {addGrupoSaving === g.chave ? 'Incluindo…' : 'Incluir no pedido'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1271,7 +1513,7 @@ function AdminLojaReservas() {
               id="whatsapp-aviso-titulo"
               className="text-base font-semibold text-gray-900 flex items-center gap-2"
             >
-              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" aria-hidden />
+              <AlertTriangle className={`w-5 h-5 shrink-0 ${tm.warnIcon}`} aria-hidden />
               WhatsApp indisponível
             </h3>
             <p className="text-sm text-gray-700 mt-3 leading-relaxed">{whatsappAviso.mensagem}</p>
@@ -1298,4 +1540,10 @@ function AdminLojaReservas() {
   )
 }
 
-export default AdminLojaReservas
+export default function AdminLojaReservasPage() {
+  const { area } = useParams()
+  if (area !== 'loja' && area !== 'cantina') {
+    return <Navigate to="/admin/loja/cantina/reservas" replace />
+  }
+  return <AdminLojaReservas area={area} />
+}

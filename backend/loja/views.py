@@ -49,7 +49,11 @@ from .estoque import (
 )
 from .cobranca import marcar_cobranca_venda_paga
 from .models import Produto, Venda, ItemVenda, CobrancaLoja, ReservaLoja, LojaAuditoria
-from .reservas import liberar_reservas_ao_cancelar_venda, marcar_reservas_venda_paga
+from .reservas import (
+    liberar_reservas_ao_cancelar_venda,
+    marcar_reservas_venda_paga,
+    reparar_reservas_em_cobranca_orfas,
+)
 from .serializers import (
     ProdutoSerializer,
     VendaListSerializer,
@@ -60,6 +64,7 @@ from .serializers import (
     LojaAuditoriaSerializer,
     ReservaLojaListSerializer,
     ReservaLojaCreateSerializer,
+    ReservaLojaAdicionarItensLoteSerializer,
     ReservaLojaLoteSerializer,
 )
 logger = logging.getLogger(__name__)
@@ -101,6 +106,17 @@ def _categoria_principal_venda(venda):
     if categorias == {'loja'}:
         return 'loja'
     return 'mista'
+
+
+def _categoria_pdv_reservas(reservas) -> str:
+    """PDV da cantina ou da loja conforme os produtos do pedido."""
+    cats = set()
+    for r in reservas:
+        if r.produto_id and r.produto and r.produto.categoria in ('cantina', 'loja'):
+            cats.add(r.produto.categoria)
+    if cats == {'loja'}:
+        return 'loja'
+    return 'cantina'
 
 
 def _titulo_venda_mp(venda):
@@ -572,8 +588,30 @@ class ReservaLojaViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = ReservaLoja.objects.all().select_related('produto', 'venda', 'criado_por')
         d = self.request.query_params.get('data')
+        d_ini = self.request.query_params.get('data_inicio')
+        d_fim = self.request.query_params.get('data_fim')
+
+        def _parse_date(raw):
+            if not raw:
+                return None
+            try:
+                if isinstance(raw, date):
+                    return raw
+                return date.fromisoformat(str(raw)[:10])
+            except ValueError:
+                return None
+
         if d:
-            qs = qs.filter(data=d)
+            parsed = _parse_date(d)
+            if parsed:
+                qs = qs.filter(data=parsed)
+        else:
+            di = _parse_date(d_ini)
+            df = _parse_date(d_fim)
+            if di:
+                qs = qs.filter(data__gte=di)
+            if df:
+                qs = qs.filter(data__lte=df)
         pid = self.request.query_params.get('produto')
         if pid and str(pid).isdigit():
             qs = qs.filter(produto_id=int(pid))
@@ -587,11 +625,17 @@ class ReservaLojaViewSet(viewsets.ModelViewSet):
         qs = qs.exclude(status='cancelada')
         return qs.order_by('data', 'nome', 'id')
 
+    def list(self, request, *args, **kwargs):
+        reparar_reservas_em_cobranca_orfas()
+        return super().list(request, *args, **kwargs)
+
     def get_serializer_class(self):
         if self.action == 'create':
             return ReservaLojaCreateSerializer
         if self.action == 'criar_lote':
             return ReservaLojaLoteSerializer
+        if self.action == 'adicionar_itens_lote':
+            return ReservaLojaAdicionarItensLoteSerializer
         return ReservaLojaListSerializer
 
     def get_serializer_context(self):
@@ -640,6 +684,100 @@ class ReservaLojaViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED,
         )
 
+    @action(detail=False, methods=['post'], url_path='adicionar-itens-lote')
+    def adicionar_itens_lote(self, request, *args, **kwargs):
+        """Inclui produtos em um pedido (lote) existente; sincroniza o PDV se já houver venda aberta."""
+        ser = ReservaLojaAdicionarItensLoteSerializer(
+            data=request.data, context=self.get_serializer_context()
+        )
+        ser.is_valid(raise_exception=True)
+        lote_raw = str(ser.validated_data['lote_reserva'])
+        linhas = ser.validated_data['itens']
+        reparar_reservas_em_cobranca_orfas()
+
+        base = (
+            ReservaLoja.objects.filter(lote_reserva=lote_raw)
+            .exclude(status='cancelada')
+            .select_related('produto', 'venda')
+        )
+        ref = base.order_by('id').first()
+        if not ref:
+            return Response({'error': 'Pedido não encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        ativos = list(base.order_by('id'))
+        pend = [r for r in ativos if r.status == 'pendente']
+        ec = [r for r in ativos if r.status == 'em_cobranca']
+        if pend and ec:
+            return Response(
+                {
+                    'error': (
+                        'Há itens pendentes e itens já na venda aberta no PDV. '
+                        'Conclua ou cancele a venda em rascunho antes de incluir mais itens.'
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not pend and not ec:
+            return Response(
+                {'error': 'Este pedido já está totalmente pago; crie uma nova reserva.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        venda_aberta = None
+        if ec:
+            vids = {r.venda_id for r in ec if r.venda_id}
+            if len(vids) != 1:
+                return Response(
+                    {'error': 'Reservas com vendas vinculadas conflitantes.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            venda_aberta = ec[0].venda
+            if not venda_aberta or venda_aberta.status not in ('rascunho', 'pendente_pagamento'):
+                return Response(
+                    {'error': 'A venda vinculada não está aberta. Verifique o histórico no PDV.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        obs = (ref.observacao or '').strip()
+        created = []
+        ctx = self.get_serializer_context()
+        try:
+            with transaction.atomic():
+                for line in linhas:
+                    child = ReservaLojaCreateSerializer(
+                        data={
+                            'produto': line['produto'],
+                            'data': ref.data,
+                            'nome': ref.nome,
+                            'whatsapp': ref.whatsapp or '',
+                            'lote_reserva': lote_raw,
+                            'quantidade': line['quantidade'],
+                            'observacao': obs,
+                        },
+                        context=ctx,
+                    )
+                    child.is_valid(raise_exception=True)
+                    r = child.save()
+                    if venda_aberta:
+                        r.status = 'em_cobranca'
+                        r.venda = venda_aberta
+                        r.save(update_fields=['status', 'venda'])
+                    created.append(r)
+                if venda_aberta:
+                    from .estoque_reserva import sincronizar_itens_venda_de_reservas
+
+                    sincronizar_itens_venda_de_reservas(venda_aberta)
+        except serializers.ValidationError as exc:
+            return Response(
+                exc.detail if hasattr(exc, 'detail') else str(exc),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            ReservaLojaListSerializer(created, many=True, context=ctx).data,
+            status=status.HTTP_201_CREATED,
+        )
+
     @action(detail=False, methods=['post'], url_path='iniciar-cobranca-grupo')
     def iniciar_cobranca_grupo(self, request, *args, **kwargs):
         """
@@ -649,9 +787,10 @@ class ReservaLojaViewSet(viewsets.ModelViewSet):
         d_raw = request.data.get('data')
         nome_in = (request.data.get('nome') or '').strip()
         lote_raw = (request.data.get('lote_reserva') or '').strip()
+        reparar_reservas_em_cobranca_orfas()
         if lote_raw:
             base = (
-                ReservaLoja.objects.filter(lote_reserva=lote_raw, produto__categoria='cantina')
+                ReservaLoja.objects.filter(lote_reserva=lote_raw)
                 .exclude(status__in=('pago', 'cancelada'))
                 .select_related('produto', 'venda')
             )
@@ -678,11 +817,14 @@ class ReservaLojaViewSet(viewsets.ModelViewSet):
             except ValueError:
                 return Response({'error': 'Data inválida. Use AAAA-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
             nlow = nome_in.lower()
+            cat_raw = (request.data.get('categoria') or '').strip()
             base = (
-                ReservaLoja.objects.filter(data=d, produto__categoria='cantina')
+                ReservaLoja.objects.filter(data=d)
                 .exclude(status__in=('pago', 'cancelada'))
                 .select_related('produto', 'venda')
             )
+            if cat_raw in ('cantina', 'loja'):
+                base = base.filter(produto__categoria=cat_raw)
             reservas = [r for r in base if (r.nome or '').strip().lower() == nlow]
             reservas.sort(key=lambda x: x.id)
             if not reservas:
@@ -716,7 +858,7 @@ class ReservaLojaViewSet(viewsets.ModelViewSet):
                     {'error': 'A venda vinculada não está aberta. Verifique o histórico.'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            categoria = 'cantina'
+            categoria = _categoria_pdv_reservas(ec)
             return Response(
                 {
                     'venda_id': v.id,
@@ -756,7 +898,7 @@ class ReservaLojaViewSet(viewsets.ModelViewSet):
                 r.venda = v
                 r.status = 'em_cobranca'
                 r.save(update_fields=['venda', 'status'])
-        categoria = 'cantina'
+        categoria = _categoria_pdv_reservas(pend)
         return Response(
             {
                 'venda_id': v.id,

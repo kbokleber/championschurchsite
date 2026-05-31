@@ -59,28 +59,18 @@ def soma_empenho_por_venda_cobranca(v: Venda) -> dict[int, int]:
 
 
 @transaction.atomic
-def excluir_reserva_cobranca_sincroniza_venda(reserva: ReservaLoja) -> None:
-    if reserva.status not in ('em_cobranca',) or not reserva.venda_id:
-        raise serializers.ValidationError('Apenas reservas "na fila" (venda rascunho) podem ser excluídas aqui.')
-    v_id = int(reserva.venda_id)
+def sincronizar_itens_venda_de_reservas(venda: Venda) -> None:
+    """Reconstrói o carrinho da venda rascunho a partir das reservas em cobrança vinculadas."""
+    v_id = int(venda.pk)
     v = Venda.objects.select_for_update().get(pk=v_id)
     if v.status not in ('rascunho', 'pendente_pagamento'):
         raise serializers.ValidationError('A venda não está aberta; use o fluxo do caixa se necessário.')
-    r = ReservaLoja.objects.select_for_update().get(pk=reserva.pk)
-    if r.status != 'em_cobranca' or int(r.venda_id or 0) != v_id:
-        raise serializers.ValidationError('Estado desatualizado. Atualize a página e tente de novo.')
-    devolver_empenho_reserva_se_aplicavel(r)
-    r = ReservaLoja.objects.get(pk=reserva.pk)
-    r.venda = None
-    r.status = 'cancelada'
-    r.save(update_fields=['venda', 'status'])
-    rest = list(
+    list(
         ReservaLoja.objects.filter(venda_id=v_id, status='em_cobranca').select_for_update()
     )
     need: dict[int, int] = defaultdict(int)
-    for o in rest:
+    for o in ReservaLoja.objects.filter(venda_id=v_id, status='em_cobranca'):
         need[int(o.produto_id)] += int(o.quantidade)
-    v = Venda.objects.select_for_update().get(pk=v_id)
     v.itens.all().delete()
     if not need:
         v.status = 'cancelado'
@@ -97,9 +87,26 @@ def excluir_reserva_cobranca_sincroniza_venda(reserva: ReservaLoja) -> None:
             quantidade=int(q),
             preco_unitario=prod.preco,
         )
-    v = Venda.objects.get(pk=v_id)
     v.recalcular_total()
     v.save(update_fields=['total'])
+
+
+@transaction.atomic
+def excluir_reserva_cobranca_sincroniza_venda(reserva: ReservaLoja) -> None:
+    if reserva.status not in ('em_cobranca',) or not reserva.venda_id:
+        raise serializers.ValidationError('Apenas reservas "na fila" (venda rascunho) podem ser excluídas aqui.')
+    v_id = int(reserva.venda_id)
+    Venda.objects.select_for_update().get(pk=v_id)
+    r = ReservaLoja.objects.select_for_update().get(pk=reserva.pk)
+    if r.status != 'em_cobranca' or int(r.venda_id or 0) != v_id:
+        raise serializers.ValidationError('Estado desatualizado. Atualize a página e tente de novo.')
+    devolver_empenho_reserva_se_aplicavel(r)
+    r = ReservaLoja.objects.get(pk=reserva.pk)
+    r.venda = None
+    r.status = 'cancelada'
+    r.save(update_fields=['venda', 'status'])
+    v = Venda.objects.get(pk=v_id)
+    sincronizar_itens_venda_de_reservas(v)
 
 
 def _need_from_itens_data(itens: List[dict]) -> dict[int, int]:

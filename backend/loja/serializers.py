@@ -281,10 +281,10 @@ class ReservaLojaCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'produto': 'Obrigatório.'})
         if not prod.ativo:
             raise serializers.ValidationError({'produto': 'Produto inativo.'})
-        if not prod.elegivel_reserva_cantina():
+        if not prod.elegivel_reserva():
             raise serializers.ValidationError(
                 {
-                    'produto': 'Reserva só para itens da cantina ativos, com estoque (se o item controla estoque) '
+                    'produto': 'Reserva só para itens da cantina ou loja ativos, com estoque (se o item controla estoque) '
                     'ou sem limite de estoque (venda aberta).',
                 }
             )
@@ -312,6 +312,29 @@ class ReservaLojaCreateSerializer(serializers.ModelSerializer):
 class ReservaLojaLoteItemSerializer(serializers.Serializer):
     produto = serializers.IntegerField(min_value=1)
     quantidade = serializers.IntegerField(min_value=1)
+
+
+class ReservaLojaAdicionarItensLoteSerializer(serializers.Serializer):
+    """Inclui itens em um pedido (lote) já existente."""
+
+    lote_reserva = serializers.UUIDField()
+    itens = ReservaLojaLoteItemSerializer(many=True)
+
+    def validate_itens(self, itens):
+        if not itens:
+            raise serializers.ValidationError('Inclua ao menos um item.')
+        return itens
+
+    def validate(self, attrs):
+        itens = attrs.get('itens') or []
+        merged = {}
+        for it in itens:
+            pid = it['produto']
+            merged[pid] = merged.get(pid, 0) + int(it['quantidade'])
+        attrs['itens'] = [
+            {'produto': pid, 'quantidade': q} for pid, q in sorted(merged.items(), key=lambda x: x[0])
+        ]
+        return attrs
 
 
 class ReservaLojaLoteSerializer(serializers.Serializer):

@@ -18,3 +18,19 @@ def liberar_reservas_ao_cancelar_venda(venda) -> int:
     return ReservaLoja.objects.filter(
         venda_id=venda.pk, status='em_cobranca',
     ).update(venda_id=None, status='pendente')
+
+
+def liberar_reservas_venda_excluida(venda) -> int:
+    """Antes de excluir a venda (FK SET_NULL): reservas voltam a pendentes."""
+    if venda is None or not venda.pk:
+        return 0
+    return ReservaLoja.objects.filter(
+        venda_id=venda.pk, status='em_cobranca',
+    ).update(venda_id=None, status='pendente')
+
+
+def reparar_reservas_em_cobranca_orfas() -> int:
+    """Reservas em cobrança sem venda (venda apagada no passado) voltam a pendentes."""
+    return ReservaLoja.objects.filter(
+        status='em_cobranca', venda__isnull=True,
+    ).update(status='pendente')

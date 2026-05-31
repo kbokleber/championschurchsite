@@ -664,10 +664,17 @@ function AdminLojaProdutos() {
                   )}
                 </div>
 
-                {isCantina && (
-                  <p className="sm:col-span-2 text-sm text-amber-900/80 rounded-xl border border-amber-100 bg-amber-50/50 px-4 py-3">
-                    <strong>Reservas no culto:</strong> qualquer item da cantina com estoque (usa o saldo como limite do
-                    dia) ou sem &quot;controlar estoque&quot; entra na lista de reservas. Nada a marcar aqui.
+                {(isCantina || area === 'loja') && (
+                  <p
+                    className={`sm:col-span-2 text-sm rounded-xl border px-4 py-3 ${
+                      isCantina
+                        ? 'text-amber-900/80 border-amber-100 bg-amber-50/50'
+                        : 'text-sky-900/80 border-sky-100 bg-sky-50/50'
+                    }`}
+                  >
+                    <strong>Reservas no culto:</strong> qualquer item {isCantina ? 'da cantina' : 'da loja'} com
+                    estoque (usa o saldo como limite do dia) ou sem &quot;controlar estoque&quot; entra na lista de
+                    reservas. Nada a marcar aqui.
                   </p>
                 )}
 

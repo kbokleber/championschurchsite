@@ -7,6 +7,7 @@ class LojaConfig(AppConfig):
     verbose_name = 'Loja / Cantina'
 
     def ready(self):
+        import loja.signals  # noqa: F401
         # Permite que ImageField trate arquivos HEIC/HEIF (fotos comuns do iPhone)
         try:
             import pillow_heif

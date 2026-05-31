@@ -52,12 +52,18 @@ function AdminLojaHub() {
         </Link>
       </div>
 
-      <div className="mt-8 flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center max-w-md mx-auto sm:max-w-none w-full">
+      <div className="mt-8 flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center max-w-md mx-auto sm:max-w-none w-full flex-wrap">
         <Link
           to="/admin/loja/cantina/reservas"
-          className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50/50 px-4 py-3.5 text-sm font-medium text-amber-950 shadow-sm hover:bg-amber-50 min-h-[48px] touch-manipulation"
+          className="flex-1 min-w-[140px] flex items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50/50 px-4 py-3.5 text-sm font-medium text-amber-950 shadow-sm hover:bg-amber-50 min-h-[48px] touch-manipulation"
         >
           Reservas (cantina)
+        </Link>
+        <Link
+          to="/admin/loja/loja/reservas"
+          className="flex-1 min-w-[140px] flex items-center justify-center gap-2 rounded-xl border border-sky-200 bg-sky-50/50 px-4 py-3.5 text-sm font-medium text-sky-950 shadow-sm hover:bg-sky-50 min-h-[48px] touch-manipulation"
+        >
+          Reservas (loja)
         </Link>
         <Link
           to="/admin/loja/vendas"

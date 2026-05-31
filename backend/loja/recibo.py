@@ -439,12 +439,17 @@ def enviar_lembrete_reserva_whatsapp(request, reserva_id: int):
     nome_destino = nome_input or nome_grupo
     primeiro_nome = nome_destino.split()[0] if nome_destino else ''
 
+    local_retirada = 'cantina'
+    if reserva.produto and reserva.produto.categoria == 'loja':
+        local_retirada = 'loja'
+
     contexto = {
         'nome_saudacao': f', {primeiro_nome}' if primeiro_nome else '',
         'nome_igreja': (config.nome_igreja or 'Champions Church').strip(),
         'nome': nome_destino,
         'itens': itens_resumo or 'sua reserva',
         'data': _formatar_data_br(reserva.data),
+        'local_retirada': local_retirada,
     }
 
     template = (getattr(config, 'wa_msg_reserva_loja', '') or '').strip()
@@ -452,7 +457,7 @@ def enviar_lembrete_reserva_whatsapp(request, reserva_id: int):
         template = (
             "Olá{nome_saudacao}! Aqui é da {nome_igreja}.\n\n"
             "Existe uma reserva em nome de {nome} para o dia {data}: {itens}.\n"
-            "Passe na cantina para retirar e pagar quando puder. Obrigado!"
+            "Passe na {local_retirada} para retirar e pagar quando puder. Obrigado!"
         )
     mensagem = template
     for chave, valor in contexto.items():

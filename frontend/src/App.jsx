@@ -276,7 +276,7 @@ function App() {
             <AdminLayout><AdminLojaPDV /></AdminLayout>
           </ProtectedRoute>
         } />
-        <Route path="/admin/loja/cantina/reservas" element={
+        <Route path="/admin/loja/:area/reservas" element={
           <ProtectedRoute>
             <AdminLayout><AdminLojaReservas /></AdminLayout>
           </ProtectedRoute>

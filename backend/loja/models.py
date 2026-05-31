@@ -72,13 +72,17 @@ class Produto(models.Model):
             self.segmento_cantina = 'comida'
         super().save(*args, **kwargs)
 
-    def elegivel_reserva_cantina(self) -> bool:
-        """Reserva: só cantina ativa; com estoque controlado precisa de saldo > 0, senão (sem controle) liberado."""
-        if self.categoria != 'cantina' or not self.ativo:
+    def elegivel_reserva(self) -> bool:
+        """Reserva: cantina ou loja ativa; com estoque controlado precisa de saldo > 0."""
+        if self.categoria not in ('cantina', 'loja') or not self.ativo:
             return False
         if self.controla_estoque:
             return self.estoque > 0
         return True
+
+    def elegivel_reserva_cantina(self) -> bool:
+        """Compatibilidade: mesma regra de elegivel_reserva (cantina e loja)."""
+        return self.elegivel_reserva()
 
     def limite_unidades_reserva_por_dia(self):
         """Soma máx. de unidades reserváveis no dia, ou None (sem teto) se não controla estoque."""

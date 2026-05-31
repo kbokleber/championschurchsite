@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from django.db import connection
 from django.utils import timezone
 
 from .backup_ops import backup_host_label
@@ -88,6 +89,32 @@ def _coerce_field_value(field_name: str, value: Any) -> Any:
     return value
 
 
+def _nomes_campos_no_banco(model: type[ConfiguracaoSite]) -> frozenset[str]:
+    """Campos do model cuja coluna já existe no PostgreSQL/SQLite (evita erro após deploy sem migrate)."""
+    table = model._meta.db_table
+    with connection.cursor() as cursor:
+        description = connection.introspection.get_table_description(cursor, table)
+    colunas = {row.name for row in description}
+    return frozenset(
+        field.name
+        for field in model._meta.local_concrete_fields
+        if field.column in colunas
+    )
+
+
+def _carregar_config_para_import(campos_no_banco: frozenset[str]) -> ConfiguracaoSite:
+    """Carrega ConfiguracaoSite sem colunas que ainda não existem no banco (deploy antes do migrate)."""
+    campos_query = sorted(campos_no_banco - {'id'})
+    if not campos_query:
+        raise ValueError('Tabela de configuração não encontrada no banco.')
+    try:
+        return ConfiguracaoSite.objects.only(*campos_query).get(pk=1)
+    except ConfiguracaoSite.DoesNotExist:
+        raise ValueError(
+            'Configuração do site (pk=1) não existe. Salve as configurações no admin ou rode migrate.'
+        )
+
+
 def exportar_config_integracoes(host_header: str) -> tuple[bytes, str]:
     config = ConfiguracaoSite.get_config()
     host_label = backup_host_label(host_header)
@@ -133,26 +160,51 @@ def importar_config_integracoes(payload: dict) -> dict:
     if unknown_fields:
         raise ValueError(f'Campos desconhecidos em "fields": {", ".join(sorted(unknown_fields))}.')
 
-    config = ConfiguracaoSite.get_config()
+    campos_no_banco = _nomes_campos_no_banco(ConfiguracaoSite)
+    config = _carregar_config_para_import(campos_no_banco)
     campos_aplicados: list[str] = []
     campos_ignorados: list[str] = []
+    campos_aguardando_migracao: list[str] = []
 
     for name in INTEGRATION_FIELD_NAMES:
         if name not in fields:
             campos_ignorados.append(name)
             continue
+        if name not in campos_no_banco:
+            campos_aguardando_migracao.append(name)
+            continue
         setattr(config, name, _coerce_field_value(name, fields[name]))
         campos_aplicados.append(name)
+
+    if not campos_aplicados:
+        if campos_aguardando_migracao:
+            pendentes = ', '.join(campos_aguardando_migracao)
+            raise ValueError(
+                'O banco deste ambiente está desatualizado (migration pendente). '
+                f'Execute python manage.py migrate no servidor e tente novamente. '
+                f'Campos pendentes: {pendentes}.'
+            )
+        raise ValueError('Nenhum campo do JSON pôde ser importado.')
 
     if config.mp_ativo and not config.mp_pix_habilitado and not config.mp_cartao_habilitado:
         raise ValueError('Com o Mercado Pago ativo, habilite pelo menos PIX ou cartão.')
 
     config.save(update_fields=list(campos_aplicados) + ['atualizado_em'])
 
+    detail = f'Configurações de integração importadas ({len(campos_aplicados)} campos).'
+    if campos_aguardando_migracao:
+        pendentes = ', '.join(campos_aguardando_migracao)
+        detail += (
+            f' Aviso: {len(campos_aguardando_migracao)} campo(s) ignorado(s) porque a migration '
+            f'ainda não rodou neste banco ({pendentes}). Rode python manage.py migrate e importe '
+            'o JSON de novo para aplicar esses valores.'
+        )
+
     return {
-        'detail': f'Configurações de integração importadas ({len(campos_aplicados)} campos).',
+        'detail': detail,
         'campos_aplicados': campos_aplicados,
         'campos_ignorados': campos_ignorados,
+        'campos_aguardando_migracao': campos_aguardando_migracao,
         'host_origem': payload.get('host') or '',
         'exported_at': payload.get('exported_at') or '',
     }

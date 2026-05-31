@@ -341,8 +341,7 @@ function AdminBackupImport() {
         timeout: 60000,
       })
       const detail = response?.data?.detail || 'Configurações importadas com sucesso.'
-      const aplicados = response?.data?.campos_aplicados?.length
-      setMensagem(aplicados ? `${detail} (${aplicados} campos)` : detail)
+      setMensagem(detail)
       setArquivoConfig(null)
       setShowConfigImportConfirm(false)
     } catch (error) {

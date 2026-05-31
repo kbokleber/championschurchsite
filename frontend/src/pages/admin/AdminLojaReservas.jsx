@@ -188,6 +188,38 @@ function areaPdvReserva(r) {
   return a === 'loja' ? 'loja' : 'cantina'
 }
 
+/** Agrupa linhas de reserva por lote (cada confirmação = um pedido/pagamento). */
+function agruparReservasPorPedido(list) {
+  const map = new Map()
+  for (const r of list) {
+    const lote = (r.lote_reserva || '').toString().trim()
+    const chave = lote || `_id_${r.id}`
+    const raw = (r.nome || '').trim()
+    if (!map.has(chave)) {
+      map.set(chave, {
+        chave,
+        loteReserva: lote || null,
+        nomeExibicao: raw || '—',
+        whatsapp: '',
+        itens: [],
+      })
+    }
+    const g = map.get(chave)
+    if (raw && (g.nomeExibicao === '—' || !g.nomeExibicao)) g.nomeExibicao = raw
+    const w = (r.whatsapp || '').trim()
+    if (w && !g.whatsapp) g.whatsapp = w
+    g.itens.push(r)
+  }
+  for (const g of map.values()) {
+    g.itens.sort((a, b) => (a.id ?? 0) - (b.id ?? 0))
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    const idA = Math.min(...a.itens.map((r) => r.id ?? 0))
+    const idB = Math.min(...b.itens.map((r) => r.id ?? 0))
+    return idB - idA
+  })
+}
+
 function AdminLojaReservas() {
   const navigate = useNavigate()
   const [data, setData] = useState(hojeISODate())
@@ -216,25 +248,35 @@ function AdminLojaReservas() {
   const [fPagamento, setFPagamento] = useState('')
 
   const contagemPagamento = useMemo(() => {
-    const list = Array.isArray(rows) ? rows : []
+    const grupos = agruparReservasPorPedido(Array.isArray(rows) ? rows : [])
     let pagos = 0
     let naoPagos = 0
-    for (const r of list) {
-      if (reservaPaga(r)) pagos += 1
-      else if (reservaNaoPaga(r)) naoPagos += 1
+    for (const g of grupos) {
+      const situacao = situacaoGrupo(g.itens)
+      if (situacao === 'pago') pagos += 1
+      else if (situacao === 'nao_pago') naoPagos += 1
     }
-    return { pagos, naoPagos, total: list.length }
+    return { pagos, naoPagos, total: grupos.length }
   }, [rows])
 
   const rowsFiltradas = useMemo(() => {
     const list = Array.isArray(rows) ? rows : []
-    if (fPagamento === 'nao_pago') {
-      return list.filter(reservaNaoPaga)
-    }
-    if (fPagamento === 'pago') {
-      return list.filter(reservaPaga)
-    }
-    return list
+    if (!fPagamento) return list
+    const chavesOk = new Set(
+      agruparReservasPorPedido(list)
+        .filter((g) => {
+          const situacao = situacaoGrupo(g.itens)
+          if (fPagamento === 'pago') return situacao === 'pago'
+          if (fPagamento === 'nao_pago') return situacao === 'nao_pago'
+          return true
+        })
+        .map((g) => g.chave),
+    )
+    return list.filter((r) => {
+      const lote = (r.lote_reserva || '').toString().trim()
+      const chave = lote || `_id_${r.id}`
+      return chavesOk.has(chave)
+    })
   }, [rows, fPagamento])
 
   const comReserva = useMemo(
@@ -251,37 +293,7 @@ function AdminLojaReservas() {
   )
 
   /** Lista plana -> grupos por lote (cada confirmação de reserva é um pedido). */
-  const gruposPorPedido = useMemo(() => {
-    const list = rowsFiltradas
-    const map = new Map()
-    for (const r of list) {
-      const lote = (r.lote_reserva || '').toString().trim()
-      const chave = lote || `_id_${r.id}`
-      const raw = (r.nome || '').trim()
-      if (!map.has(chave)) {
-        map.set(chave, {
-          chave,
-          loteReserva: lote || null,
-          nomeExibicao: raw || '—',
-          whatsapp: '',
-          itens: [],
-        })
-      }
-      const g = map.get(chave)
-      if (raw && (g.nomeExibicao === '—' || !g.nomeExibicao)) g.nomeExibicao = raw
-      const w = (r.whatsapp || '').trim()
-      if (w && !g.whatsapp) g.whatsapp = w
-      g.itens.push(r)
-    }
-    for (const g of map.values()) {
-      g.itens.sort((a, b) => (a.id ?? 0) - (b.id ?? 0))
-    }
-    return Array.from(map.values()).sort((a, b) => {
-      const idA = Math.min(...a.itens.map((r) => r.id ?? 0))
-      const idB = Math.min(...b.itens.map((r) => r.id ?? 0))
-      return idB - idA
-    })
-  }, [rowsFiltradas])
+  const gruposPorPedido = useMemo(() => agruparReservasPorPedido(rowsFiltradas), [rowsFiltradas])
 
   const isGrupoTabelaExpandida = (g) => {
     if (!g.itens.length) return false

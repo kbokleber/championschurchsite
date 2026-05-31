@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { Calendar, MapPin, Users, Clock, ArrowLeft, Check, AlertCircle, Lock, DollarSign, QrCode, Download, Phone, Smartphone, UserPlus, X, UserCheck, ExternalLink, FileText } from 'lucide-react'
 import LoadingSpinner from '../components/LoadingSpinner'
@@ -8,27 +8,10 @@ import { useParticipante } from '../contexts/ParticipanteContext'
 import { useConfiguracao } from '../contexts/ConfiguracaoContext'
 import api from '../services/api'
 import { getMediaUrl, formatDateTimeBR } from '../services/utils'
-
-function validarCamposObrigatoriosQuestionario(formulario, respostasForm, arquivosForm) {
-  const novosErros = {}
-  if (!formulario?.campos?.length) return { ok: true, erros: novosErros }
-  for (const campo of formulario.campos) {
-    if (!campo.obrigatorio) continue
-    if (campo.tipo === 'arquivo') {
-      if (!arquivosForm[campo.id]) novosErros[campo.id] = 'Arquivo obrigatório.'
-    } else if (campo.tipo === 'boolean') {
-      const v = respostasForm[campo.id]
-      if (v !== true && v !== false) novosErros[campo.id] = 'Selecione Sim ou Não.'
-    } else {
-      const v = respostasForm[campo.id]
-      const vazio = v === undefined || v === null
-        || (typeof v === 'string' && !v.trim())
-        || (Array.isArray(v) && v.length === 0)
-      if (vazio) novosErros[campo.id] = 'Campo obrigatório.'
-    }
-  }
-  return { ok: Object.keys(novosErros).length === 0, erros: novosErros }
-}
+import {
+  validarQuestionarioInscricao,
+  eventoTemQuestionarioInscricao,
+} from '../utils/formularioInscricao'
 
 function EventoDetalhe() {
   const { id } = useParams()
@@ -65,15 +48,24 @@ function EventoDetalhe() {
   const [arquivosForm, setArquivosForm] = useState({})
   const [errosForm, setErrosForm] = useState({})
   const [showFormularioModal, setShowFormularioModal] = useState(false)
-  /** Questionário validado via "Salvar e continuar" no modal (impede pular a etapa). */
+  /** Questionário validado via "Salvar e continuar" no modal. */
   const [questionarioSalvo, setQuestionarioSalvo] = useState(false)
 
   const formularioDinamico = evento?.formulario_inscricao_detalhe
+  const temQuestionarioInscricao = eventoTemQuestionarioInscricao(evento)
+
+  const exigeQuestionarioInscricao = temQuestionarioInscricao && !somenteAdicionandoAcompanhantes
+
   const questionarioCompleto = useMemo(() => {
-    if (!formularioDinamico?.campos?.length || somenteAdicionandoAcompanhantes) return true
-    if (!questionarioSalvo) return false
-    return validarCamposObrigatoriosQuestionario(formularioDinamico, respostasForm, arquivosForm).ok
-  }, [formularioDinamico, somenteAdicionandoAcompanhantes, respostasForm, arquivosForm, questionarioSalvo])
+    if (!exigeQuestionarioInscricao) return true
+    return validarQuestionarioInscricao(
+      formularioDinamico,
+      respostasForm,
+      arquivosForm,
+      true,
+      questionarioSalvo
+    ).ok
+  }, [formularioDinamico, exigeQuestionarioInscricao, respostasForm, arquivosForm, questionarioSalvo])
 
   useEffect(() => {
     if (showFormularioModal) {
@@ -115,6 +107,23 @@ function EventoDetalhe() {
 
     fetchEvento()
   }, [id])
+
+  const abrirQuestionarioModal = useCallback((erros = {}) => {
+    setErrosForm(erros)
+    setShowFormularioModal(true)
+  }, [])
+
+  const mensagemErroQuestionario = useCallback((precisaSalvar) => (
+    precisaSalvar
+      ? 'Responda o questionário do evento e clique em "Salvar e continuar". Depois confirme a inscrição.'
+      : 'Preencha os campos obrigatórios (*) do questionário antes de confirmar a inscrição.'
+  ), [])
+
+  useEffect(() => {
+    if (jaInscrito && !somenteAdicionandoAcompanhantes) {
+      setShowFormularioModal(false)
+    }
+  }, [jaInscrito, somenteAdicionandoAcompanhantes])
   
   const normalizarListaCategorias = (data) => {
     if (Array.isArray(data)) return data
@@ -153,25 +162,14 @@ function EventoDetalhe() {
   const [buscandoParticipante, setBuscandoParticipante] = useState(false)
   const [participanteEncontrado, setParticipanteEncontrado] = useState(false)
 
-  /** Dados pessoais preenchidos + telefone com DDD e busca por telefone concluída (cadastro “reconhecido” ou não). */
+  /** Celular + nome preenchidos e busca por telefone concluída (acompanhantes já podem ter sido adicionados). */
   const identificacaoConcluida = useMemo(() => {
     const digitos = (formData.telefone || '').replace(/\D/g, '')
-    return (
-      digitos.length >= 10
-      && !!formData.nome?.trim()
-      && !buscandoParticipante
-    )
+    return digitos.length >= 10 && !!formData.nome?.trim() && !buscandoParticipante
   }, [formData.telefone, formData.nome, buscandoParticipante])
 
-  const temQuestionarioInscricao = !!(
-    formularioDinamico?.campos
-    && formularioDinamico.campos.length > 0
-  )
   const precisaQuestionarioPendente =
-    identificacaoConcluida
-    && temQuestionarioInscricao
-    && !questionarioCompleto
-    && !somenteAdicionandoAcompanhantes
+    identificacaoConcluida && exigeQuestionarioInscricao && !questionarioCompleto
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -344,22 +342,20 @@ function EventoDetalhe() {
       return
     }
 
-    // Penúltima etapa: abre o questionário no modal (antes do modal de confirmação da inscrição)
-    const formulario = evento?.formulario_inscricao_detalhe
-    if (
-      formulario
-      && Array.isArray(formulario.campos)
-      && formulario.campos.length > 0
-      && !somenteAdicionandoAcompanhantes
-      && !questionarioCompleto
-    ) {
-      setShowFormularioModal(true)
-      setInscricaoErro(
-        !questionarioSalvo
-          ? 'Responda o questionário do evento e clique em "Salvar e continuar". Depois confirme a inscrição.'
-          : 'Preencha os campos obrigatórios do questionário antes de confirmar a inscrição.'
+    // Questionário: só após identificação (celular, nome e acompanhantes se houver)
+    if (exigeQuestionarioInscricao && identificacaoConcluida) {
+      const validacao = validarQuestionarioInscricao(
+        formularioDinamico,
+        respostasForm,
+        arquivosForm,
+        true,
+        questionarioSalvo
       )
-      return
+      if (!validacao.ok) {
+        abrirQuestionarioModal(validacao.erros)
+        setInscricaoErro(mensagemErroQuestionario(validacao.precisaSalvar))
+        return
+      }
     }
 
     // Abrir modal de confirmação
@@ -371,17 +367,24 @@ function EventoDetalhe() {
     setInscricaoLoading(true)
     setInscricaoErro('')
 
-    const formularioGuard = evento?.formulario_inscricao_detalhe
-    const enviarQuestionario = formularioGuard
-      && Array.isArray(formularioGuard.campos)
-      && formularioGuard.campos.length > 0
-      && !somenteAdicionandoAcompanhantes
-    if (enviarQuestionario && !questionarioCompleto) {
-      setInscricaoLoading(false)
-      setShowConfirmModal(false)
-      setShowFormularioModal(true)
-      setInscricaoErro('Complete o questionário do evento antes de confirmar a inscrição.')
-      return
+    const formularioGuard = formularioDinamico
+    const enviarQuestionario = exigeQuestionarioInscricao
+    if (enviarQuestionario) {
+      const validacao = validarQuestionarioInscricao(
+        formularioGuard,
+        respostasForm,
+        arquivosForm,
+        true,
+        questionarioSalvo
+      )
+      if (!validacao.ok) {
+        setInscricaoLoading(false)
+        setShowConfirmModal(false)
+        setQuestionarioSalvo(false)
+        abrirQuestionarioModal(validacao.erros)
+        setInscricaoErro(mensagemErroQuestionario(validacao.precisaSalvar))
+        return
+      }
     }
 
     try {
@@ -391,10 +394,10 @@ function EventoDetalhe() {
         categoria_id: a.categoria_id || null
       }))
 
-      const formulario = evento?.formulario_inscricao_detalhe
-      const temFormulario = !!formulario && Array.isArray(formulario.campos) && formulario.campos.length > 0
+      const formulario = formularioDinamico
+      const temFormulario = enviarQuestionario
       const temArquivos = Object.keys(arquivosForm).length > 0
-      const enviarFormulario = temFormulario && !somenteAdicionandoAcompanhantes
+      const enviarFormulario = temFormulario
 
       let payload
       if (enviarFormulario && temArquivos) {
@@ -474,6 +477,10 @@ function EventoDetalhe() {
         }
       } else {
         setShowConfirmModal(false)
+        if (result.errors_por_campo && typeof result.errors_por_campo === 'object') {
+          setQuestionarioSalvo(false)
+          abrirQuestionarioModal(result.errors_por_campo)
+        }
         setInscricaoErro(result.error || 'Erro ao realizar inscrição.')
       }
     } catch (error) {
@@ -481,8 +488,8 @@ function EventoDetalhe() {
       setShowConfirmModal(false)
       const data = error.response?.data || {}
       if (data.errors_por_campo && typeof data.errors_por_campo === 'object') {
-        setErrosForm(data.errors_por_campo)
-        setShowFormularioModal(true)
+        setQuestionarioSalvo(false)
+        abrirQuestionarioModal(data.errors_por_campo)
         setInscricaoErro(data.error || 'Revise os campos do formulário e tente novamente.')
       } else if (data.error) {
         setInscricaoErro(data.error)
@@ -1179,34 +1186,33 @@ function EventoDetalhe() {
                             </div>
                           )}
 
-                          {/* Antes de confirmar a inscrição: acesso claro ao questionário (pós-inscrição só admins). */}
-                          {identificacaoConcluida
-                            && !somenteAdicionandoAcompanhantes
-                            && formularioDinamico
-                            && formularioDinamico.campos?.length > 0 && (
+                          {identificacaoConcluida && exigeQuestionarioInscricao && formularioDinamico && (
                             <div className="space-y-2 border-t border-gray-100 pt-4">
+                              <div className="p-3 bg-primary-50 border border-primary-200 rounded-lg text-sm text-primary-900">
+                                <p className="font-semibold flex items-center gap-2">
+                                  <FileText className="h-4 w-4 flex-shrink-0" />
+                                  Questionário: {formularioDinamico.nome}
+                                </p>
+                                <p className="text-xs text-primary-700 mt-1 leading-snug">
+                                  {questionarioCompleto
+                                    ? 'Questionário preenchido. Você pode revisar antes de confirmar.'
+                                    : 'Etapa obrigatória: abra o questionário, responda e clique em "Salvar e continuar".'}
+                                </p>
+                              </div>
                               <button
                                 type="button"
                                 onClick={() => {
                                   setInscricaoErro('')
-                                  setErrosForm({})
-                                  setShowFormularioModal(true)
+                                  abrirQuestionarioModal({})
                                 }}
                                 disabled={inscricaoLoading}
                                 className="w-full flex items-center justify-center gap-2 rounded-lg border-2 border-primary-600 bg-white px-4 py-2.5 text-sm font-semibold text-primary-800 shadow-sm hover:bg-primary-50 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 <FileText className="h-4 w-4 flex-shrink-0" />
-                                {questionarioSalvo
-                                  ? 'Voltar ao questionário do evento'
-                                  : 'Abrir questionário do evento'}
-                              </button>
-                              <p className="text-xs text-center text-gray-500 leading-snug">
                                 {questionarioCompleto
-                                  ? 'Revise ou altere as respostas a qualquer momento antes de confirmar a inscrição. Depois de enviada, você não poderá ver essas respostas aqui.'
-                                  : questionarioSalvo
-                                    ? 'Preencha os campos obrigatórios (*) do questionário para concluir a inscrição.'
-                                    : 'É obrigatório responder o questionário e clicar em "Salvar e continuar" antes de confirmar a inscrição.'}
-                              </p>
+                                  ? 'Revisar questionário do evento'
+                                  : 'Abrir questionário do evento *'}
+                              </button>
                             </div>
                           )}
 
@@ -1220,7 +1226,7 @@ function EventoDetalhe() {
                               : buscandoParticipante
                                 ? 'Verificando telefone…'
                                 : precisaQuestionarioPendente
-                                  ? 'Abrir questionário (etapa final)'
+                                  ? 'Abrir questionário (obrigatório)'
                                   : `Confirmar inscrição${totalPessoasInscricao > 0 ? ` (${totalPessoasInscricao} ${totalPessoasInscricao === 1 ? 'pessoa' : 'pessoas'})` : ''}`}
                           </button>
                         </form>
@@ -1303,7 +1309,7 @@ function EventoDetalhe() {
               </p>
             </div>
 
-            {temQuestionarioInscricao && !somenteAdicionandoAcompanhantes && (
+            {exigeQuestionarioInscricao && (
               <div className="pt-2 text-center border-t border-gray-200 mt-3">
                 <button
                   type="button"
@@ -1373,6 +1379,8 @@ function EventoDetalhe() {
                 onChange={(novosValores, novosArquivos) => {
                   setRespostasForm(novosValores)
                   setArquivosForm(novosArquivos)
+                  setQuestionarioSalvo(false)
+                  setErrosForm({})
                 }}
               />
             </div>
@@ -1396,17 +1404,20 @@ function EventoDetalhe() {
                     setShowFormularioModal(false)
                     return
                   }
-                  const { ok, erros: novosErros } = validarCamposObrigatoriosQuestionario(
+                  const validacao = validarQuestionarioInscricao(
                     formularioDinamico,
                     respostasForm,
-                    arquivosForm
+                    arquivosForm,
+                    false,
+                    questionarioSalvo
                   )
-                  if (!ok) {
-                    setErrosForm(novosErros)
+                  if (!validacao.ok) {
+                    setErrosForm(validacao.erros)
                     return
                   }
                   setQuestionarioSalvo(true)
                   setShowFormularioModal(false)
+                  setInscricaoErro('')
                 }}
                 className="w-full sm:w-auto order-1 sm:order-2 btn-primary"
               >

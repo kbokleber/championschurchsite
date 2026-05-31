@@ -190,36 +190,53 @@ export function ParticipanteProvider({ children }) {
   }
 
   const registrar = async (dados) => {
-    // Suporta payload JSON padrão OU FormData (para upload de arquivos do
-    // formulário dinâmico). Quando FormData, o axios define o Content-Type
-    // correto automaticamente.
     const tokenAtual = localStorage.getItem('participante_token')
     const isFormData = typeof FormData !== 'undefined' && dados instanceof FormData
     const headers = {}
     if (tokenAtual) {
-      // Não usar Authorization aqui, pois o backend admin (SimpleJWT) pode interceptar
-      // e rejeitar o token de participante antes de chegar na view.
       headers['X-Participante-Token'] = tokenAtual
     }
     if (isFormData) {
       headers['Content-Type'] = 'multipart/form-data'
     }
     const config = Object.keys(headers).length > 0 ? { headers } : undefined
-    const response = await api.post('/participante/registro/', dados, config)
-    if (response.data.success) {
-      const token = response.data.token
-      const p = response.data.participante
-      if (token) {
-        localStorage.setItem('participante_token', token)
-        setParticipante(p)
-        limparCacheIngressos()
-        await carregarPerfil(token, { isRefresh: true })
-      } else {
-        setParticipante(p || null)
+    try {
+      const response = await api.post('/participante/registro/', dados, config)
+      if (response.data.success) {
+        const token = response.data.token
+        const p = response.data.participante
+        if (token) {
+          localStorage.setItem('participante_token', token)
+          setParticipante(p)
+          limparCacheIngressos()
+          await carregarPerfil(token, { isRefresh: true })
+        } else {
+          setParticipante(p || null)
+        }
+        return { success: true, data: response.data }
       }
-      return { success: true, data: response.data }
+      return {
+        success: false,
+        error: response.data.error,
+        errors_por_campo: response.data.errors_por_campo,
+      }
+    } catch (err) {
+      const data = err.response?.data || {}
+      if (data.errors_por_campo && typeof data.errors_por_campo === 'object') {
+        return {
+          success: false,
+          error: data.error || 'Revise os campos do formulário.',
+          errors_por_campo: data.errors_por_campo,
+        }
+      }
+      const apiError = data.error
+      const msg = apiError
+        ? apiError
+        : err.response?.status === 401
+          ? 'Telefone ou senha incorretos.'
+          : 'Erro ao fazer login. Tente novamente.'
+      return { success: false, error: msg }
     }
-    return { success: false, error: response.data.error }
   }
 
   const logout = () => {

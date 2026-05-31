@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { AlertCircle, FileText, Paperclip } from 'lucide-react'
+import { isCampoObrigatorio } from '../utils/formularioInscricao'
 
 /**
  * FormularioDinamico
@@ -135,7 +136,7 @@ function CampoRenderer({
   const labelNode = (
     <label htmlFor={inputId} className="label">
       {campo.label}
-      {campo.obrigatorio && <span className="text-red-500 ml-1">*</span>}
+      {isCampoObrigatorio(campo) && <span className="text-red-500 ml-1">*</span>}
     </label>
   )
 
@@ -208,7 +209,7 @@ function CampoRenderer({
         <div>
           <p id={labelBooleanId} className="label mb-1.5">
             {campo.label}
-            {campo.obrigatorio && <span className="text-red-500 ml-1">*</span>}
+            {isCampoObrigatorio(campo) && <span className="text-red-500 ml-1">*</span>}
           </p>
           <div
             className={`flex flex-wrap gap-4 rounded-lg border px-3 py-2 ${

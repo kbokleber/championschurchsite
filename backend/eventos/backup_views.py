@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import tempfile
 from pathlib import Path
@@ -13,6 +14,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .backup_ops import gerar_backup_package, importar_backup_de_arquivo, validar_requisitos_backup
+from .config_snapshot_ops import exportar_config_integracoes, importar_config_integracoes
 from .models import Grupo
 
 logger = logging.getLogger(__name__)
@@ -96,4 +98,72 @@ def admin_backup_importar(request):
             logger.error('Erro ao importar backup completo: %s', exc, exc_info=True)
             return Response({'detail': f'Falha ao importar backup: {exc}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    return Response(result)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def admin_config_integracoes_exportar(request):
+    denied = _admin_exige_backup_import(request)
+    if denied:
+        return denied
+
+    try:
+        content_bytes, filename = exportar_config_integracoes(request.get_host())
+    except Exception as exc:
+        logger.error('Erro ao exportar config de integrações: %s', exc, exc_info=True)
+        return Response(
+            {'detail': f'Falha ao exportar configurações: {exc}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    logger.info(
+        'Config integrações exportada por user=%s host=%s',
+        request.user.pk,
+        request.get_host(),
+    )
+    response = HttpResponse(content_bytes, content_type='application/json; charset=utf-8')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def admin_config_integracoes_importar(request):
+    denied = _admin_exige_backup_import(request)
+    if denied:
+        return denied
+
+    arquivo = request.FILES.get('arquivo')
+    if not arquivo:
+        return Response({'detail': 'Arquivo JSON é obrigatório.'}, status=status.HTTP_400_BAD_REQUEST)
+    nome = (arquivo.name or '').lower()
+    if not nome.endswith('.json'):
+        return Response({'detail': 'Formato inválido. Envie um arquivo .json.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        raw = arquivo.read().decode('utf-8')
+        payload = json.loads(raw)
+    except UnicodeDecodeError:
+        return Response({'detail': 'Arquivo deve estar em UTF-8.'}, status=status.HTTP_400_BAD_REQUEST)
+    except json.JSONDecodeError as exc:
+        return Response({'detail': f'JSON inválido: {exc}'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        result = importar_config_integracoes(payload)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as exc:
+        logger.error('Erro ao importar config de integrações: %s', exc, exc_info=True)
+        return Response(
+            {'detail': f'Falha ao importar configurações: {exc}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    logger.info(
+        'Config integrações importada por user=%s campos=%s host_origem=%s',
+        request.user.pk,
+        len(result.get('campos_aplicados', [])),
+        result.get('host_origem', ''),
+    )
     return Response(result)

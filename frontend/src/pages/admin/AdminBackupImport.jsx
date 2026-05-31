@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { DatabaseBackup, Upload, AlertTriangle, Loader2, Cloud, HardDrive } from 'lucide-react'
+import { DatabaseBackup, Upload, AlertTriangle, Loader2, Cloud, HardDrive, Settings2, FileJson } from 'lucide-react'
 import api, {
   formatApiError,
   parseApiErrorDetail,
@@ -38,6 +38,10 @@ function AdminBackupImport() {
   const [mensagem, setMensagem] = useState(null)
   const [erro, setErro] = useState(null)
   const [showImportConfirm, setShowImportConfirm] = useState(false)
+  const [exportandoConfig, setExportandoConfig] = useState(false)
+  const [importandoConfig, setImportandoConfig] = useState(false)
+  const [arquivoConfig, setArquivoConfig] = useState(null)
+  const [showConfigImportConfirm, setShowConfigImportConfirm] = useState(false)
   const [importOrigem, setImportOrigem] = useState('local')
   const [driveFileId, setDriveFileId] = useState('')
   const [driveFileName, setDriveFileName] = useState('')
@@ -287,12 +291,92 @@ function AdminBackupImport() {
     setShowImportConfirm(true)
   }
 
+  const handleExportarConfigIntegracoes = async () => {
+    limparFeedback()
+    setExportandoConfig(true)
+    try {
+      const response = await api.get('/admin/config/integracoes/exportar/', {
+        baseURL: BACKUP_IMPORT_API_BASE,
+        responseType: 'blob',
+        timeout: 60000,
+      })
+      const fileName = extrairNomeBackup(
+        response,
+        `config_integracoes_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`
+      )
+      const url = window.URL.createObjectURL(response.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fileName
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+      setMensagem('Configurações de integração exportadas. Guarde o arquivo antes de restaurar um backup de outro ambiente.')
+    } catch (error) {
+      if (error.response?.status === 401 && importViaBackendLocal) {
+        setErro(
+          'Export usa o backend local (localhost:8000). Faça login com usuário do backend local ou ajuste VITE_API_URL.'
+        )
+      } else {
+        const detail = await parseApiErrorDetail(error, 'Falha ao exportar configurações de integração.')
+        setErro(detail)
+      }
+    } finally {
+      setExportandoConfig(false)
+    }
+  }
+
+  const executarImportacaoConfig = async () => {
+    limparFeedback()
+    setImportandoConfig(true)
+    try {
+      if (!arquivoConfig) {
+        throw new Error('Selecione um arquivo .json de configurações.')
+      }
+      const formData = new FormData()
+      formData.append('arquivo', arquivoConfig)
+      const response = await api.post('/admin/config/integracoes/importar/', formData, {
+        baseURL: BACKUP_IMPORT_API_BASE,
+        timeout: 60000,
+      })
+      const detail = response?.data?.detail || 'Configurações importadas com sucesso.'
+      const aplicados = response?.data?.campos_aplicados?.length
+      setMensagem(aplicados ? `${detail} (${aplicados} campos)` : detail)
+      setArquivoConfig(null)
+      setShowConfigImportConfirm(false)
+    } catch (error) {
+      if (error.response?.status === 401 && importViaBackendLocal) {
+        setErro(
+          'O import de config usa o backend local (localhost:8000). Faça login com usuário do backend local.'
+        )
+      } else {
+        setErro(formatApiError(error, 'Falha ao importar configurações de integração.'))
+      }
+      setShowConfigImportConfirm(false)
+    } finally {
+      setImportandoConfig(false)
+    }
+  }
+
+  const handleSubmitConfigImport = (e) => {
+    e.preventDefault()
+    limparFeedback()
+    if (!arquivoConfig) {
+      setErro('Selecione um arquivo .json de configurações.')
+      return
+    }
+    setShowConfigImportConfirm(true)
+  }
+
+  const operacaoEmAndamento = exportandoLocal || salvandoDrive || importando || exportandoConfig || importandoConfig
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Backup e Restore</h1>
         <p className="text-gray-600">
-          Exporte ou restaure backup completo (banco + mídia).
+          Exporte ou restaure backup completo (banco + mídia) e gerencie credenciais de integração por ambiente.
         </p>
       </div>
 
@@ -331,6 +415,56 @@ function AdminBackupImport() {
         </div>
       )}
 
+      <div className="bg-white rounded-xl shadow-md p-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <Settings2 className="h-5 w-5 text-primary-600" />
+          <h2 className="text-lg font-semibold text-gray-900">Configurações de integração</h2>
+        </div>
+        <p className="text-sm text-gray-600">
+          Exporte Mercado Pago, WhatsApp/Evolution e webhooks deste ambiente. Após restaurar um backup de produção,
+          importe o JSON salvo para voltar às credenciais de dev sem perder os dados reais.
+        </p>
+        <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm text-slate-700">
+          <p className="font-medium text-slate-900">Fluxo recomendado</p>
+          <ol className="mt-1 list-decimal list-inside space-y-0.5">
+            <li>Exportar config de integrações do ambiente atual (ex.: dev)</li>
+            <li>Importar backup completo de produção</li>
+            <li>Importar o JSON exportado no passo 1</li>
+          </ol>
+          <p className="mt-2 text-amber-800">
+            O arquivo JSON contém tokens em texto claro. Não commite nem compartilhe publicamente.
+          </p>
+        </div>
+        <div className="flex flex-col lg:flex-row lg:items-end gap-4">
+          <button
+            type="button"
+            onClick={handleExportarConfigIntegracoes}
+            disabled={operacaoEmAndamento}
+            className="btn-secondary inline-flex items-center justify-center gap-2 disabled:opacity-60 shrink-0"
+          >
+            {exportandoConfig ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileJson className="h-4 w-4" />}
+            Exportar config (integrações)
+          </button>
+          <form onSubmit={handleSubmitConfigImport} className="flex flex-col sm:flex-row gap-3 flex-1">
+            <input
+              type="file"
+              accept=".json,application/json"
+              onChange={(event) => setArquivoConfig(event.target.files?.[0] || null)}
+              className="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"
+              disabled={operacaoEmAndamento}
+            />
+            <button
+              type="submit"
+              disabled={operacaoEmAndamento}
+              className="btn-primary inline-flex items-center justify-center gap-2 disabled:opacity-60 shrink-0"
+            >
+              {importandoConfig ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              {importandoConfig ? 'Importando...' : 'Importar config'}
+            </button>
+          </form>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-xl shadow-md p-6 space-y-4">
           <div className="flex items-center gap-2">
@@ -344,7 +478,7 @@ function AdminBackupImport() {
             <button
               type="button"
               onClick={handleExportarDownload}
-              disabled={exportandoLocal || salvandoDrive || importando}
+              disabled={operacaoEmAndamento}
               className="btn-primary inline-flex items-center justify-center gap-2 disabled:opacity-60"
             >
               {exportandoLocal ? <Loader2 className="h-4 w-4 animate-spin" /> : <HardDrive className="h-4 w-4" />}
@@ -353,7 +487,7 @@ function AdminBackupImport() {
             <button
               type="button"
               onClick={handleExportarDrive}
-              disabled={exportandoLocal || salvandoDrive || importando || autenticandoGoogle || !googlePronto}
+              disabled={operacaoEmAndamento || autenticandoGoogle || !googlePronto}
               className="btn-secondary inline-flex items-center justify-center gap-2 disabled:opacity-60"
             >
               {salvandoDrive || autenticandoGoogle ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}
@@ -383,7 +517,7 @@ function AdminBackupImport() {
                   setDriveFileId('')
                   setDriveFileName('')
                 }}
-                disabled={importando || exportandoLocal || salvandoDrive}
+                disabled={operacaoEmAndamento}
               />
               Arquivo local
             </label>
@@ -397,7 +531,7 @@ function AdminBackupImport() {
                   setImportOrigem('drive')
                   setArquivo(null)
                 }}
-                disabled={importando || exportandoLocal || salvandoDrive || autenticandoGoogle || !googlePronto}
+                disabled={operacaoEmAndamento || autenticandoGoogle || !googlePronto}
               />
               Meu Google Drive
             </label>
@@ -409,14 +543,14 @@ function AdminBackupImport() {
               accept=".tar.gz,.tgz,application/gzip"
               onChange={(event) => setArquivo(event.target.files?.[0] || null)}
               className="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"
-              disabled={importando || exportandoLocal || salvandoDrive}
+              disabled={operacaoEmAndamento}
             />
           ) : (
             <div className="space-y-2">
               <button
                 type="button"
                 onClick={handleSelecionarArquivoDrive}
-                disabled={importando || exportandoLocal || salvandoDrive || autenticandoGoogle || !googlePronto}
+                disabled={operacaoEmAndamento || autenticandoGoogle || !googlePronto}
                 className="btn-secondary inline-flex items-center gap-2 disabled:opacity-60"
               >
                 {autenticandoGoogle ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}
@@ -430,7 +564,7 @@ function AdminBackupImport() {
 
           <button
             type="submit"
-            disabled={importando || exportandoLocal || salvandoDrive}
+            disabled={operacaoEmAndamento}
             className="btn-primary inline-flex items-center gap-2 disabled:opacity-60"
           >
             {importando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
@@ -457,6 +591,18 @@ function AdminBackupImport() {
           setDriveModal((m) => ({ ...m, open: false }))
           setMensagem(`Arquivo selecionado no seu Drive: ${arq.name}`)
         }}
+      />
+
+      <ConfirmModal
+        isOpen={showConfigImportConfirm}
+        onClose={() => !importandoConfig && setShowConfigImportConfirm(false)}
+        onConfirm={executarImportacaoConfig}
+        type="warning"
+        title="Importar configurações de integração"
+        message="Isso substituirá Mercado Pago, WhatsApp/Evolution e webhooks atuais pelos valores do arquivo JSON."
+        confirmText="Importar config"
+        cancelText="Cancelar"
+        loading={importandoConfig}
       />
 
       <ConfirmModal

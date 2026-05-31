@@ -40,6 +40,8 @@ from loja.views import (
 from .backup_views import (
     admin_backup_exportar,
     admin_backup_importar,
+    admin_config_integracoes_exportar,
+    admin_config_integracoes_importar,
 )
 from .roadmap_views import admin_roadmap_commits
 from loja.recibo import (
@@ -95,6 +97,8 @@ urlpatterns = [
     path('admin/popular-permissoes/', popular_permissoes_menu, name='popular_permissoes_menu'),
     path('admin/backup/exportar/', admin_backup_exportar, name='admin_backup_exportar'),
     path('admin/backup/importar/', admin_backup_importar, name='admin_backup_importar'),
+    path('admin/config/integracoes/exportar/', admin_config_integracoes_exportar, name='admin_config_integracoes_exportar'),
+    path('admin/config/integracoes/importar/', admin_config_integracoes_importar, name='admin_config_integracoes_importar'),
     path('admin/roadmap/commits/', admin_roadmap_commits, name='admin_roadmap_commits'),
     path('dashboard/stats/', dashboard_stats, name='dashboard_stats'),
     

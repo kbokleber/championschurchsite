@@ -1389,14 +1389,12 @@ def dashboard_financeiro_loja(request):
             .annotate(valor=Sum('total'), vendas=Count('id'))
             .order_by('periodo')
         )
-        serie = [
-            {
-                'periodo': x['periodo'].strftime('%Y-%m'),
-                'valor': str(x['valor'] or Decimal('0.00')),
-                'vendas': int(x['vendas'] or 0),
-            }
-            for x in serie_base
-        ]
+        itens_serie_base = (
+            itens_qs.annotate(periodo=TruncMonth('venda__data_criacao'))
+            .values('periodo')
+            .annotate(itens=Sum('quantidade'))
+        )
+        periodo_key = lambda p: p.strftime('%Y-%m')
     else:
         serie_base = (
             vendas_qs.annotate(periodo=TruncDate('data_criacao'))
@@ -1404,14 +1402,27 @@ def dashboard_financeiro_loja(request):
             .annotate(valor=Sum('total'), vendas=Count('id'))
             .order_by('periodo')
         )
-        serie = [
-            {
-                'periodo': x['periodo'].isoformat(),
-                'valor': str(x['valor'] or Decimal('0.00')),
-                'vendas': int(x['vendas'] or 0),
-            }
-            for x in serie_base
-        ]
+        itens_serie_base = (
+            itens_qs.annotate(periodo=TruncDate('venda__data_criacao'))
+            .values('periodo')
+            .annotate(itens=Sum('quantidade'))
+        )
+        periodo_key = lambda p: p.isoformat()
+
+    itens_por_periodo = {
+        periodo_key(x['periodo']): int(x['itens'] or 0)
+        for x in itens_serie_base
+    }
+
+    serie = [
+        {
+            'periodo': periodo_key(x['periodo']),
+            'valor': str(x['valor'] or Decimal('0.00')),
+            'vendas': int(x['vendas'] or 0),
+            'itens': itens_por_periodo.get(periodo_key(x['periodo']), 0),
+        }
+        for x in serie_base
+    ]
 
     top_horarios = list(
         vendas_qs.values('data_criacao__hour')

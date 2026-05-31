@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   ResponsiveContainer,
-  AreaChart,
+  ComposedChart,
   Area,
   XAxis,
   YAxis,
@@ -9,9 +9,11 @@ import {
   Tooltip,
   BarChart,
   Bar,
+  Line,
   PieChart,
   Pie,
   Cell,
+  Legend,
 } from 'recharts'
 import { BarChart3, RefreshCw, TrendingUp, Wallet, Package, Clock3 } from 'lucide-react'
 import api, { formatApiError } from '../../services/api'
@@ -57,6 +59,40 @@ function truncateNome(s, max = 26) {
   if (!s) return ''
   if (s.length <= max) return s
   return `${s.slice(0, max - 1)}…`
+}
+
+function fmtQty(v) {
+  const n = Number(v || 0)
+  return n.toLocaleString('pt-BR')
+}
+
+function ChartCardTooltip({ active, payload, label, title }) {
+  if (!active || !payload?.length) return null
+  const row = payload[0]?.payload
+  if (!row) return null
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-md text-sm max-w-xs">
+      <p className="font-medium text-gray-900">{title || label}</p>
+      {row.valor != null && (
+        <p className="text-gray-800">Faturamento: {fmtBRL(row.valor)}</p>
+      )}
+      {row.faturamento != null && (
+        <p className="text-gray-800">Faturamento: {fmtBRL(row.faturamento)}</p>
+      )}
+      {row.vendas != null && (
+        <p className="text-gray-700">Vendas: {fmtQty(row.vendas)}</p>
+      )}
+      {row.itens != null && (
+        <p className="text-gray-700">Itens: {fmtQty(row.itens)}</p>
+      )}
+      {row.unidades != null && (
+        <p className="text-gray-700">Unidades: {fmtQty(row.unidades)}</p>
+      )}
+      {row.quantidade != null && (
+        <p className="text-gray-700">Transações: {fmtQty(row.quantidade)}</p>
+      )}
+    </div>
+  )
 }
 
 function AdminLojaFinanceiro() {
@@ -116,6 +152,7 @@ function AdminLojaFinanceiro() {
         label: fmtDateLabel(s.periodo),
         valor: Number(s.valor || 0),
         vendas: Number(s.vendas || 0),
+        itens: Number(s.itens || 0),
       })),
     [serie],
   )
@@ -125,7 +162,8 @@ function AdminLojaFinanceiro() {
       topProdutos.slice(0, 10).map((p) => ({
         nome: truncateNome(p.produto_nome, 28),
         faturamento: Number(p.faturamento || 0),
-        unidades: p.unidades,
+        unidades: Number(p.unidades || 0),
+        vendas: Number(p.vendas || 0),
       })),
     [topProdutos],
   )
@@ -141,7 +179,7 @@ function AdminLojaFinanceiro() {
           }[m.meio_pagamento] || m.meio_pagamento,
         ),
         valor: Number(m.valor || 0),
-        quantidade: m.quantidade,
+        quantidade: Number(m.quantidade || 0),
       })),
     [meios],
   )
@@ -152,6 +190,7 @@ function AdminLojaFinanceiro() {
       label: `${String(h.hora).padStart(2, '0')}:00`,
       valor: Number(h.valor || 0),
       vendas: Number(h.vendas || 0),
+      hora: Number(h.hora),
     }))
   }, [topHorarios])
 
@@ -160,7 +199,7 @@ function AdminLojaFinanceiro() {
       categorias.map((c) => ({
         nome: c.categoria === 'cantina' ? 'Cantina' : c.categoria === 'loja' ? 'Loja' : c.categoria,
         faturamento: Number(c.faturamento || 0),
-        unidades: c.unidades,
+        unidades: Number(c.unidades || 0),
       })),
     [categorias],
   )
@@ -252,11 +291,13 @@ function AdminLojaFinanceiro() {
 
       <div className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm mb-6">
         <h2 className="text-base font-semibold text-gray-900 mb-1">Evolução do faturamento</h2>
-        <p className="text-xs text-gray-500 mb-3">Valores pagos por dia (ou por mês em períodos longos).</p>
+        <p className="text-xs text-gray-500 mb-3">
+          Faturamento (área), quantidade de vendas e itens por dia (ou por mês em períodos longos).
+        </p>
         {serieChart.length > 0 ? (
           <div className="w-full h-[300px] min-h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={serieChart} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+              <ComposedChart data={serieChart} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="fillFat" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#0284c7" stopOpacity={0.35} />
@@ -266,27 +307,24 @@ function AdminLojaFinanceiro() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#6b7280" />
                 <YAxis
+                  yAxisId="left"
                   tickFormatter={(v) => fmtBRLCompact(v)}
                   width={72}
                   tick={{ fontSize: 11 }}
                   stroke="#6b7280"
                 />
-                <Tooltip
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload?.length) return null
-                    const row = payload[0]?.payload
-                    return (
-                      <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-md text-sm">
-                        <p className="font-medium text-gray-900">{label}</p>
-                        <p className="text-gray-800">{fmtBRL(row?.valor)}</p>
-                        {row?.vendas != null && (
-                          <p className="text-xs text-gray-500 mt-0.5">{row.vendas} vendas</p>
-                        )}
-                      </div>
-                    )
-                  }}
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tickFormatter={(v) => fmtQty(v)}
+                  width={48}
+                  tick={{ fontSize: 11 }}
+                  stroke="#6b7280"
                 />
+                <Tooltip content={<ChartCardTooltip />} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Area
+                  yAxisId="left"
                   type="monotone"
                   dataKey="valor"
                   name="Faturamento"
@@ -294,7 +332,17 @@ function AdminLojaFinanceiro() {
                   strokeWidth={2}
                   fill="url(#fillFat)"
                 />
-              </AreaChart>
+                <Bar yAxisId="right" dataKey="vendas" name="Vendas" fill="#0d9488" barSize={14} radius={[4, 4, 0, 0]} />
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="itens"
+                  name="Itens"
+                  stroke="#ca8a04"
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         ) : (
@@ -305,7 +353,7 @@ function AdminLojaFinanceiro() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         <div className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
           <h2 className="text-base font-semibold text-gray-900 mb-1">Produtos mais vendidos</h2>
-          <p className="text-xs text-gray-500 mb-2">Faturamento (R$) por produto — até 10 itens.</p>
+          <p className="text-xs text-gray-500 mb-2">Unidades e faturamento por produto — até 10 itens.</p>
           {produtosChart.length > 0 ? (
             <div style={{ height: alturaProdutos }} className="w-full min-h-[200px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -317,7 +365,7 @@ function AdminLojaFinanceiro() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal />
                   <XAxis
                     type="number"
-                    tickFormatter={(v) => fmtBRLCompact(v)}
+                    tickFormatter={(v) => fmtQty(v)}
                     tick={{ fontSize: 11 }}
                     stroke="#6b7280"
                   />
@@ -328,12 +376,9 @@ function AdminLojaFinanceiro() {
                     tick={{ fontSize: 11 }}
                     stroke="#6b7280"
                   />
-                  <Tooltip
-                    formatter={(value) => fmtBRL(value)}
-                    labelFormatter={(label) => label}
-                    contentStyle={{ borderRadius: '8px', borderColor: '#e5e7eb' }}
-                  />
-                  <Bar dataKey="faturamento" name="Faturamento" fill="#0369a1" radius={[0, 6, 6, 0]} />
+                  <Tooltip content={<ChartCardTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="unidades" name="Unidades" fill="#0d9488" radius={[0, 6, 6, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -344,7 +389,9 @@ function AdminLojaFinanceiro() {
             {topProdutos.slice(0, 5).map((p) => (
               <li key={p.produto_id} className="flex justify-between gap-2">
                 <span className="truncate">{p.produto_nome}</span>
-                <span className="shrink-0 text-gray-900 font-medium">{fmtBRL(p.faturamento)}</span>
+                <span className="shrink-0 text-gray-900 font-medium text-right">
+                  {fmtQty(p.unidades)} un · {fmtBRL(p.faturamento)}
+                </span>
               </li>
             ))}
           </ul>
@@ -352,32 +399,29 @@ function AdminLojaFinanceiro() {
 
         <div className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
           <h2 className="text-base font-semibold text-gray-900 mb-1">Meios de pagamento</h2>
-          <p className="text-xs text-gray-500 mb-2">Distribuição do faturamento por meio.</p>
+          <p className="text-xs text-gray-500 mb-2">Quantidade de transações e faturamento por meio.</p>
           {meiosChart.length > 0 ? (
             <div className="w-full h-[280px] min-h-[240px]">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={meiosChart}
-                    dataKey="valor"
+                    dataKey="quantidade"
                     nameKey="nameStr"
                     cx="50%"
                     cy="50%"
                     innerRadius={56}
                     outerRadius={96}
                     paddingAngle={2}
-                    label={({ nameStr, percent }) =>
-                      `${nameStr} (${(percent * 100).toFixed(0)}%)`
+                    label={({ nameStr, quantidade, percent }) =>
+                      `${nameStr} (${fmtQty(quantidade)} · ${(percent * 100).toFixed(0)}%)`
                     }
                   >
                     {meiosChart.map((_, i) => (
                       <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip
-                    formatter={(value) => fmtBRL(value)}
-                    contentStyle={{ borderRadius: '8px', borderColor: '#e5e7eb' }}
-                  />
+                  <Tooltip content={<ChartCardTooltip />} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -390,7 +434,9 @@ function AdminLojaFinanceiro() {
                 <span className="text-gray-700">
                   <PaymentLabel code={m.meio_pagamento} />
                 </span>
-                <span className="font-medium text-gray-900">{fmtBRL(m.valor)}</span>
+                <span className="font-medium text-gray-900 text-right">
+                  {fmtQty(m.quantidade)} trans · {fmtBRL(m.valor)}
+                </span>
               </div>
             ))}
           </div>
@@ -402,36 +448,63 @@ function AdminLojaFinanceiro() {
           <h2 className="text-base font-semibold text-gray-900 mb-1 flex items-center gap-2">
             <Clock3 className="w-4 h-4" /> Horários de maior venda
           </h2>
-          <p className="text-xs text-gray-500 mb-2">Faturamento por hora do dia (horário local).</p>
+          <p className="text-xs text-gray-500 mb-2">Quantidade de vendas e faturamento por hora (horário local).</p>
           {horariosChart.length > 0 ? (
             <div className="w-full h-[260px] min-h-[220px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={horariosChart} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
+                <ComposedChart data={horariosChart} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#6b7280" />
                   <YAxis
+                    yAxisId="left"
+                    tickFormatter={(v) => fmtQty(v)}
+                    width={48}
+                    tick={{ fontSize: 11 }}
+                    stroke="#6b7280"
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
                     tickFormatter={(v) => fmtBRLCompact(v)}
                     width={68}
                     tick={{ fontSize: 11 }}
                     stroke="#6b7280"
                   />
-                  <Tooltip
-                    formatter={(value) => fmtBRL(value)}
-                    labelFormatter={(l) => `Horário ${l}`}
-                    contentStyle={{ borderRadius: '8px', borderColor: '#e5e7eb' }}
+                  <Tooltip content={<ChartCardTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar yAxisId="left" dataKey="vendas" name="Vendas" fill="#0d9488" radius={[6, 6, 0, 0]} />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="valor"
+                    name="Faturamento"
+                    stroke="#0369a1"
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
                   />
-                  <Bar dataKey="valor" name="Faturamento" fill="#0d9488" radius={[6, 6, 0, 0]} />
-                </BarChart>
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
           ) : (
             <p className="text-sm text-gray-500">Sem dados no período selecionado.</p>
           )}
+          {horariosChart.length > 0 && (
+            <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+              {horariosChart.map((h) => (
+                <div key={h.label} className="flex justify-between text-sm gap-2">
+                  <span className="text-gray-700">{h.label}</span>
+                  <span className="font-medium text-gray-900">
+                    {fmtQty(h.vendas)} vendas · {fmtBRL(h.valor)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
-          <h2 className="text-base font-semibold text-gray-900 mb-1">Faturamento por categoria</h2>
-          <p className="text-xs text-gray-500 mb-2">Cantina vs loja (quando o filtro inclui as duas).</p>
+          <h2 className="text-base font-semibold text-gray-900 mb-1">Vendas por categoria</h2>
+          <p className="text-xs text-gray-500 mb-2">Unidades vendidas e faturamento — Cantina vs Loja.</p>
           {categoriasChart.length > 0 ? (
             <div className="w-full h-[260px] min-h-[220px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -439,21 +512,41 @@ function AdminLojaFinanceiro() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="nome" tick={{ fontSize: 12 }} stroke="#6b7280" />
                   <YAxis
+                    yAxisId="left"
+                    tickFormatter={(v) => fmtQty(v)}
+                    width={48}
+                    tick={{ fontSize: 11 }}
+                    stroke="#6b7280"
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
                     tickFormatter={(v) => fmtBRLCompact(v)}
                     width={68}
                     tick={{ fontSize: 11 }}
                     stroke="#6b7280"
                   />
-                  <Tooltip
-                    formatter={(value) => fmtBRL(value)}
-                    contentStyle={{ borderRadius: '8px', borderColor: '#e5e7eb' }}
-                  />
-                  <Bar dataKey="faturamento" name="Faturamento" fill="#ca8a04" radius={[6, 6, 0, 0]} />
+                  <Tooltip content={<ChartCardTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar yAxisId="left" dataKey="unidades" name="Unidades" fill="#0d9488" radius={[6, 6, 0, 0]} />
+                  <Bar yAxisId="right" dataKey="faturamento" name="Faturamento" fill="#ca8a04" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
             <p className="text-sm text-gray-500">Sem dados ou filtro restrito a uma categoria.</p>
+          )}
+          {categoriasChart.length > 0 && (
+            <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+              {categoriasChart.map((c) => (
+                <div key={c.nome} className="flex justify-between text-sm gap-2">
+                  <span className="text-gray-700">{c.nome}</span>
+                  <span className="font-medium text-gray-900">
+                    {fmtQty(c.unidades)} un · {fmtBRL(c.faturamento)}
+                  </span>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>

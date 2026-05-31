@@ -418,7 +418,7 @@ def enviar_lembrete_reserva_whatsapp(request, reserva_id: int):
             status__in=('pendente', 'em_cobranca'),
         )
     )
-    if reserva.lote_reserva_id:
+    if reserva.lote_reserva:
         grupo = grupo.filter(lote_reserva=reserva.lote_reserva)
     else:
         grupo = grupo.filter(nome__iexact=nome_grupo, pk=reserva.pk)

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { Receipt, RefreshCw, Store, Trash2, FileText, X } from 'lucide-react'
+import { Receipt, RefreshCw, Store, Trash2, FileText, X, ChevronLeft, ChevronRight } from 'lucide-react'
 import api, { formatApiError } from '../../services/api'
 import { useAuth } from '../../contexts/AuthContext'
 import LoadingSpinner from '../../components/LoadingSpinner'
@@ -19,6 +19,8 @@ const MEIO = {
   pix_mp: 'PIX/MP',
   cartao_mp: 'Cartão/MP',
 }
+
+const PAGE_SIZE = 20
 
 function fmtDataLocal(d) {
   const pad = (n) => String(n).padStart(2, '0')
@@ -53,6 +55,7 @@ function AdminLojaVendas() {
   const [dataFim, setDataFim] = useState('')
   const [periodoPersonalizadoAtivo, setPeriodoPersonalizadoAtivo] = useState(false)
   const [page, setPage] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
   const [excluindoId, setExcluindoId] = useState(null)
   const [sincronizando, setSincronizando] = useState(false)
   const [reciboCodigo, setReciboCodigo] = useState(null)
@@ -62,13 +65,14 @@ function AdminLojaVendas() {
       setLoading(true)
       const params = {
         page,
-        page_size: 20,
+        page_size: PAGE_SIZE,
         ...paramsPeriodo(periodo, dataInicio, dataFim),
       }
       if (fStatus) params.status = fStatus
       if (fCat) params.categoria = fCat
       const { data } = await api.get('/loja/vendas/', { params })
       const firstRows = data.results || data
+      setTotalCount(typeof data.count === 'number' ? data.count : (firstRows || []).length)
 
       if (opts.syncPending) {
         const pendentes = (firstRows || []).filter(
@@ -84,6 +88,7 @@ function AdminLojaVendas() {
           )
           const { data: data2 } = await api.get('/loja/vendas/', { params })
           setRows(data2.results || data2)
+          setTotalCount(typeof data2.count === 'number' ? data2.count : (data2.results || data2).length)
           return
         }
       }
@@ -92,6 +97,7 @@ function AdminLojaVendas() {
     } catch (e) {
       console.error(e)
       setRows([])
+      setTotalCount(0)
     } finally {
       setSincronizando(false)
       setLoading(false)
@@ -136,7 +142,8 @@ function AdminLojaVendas() {
     try {
       setExcluindoId(id)
       await api.delete(`/loja/vendas/${id}/`)
-      await load()
+      if (rows.length <= 1 && page > 1) setPage((p) => p - 1)
+      else await load()
     } catch (e) {
       alert(formatApiError(e, 'Não foi possível excluir a venda.'))
     } finally {
@@ -147,6 +154,10 @@ function AdminLojaVendas() {
   if (loading && !rows.length) {
     return <LoadingSpinner size="lg" text="Carregando vendas..." />
   }
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+  const startItem = totalCount === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+  const endItem = Math.min(page * PAGE_SIZE, totalCount)
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
@@ -298,6 +309,45 @@ function AdminLojaVendas() {
           </tbody>
         </table>
       </div>
+
+      {totalCount > PAGE_SIZE && (
+        <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-sm text-gray-600">
+          <p>
+            Mostrando <span className="font-medium text-gray-900">{startItem}</span>
+            –<span className="font-medium text-gray-900">{endItem}</span> de{' '}
+            <span className="font-medium text-gray-900">{totalCount}</span> vendas
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1 || loading}
+              className="btn btn-secondary inline-flex items-center gap-1 text-sm disabled:opacity-50"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Anterior
+            </button>
+            <span className="px-2 tabular-nums">
+              Página {page} de {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages || loading}
+              className="btn btn-secondary inline-flex items-center gap-1 text-sm disabled:opacity-50"
+            >
+              Próxima
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {totalCount > 0 && totalCount <= PAGE_SIZE && (
+        <p className="mt-3 text-sm text-gray-500">
+          {totalCount} {totalCount === 1 ? 'venda' : 'vendas'} no período selecionado.
+        </p>
+      )}
 
       <p className="text-xs text-gray-400 mt-3 flex items-center gap-1">
         <Store className="w-3 h-3" /> Totais por filtros: somar manualmente a partir da lista (MVP).

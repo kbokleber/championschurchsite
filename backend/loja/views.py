@@ -1441,6 +1441,32 @@ def dashboard_financeiro_loja(request):
         for x in top_horarios
     ]
 
+    def _nome_atendente(row):
+        first = (row.get('criado_por__first_name') or '').strip()
+        last = (row.get('criado_por__last_name') or '').strip()
+        full = f'{first} {last}'.strip()
+        if full:
+            return full
+        username = (row.get('criado_por__username') or '').strip()
+        return username or 'Sem atendente'
+
+    por_atendente = [
+        {
+            'atendente_id': x['criado_por_id'],
+            'atendente_nome': _nome_atendente(x),
+            'vendas': int(x['vendas'] or 0),
+            'faturamento': str(x['faturamento'] or Decimal('0.00')),
+        }
+        for x in vendas_qs.values(
+            'criado_por_id',
+            'criado_por__first_name',
+            'criado_por__last_name',
+            'criado_por__username',
+        )
+        .annotate(vendas=Count('id'), faturamento=Sum('total'))
+        .order_by('-faturamento', '-vendas')[:15]
+    ]
+
     return Response(
         {
             'filtro': {
@@ -1487,5 +1513,6 @@ def dashboard_financeiro_loja(request):
             ],
             'serie_faturamento': serie,
             'top_horarios': top_horarios,
+            'por_atendente': por_atendente,
         }
     )

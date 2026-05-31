@@ -15,7 +15,7 @@ import {
   Cell,
   Legend,
 } from 'recharts'
-import { BarChart3, RefreshCw, TrendingUp, Wallet, Package, Clock3 } from 'lucide-react'
+import { BarChart3, RefreshCw, TrendingUp, Wallet, Package, Clock3, UserCircle } from 'lucide-react'
 import api, { formatApiError } from '../../services/api'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import AdminLojaSecaoNav from '../../components/AdminLojaSecaoNav'
@@ -145,6 +145,7 @@ function AdminLojaFinanceiro() {
   const serie = data?.serie_faturamento || []
   const topHorarios = data?.top_horarios || []
   const categorias = data?.categorias || []
+  const porAtendente = data?.por_atendente || []
 
   const serieChart = useMemo(
     () =>
@@ -204,7 +205,18 @@ function AdminLojaFinanceiro() {
     [categorias],
   )
 
+  const atendentesChart = useMemo(
+    () =>
+      porAtendente.map((a) => ({
+        nome: truncateNome(a.atendente_nome, 28),
+        faturamento: Number(a.faturamento || 0),
+        vendas: Number(a.vendas || 0),
+      })),
+    [porAtendente],
+  )
+
   const alturaProdutos = Math.min(420, Math.max(200, produtosChart.length * 40 || 200))
+  const alturaAtendentes = Math.min(420, Math.max(200, atendentesChart.length * 44 || 200))
 
   if (loading && !data) {
     return <LoadingSpinner size="lg" text="Carregando dashboard financeiro..." />
@@ -221,7 +233,7 @@ function AdminLojaFinanceiro() {
             Dashboard Financeiro (Loja/Cantina)
           </h1>
           <p className="text-gray-600 text-sm mt-1">
-            KPIs e gráficos por período — produtos, meios de pagamento e horários.
+            KPIs e gráficos por período — produtos, atendentes, meios de pagamento e horários.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
@@ -441,6 +453,58 @@ function AdminLojaFinanceiro() {
             ))}
           </div>
         </div>
+      </div>
+
+      <div className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm mb-6">
+        <h2 className="text-base font-semibold text-gray-900 mb-1 flex items-center gap-2">
+          <UserCircle className="w-4 h-4" /> Vendas por atendente
+        </h2>
+        <p className="text-xs text-gray-500 mb-2">
+          Quantidade de vendas pagas e faturamento por quem registrou a venda no PDV.
+        </p>
+        {atendentesChart.length > 0 ? (
+          <div style={{ height: alturaAtendentes }} className="w-full min-h-[200px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={atendentesChart}
+                layout="vertical"
+                margin={{ top: 4, right: 16, left: 4, bottom: 4 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal />
+                <XAxis
+                  type="number"
+                  tickFormatter={(v) => fmtQty(v)}
+                  tick={{ fontSize: 11 }}
+                  stroke="#6b7280"
+                />
+                <YAxis
+                  type="category"
+                  dataKey="nome"
+                  width={118}
+                  tick={{ fontSize: 11 }}
+                  stroke="#6b7280"
+                />
+                <Tooltip content={<ChartCardTooltip />} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="vendas" name="Vendas" fill="#7c3aed" radius={[0, 6, 6, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500 py-6 text-center">Sem dados no período selecionado.</p>
+        )}
+        {porAtendente.length > 0 && (
+          <ul className="mt-3 space-y-1.5 border-t border-gray-100 pt-3 text-xs text-gray-600">
+            {porAtendente.map((a) => (
+              <li key={a.atendente_id ?? a.atendente_nome} className="flex justify-between gap-2">
+                <span className="truncate">{a.atendente_nome}</span>
+                <span className="shrink-0 text-gray-900 font-medium text-right">
+                  {fmtQty(a.vendas)} vendas · {fmtBRL(a.faturamento)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

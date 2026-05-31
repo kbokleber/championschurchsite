@@ -249,6 +249,7 @@ function AdminLojaVendas() {
               <th className="p-2">Meio</th>
               <th className="p-2">Comprador</th>
               <th className="p-2">Total</th>
+              <th className="p-2">Atendente</th>
               <th className="p-2 w-40 text-right">Ações</th>
             </tr>
           </thead>
@@ -266,6 +267,9 @@ function AdminLojaVendas() {
                 <td className="p-2 max-w-xs truncate" title={r.comprador_nome}>{r.comprador_nome || '—'}</td>
                 <td className="p-2 font-medium">
                   R$ {Number(r.total).toFixed(2).replace('.', ',')}
+                </td>
+                <td className="p-2 text-gray-700 max-w-[10rem] truncate" title={r.criado_por_nome}>
+                  {r.criado_por_nome || '—'}
                 </td>
                 <td className="p-2 text-right">
                   <div className="inline-flex items-center gap-1">
@@ -298,7 +302,7 @@ function AdminLojaVendas() {
             ))}
             {!rows.length && (
               <tr>
-                <td colSpan={7} className="p-6 text-center text-gray-500">
+                <td colSpan={8} className="p-6 text-center text-gray-500">
                   Nenhuma venda. Inicie uma{' '}
                   <Link to="/admin/loja/cantina/nova-venda" className="text-church-sky hover:underline">nova venda (Cantina)</Link>
                   {' ou '}

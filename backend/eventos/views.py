@@ -20,10 +20,10 @@ from types import SimpleNamespace
 from urllib.parse import urlsplit, urlunsplit
 
 from rest_framework import viewsets, status
-from rest_framework.decorators import action, api_view, permission_classes, authentication_classes
+from rest_framework.decorators import action, api_view, permission_classes, authentication_classes, throttle_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly, AllowAny
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, PermissionDenied, NotFound
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
@@ -41,6 +41,14 @@ from .models import (
     FormularioInscricao, CampoFormulario, RespostaCampoInscricao,
 )
 from .utils_imagem import substituir_fundo_logo_por_navy
+from .permissions import HasMenuPermission, usuario_tem_menu_ou_superuser
+from .cobranca_access import obter_cobranca_evento_por_codigo, obter_cobranca_evento_pagamento
+from .throttles import (
+    LoginRateThrottle,
+    ParticipanteLoginRateThrottle,
+    ParticipanteBuscaRateThrottle,
+    MercadoPagoPagamentoRateThrottle,
+)
 from .cobranca_inscricao import (
     ajustar_cobrancas_ao_cancelar_inscricao,
     recalcular_cobranca_apos_mudanca_itens,
@@ -51,7 +59,7 @@ from .serializers import (
     EventoSerializer, EventoListaSerializer,
     InscricaoSerializer, InscricaoAdminSerializer, ContatoSerializer,
     UserSerializer, ConfiguracaoSiteSerializer, ConfiguracaoSitePublicSerializer,
-    CategoriaParticipanteSerializer, CobrancaSerializer,
+    CategoriaParticipanteSerializer, CobrancaSerializer, CobrancaPublicaSerializer,
     PermissaoMenuSerializer, GrupoSerializer, UsuarioAdminSerializer,
     FormularioInscricaoSerializer, FormularioInscricaoResumoSerializer,
     RespostaCampoInscricaoAdminSerializer,
@@ -568,7 +576,7 @@ def _serializar_ingressos(membro):
         
         # Verificar se pagamento está pendente (responsável OU cobrança de acompanhantes)
         pagamento_pendente = inscricao.status_pagamento == 'pendente'
-        cobranca_id = None
+        cobranca_codigo = None
         
         # Cobrança ligada à inscrição do responsável
         cobranca_item = CobrancaItem.objects.filter(
@@ -576,18 +584,18 @@ def _serializar_ingressos(membro):
             cobranca__status='pendente'
         ).select_related('cobranca').first()
         if cobranca_item:
-            cobranca_id = cobranca_item.cobranca.id
+            cobranca_codigo = str(cobranca_item.cobranca.codigo)
             pagamento_pendente = True
         
         # Cobrança só de acompanhantes (ex.: adicionou Nilma depois; responsável já pagou)
-        if cobranca_id is None:
+        if cobranca_codigo is None:
             cobranca_acomp = Cobranca.objects.filter(
                 membro=membro,
                 evento=inscricao.evento,
                 status='pendente'
             ).first()
             if cobranca_acomp:
-                cobranca_id = cobranca_acomp.id
+                cobranca_codigo = str(cobranca_acomp.codigo)
                 pagamento_pendente = True
                 # Mostrar só o valor que falta pagar (esta cobrança), não somar ao que já foi pago
                 valor_total = float(cobranca_acomp.valor)
@@ -620,7 +628,7 @@ def _serializar_ingressos(membro):
             'valor': valor_responsavel,
             'valor_total': valor_total,
             'pagamento_pendente': pagamento_pendente,
-            'cobranca_id': cobranca_id,  # ID da cobrança pendente (se existir)
+            'cobranca_codigo': cobranca_codigo,
             'acompanhantes': acompanhantes_lista,
         })
     return ingressos
@@ -628,6 +636,7 @@ def _serializar_ingressos(membro):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@throttle_classes([ParticipanteBuscaRateThrottle])
 def buscar_participante_por_telefone(request):
     """
     Busca participante pelo telefone para auto-preenchimento no formulário de inscrição.
@@ -740,6 +749,7 @@ def buscar_participante_por_telefone(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([ParticipanteLoginRateThrottle])
 def participante_login(request):
     """
     Login de participante com telefone + senha.
@@ -883,6 +893,7 @@ def participante_esqueci_senha(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @authentication_classes([])
+@throttle_classes([ParticipanteLoginRateThrottle])
 def participante_registro(request):
     """
     Registra um novo participante e faz inscrição no evento.
@@ -1876,6 +1887,7 @@ def participante_perfil(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([ParticipanteBuscaRateThrottle])
 def meus_ingressos(request):
     """
     Consulta ingressos por telefone (para recuperação).
@@ -1916,6 +1928,8 @@ def meus_ingressos(request):
 @permission_classes([IsAuthenticated])
 def dashboard_stats(request):
     """Retorna estatísticas para o dashboard administrativo."""
+    if not usuario_tem_menu_ou_superuser(request.user, 'dashboard'):
+        raise PermissionDenied('Sem permissão para acessar o dashboard.')
     from django.db.models import Count, Q
     
     agora = timezone.now()
@@ -1957,6 +1971,9 @@ class MembroViewSet(viewsets.ModelViewSet):
     
     queryset = queryset_membros_cadastro()
     serializer_class = MembroSerializer
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasMenuPermission('membros')]
     
     def get_serializer_class(self):
         if self.action == 'list':
@@ -2050,14 +2067,10 @@ class EventoViewSet(viewsets.ModelViewSet):
             )
     
     def get_permissions(self):
-        """
-        Permite leitura para todos, mas exige autenticação para criar/editar/excluir.
-        """
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            permission_classes = [IsAuthenticated]
-        else:
-            permission_classes = [AllowAny]
-        return [permission() for permission in permission_classes]
+        """Leitura pública de eventos; demais ações exigem menu eventos."""
+        if self.action in ('list', 'retrieve', 'proximos', 'destaques'):
+            return [AllowAny()]
+        return [IsAuthenticated(), HasMenuPermission('eventos')]
     
     def get_serializer_class(self):
         if self.action == 'list':
@@ -2148,7 +2161,7 @@ class EventoViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['get'])
     def em_andamento(self, request):
         """Retorna eventos que estão ocorrendo agora (para check-in manual).
         Período: data_inicio <= agora <= data_fim (ou sem data_fim, desde que já começou).
@@ -2179,6 +2192,11 @@ class InscricaoViewSet(viewsets.ModelViewSet):
     
     queryset = Inscricao.objects.all()
     serializer_class = InscricaoSerializer
+
+    def get_permissions(self):
+        if self.action in ('checkin', 'buscar_para_checkin', 'marcar_presenca_manual', 'buscar_por_codigo'):
+            return [IsAuthenticated(), HasMenuPermission('checkin')]
+        return [IsAuthenticated(), HasMenuPermission('inscricoes')]
     
     def get_queryset(self):
         queryset = Inscricao.objects.all()
@@ -2516,7 +2534,7 @@ class InscricaoViewSet(viewsets.ModelViewSet):
         serializer = InscricaoSerializer(inscricao)
         return Response(serializer.data)
     
-    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['post'])
     def checkin(self, request):
         """
         Realiza check-in via QR Code.
@@ -2621,7 +2639,7 @@ class InscricaoViewSet(viewsets.ModelViewSet):
             'data_checkin': timezone.localtime(inscricao.data_checkin).strftime('%d/%m/%Y %H:%M:%S')
         })
     
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['get'])
     def buscar_por_codigo(self, request):
         """
         Busca inscrição por código (sem fazer check-in).
@@ -2666,7 +2684,7 @@ class InscricaoViewSet(viewsets.ModelViewSet):
             'data_checkin': timezone.localtime(inscricao.data_checkin).strftime('%d/%m/%Y %H:%M:%S') if inscricao.data_checkin else None
         })
 
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['get'])
     def buscar_para_checkin(self, request):
         """
         Busca inscritos de um evento (em andamento) por nome para check-in manual.
@@ -2802,7 +2820,7 @@ class InscricaoViewSet(viewsets.ModelViewSet):
             'inscricoes': lista,
         })
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(detail=True, methods=['post'])
     def marcar_presenca_manual(self, request, pk=None):
         """
         Marca presença manualmente (check-in sem QR Code).
@@ -2859,6 +2877,11 @@ class ContatoViewSet(viewsets.ModelViewSet):
     queryset = Contato.objects.all()
     serializer_class = ContatoSerializer
     http_method_names = ['get', 'post', 'patch', 'delete', 'head']
+
+    def get_permissions(self):
+        if self.action == 'create':
+            return [AllowAny()]
+        return [IsAuthenticated(), HasMenuPermission('contatos')]
     
     def get_queryset(self):
         queryset = Contato.objects.all()
@@ -2996,8 +3019,10 @@ def configuracao_publica(request):
 def configuracao_admin(request):
     """
     Retorna ou atualiza as configurações do site.
-    Requer autenticação de administrador.
+    Requer superusuário ou menu configurações.
     """
+    if not usuario_tem_menu_ou_superuser(request.user, 'configuracoes'):
+        raise PermissionDenied('Sem permissão para acessar configurações.')
     config = ConfiguracaoSite.get_config()
     
     if request.method == 'GET':
@@ -3154,6 +3179,8 @@ def admin_testar_conexao_whatsapp(request):
     """
     Endpoint de diagnóstico da integração Evolution Go.
     """
+    if not usuario_tem_menu_ou_superuser(request.user, 'configuracoes'):
+        raise PermissionDenied('Sem permissão para testar integrações.')
     config = ConfiguracaoSite.get_config()
     config_teste = SimpleNamespace(
         evolution_api_url=(request.data.get('evolution_api_url') or config.evolution_api_url or ''),
@@ -3172,6 +3199,8 @@ def admin_testar_conexao_mercadopago(request):
     Endpoint de diagnóstico das credenciais Mercado Pago.
     Valida o Access Token em /users/me sem criar cobrança/pagamento.
     """
+    if not usuario_tem_menu_ou_superuser(request.user, 'configuracoes'):
+        raise PermissionDenied('Sem permissão para testar integrações.')
     from .mercadopago_sdk import get_mp_env_card, mp_probe_pagamento_cartao
 
     config = ConfiguracaoSite.get_config()
@@ -3313,19 +3342,13 @@ def admin_testar_conexao_mercadopago(request):
 # ============================================
 
 class CobrancaViewSet(viewsets.ModelViewSet):
-    """ViewSet para operações CRUD de Cobranças."""
+    """ViewSet para operações CRUD de Cobranças (admin)."""
     
     queryset = Cobranca.objects.all()
     serializer_class = CobrancaSerializer
-    
+
     def get_permissions(self):
-        """
-        Permite leitura pública (para página de pagamento),
-        mas requer autenticação para modificações.
-        """
-        if self.action in ['list', 'retrieve']:
-            return [AllowAny()]
-        return [IsAuthenticated()]
+        return [IsAuthenticated(), HasMenuPermission('cobrancas')]
     
     def get_queryset(self):
         queryset = Cobranca.objects.all().select_related('membro', 'evento').prefetch_related('itens__inscricao__membro')
@@ -3578,30 +3601,29 @@ from .mp_payments import (
 )
 
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def cobranca_publica(request, codigo):
+    """Retorna dados da cobrança para pagamento público (somente por UUID)."""
+    cobranca = obter_cobranca_evento_por_codigo(codigo)
+    serializer = CobrancaPublicaSerializer(cobranca)
+    return Response(serializer.data)
+
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([MercadoPagoPagamentoRateThrottle])
 def criar_pagamento_pix(request):
     """
     Cria uma preferência de pagamento no Mercado Pago (Checkout Pro).
     Retorna o link de pagamento para o usuário.
     Reutiliza preferência existente se já houver uma criada.
-    Espera: { "cobranca_id": 1 }
+    Espera: { "codigo": "uuid-da-cobranca", "cobranca_id": 1 (opcional) }
     """
-    cobranca_id = request.data.get('cobranca_id')
-    
-    if not cobranca_id:
-        return Response(
-            {'error': 'cobranca_id é obrigatório'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
     try:
-        cobranca = Cobranca.objects.select_related('membro', 'evento').prefetch_related('itens__inscricao__membro').get(id=cobranca_id)
-    except Cobranca.DoesNotExist:
-        return Response(
-            {'error': 'Cobrança não encontrada'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        cobranca = obter_cobranca_evento_pagamento(request)
+    except ValidationError as exc:
+        return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
     
     if cobranca.status != 'pendente':
         return Response(
@@ -4183,14 +4205,17 @@ def _descricao_order_evento(cobranca):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
-def verificar_pagamento(request, cobranca_id):
+@throttle_classes([MercadoPagoPagamentoRateThrottle])
+def verificar_pagamento(request, codigo):
     """
     Verifica o status de um pagamento no Mercado Pago.
     Usado pelo frontend para polling.
     """
     try:
-        cobranca = Cobranca.objects.get(id=cobranca_id)
-    except Cobranca.DoesNotExist:
+        cobranca = obter_cobranca_evento_por_codigo(codigo)
+    except ValidationError as exc:
+        return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+    except NotFound:
         return Response(
             {'error': 'Cobrança não encontrada'},
             status=status.HTTP_404_NOT_FOUND
@@ -4286,6 +4311,7 @@ def verificar_pagamento(request, cobranca_id):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([MercadoPagoPagamentoRateThrottle])
 def pagar_cartao(request):
     """
     Cria pagamento com cartão (Checkout Transparente / Card Payment Brick).
@@ -4295,7 +4321,7 @@ def pagar_cartao(request):
     """
     try:
         return _pagar_cartao_impl(request)
-    except serializers.ValidationError as exc:
+    except ValidationError as exc:
         return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
     except ValueError as exc:
         return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -4321,16 +4347,16 @@ def _pagar_cartao_impl(request):
     issuer_id = request.data.get('issuer_id')
     payer = request.data.get('payer') or {}
 
-    if not cobranca_id or not token or not payment_method_id:
+    if not token or not payment_method_id:
         return Response(
-            {'error': 'cobranca_id, token e payment_method_id são obrigatórios'},
+            {'error': 'codigo, token e payment_method_id são obrigatórios'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
     try:
-        cobranca = Cobranca.objects.get(id=cobranca_id)
-    except Cobranca.DoesNotExist:
-        return Response({'error': 'Cobrança não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+        cobranca = obter_cobranca_evento_pagamento(request)
+    except ValidationError as exc:
+        return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
 
     if cobranca.status != 'pendente':
         return Response(
@@ -4464,22 +4490,16 @@ def _pagar_cartao_impl(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([MercadoPagoPagamentoRateThrottle])
 def criar_pagamento_pix_embutido(request):
     """
     Checkout transparente: cria pagamento PIX (QR/copia-e-cola) via Payments API.
-    Body: cobranca_id, payer opcional { email, identification: { type, number } }.
+    Body: codigo (UUID), cobranca_id opcional, payer opcional.
     """
-    cobranca_id = request.data.get('cobranca_id')
-    if not cobranca_id:
-        return Response({'error': 'cobranca_id é obrigatório'}, status=status.HTTP_400_BAD_REQUEST)
-
     try:
-        cobranca = Cobranca.objects.select_related('membro', 'evento').prefetch_related(
-            'itens__inscricao__membro',
-            'itens__inscricao__categoria',
-        ).get(id=cobranca_id)
-    except Cobranca.DoesNotExist:
-        return Response({'error': 'Cobrança não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+        cobranca = obter_cobranca_evento_pagamento(request)
+    except ValidationError as exc:
+        return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
 
     if cobranca.status != 'pendente':
         return Response(
@@ -4654,7 +4674,9 @@ class PermissaoMenuViewSet(viewsets.ModelViewSet):
     
     queryset = PermissaoMenu.objects.all()
     serializer_class = PermissaoMenuSerializer
-    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasMenuPermission('usuarios')]
     
     def list(self, request, *args, **kwargs):
         """Lista permissões (sem paginação), garantindo sincronização automática dos menus."""
@@ -4677,7 +4699,9 @@ class GrupoViewSet(viewsets.ModelViewSet):
     
     queryset = Grupo.objects.all()
     serializer_class = GrupoSerializer
-    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasMenuPermission('grupos')]
     
     def list(self, request, *args, **kwargs):
         """Lista grupos, garantindo sincronização automática dos menus."""
@@ -4716,7 +4740,9 @@ class UsuarioAdminViewSet(viewsets.ModelViewSet):
     
     queryset = User.objects.filter(is_staff=True).order_by('username')
     serializer_class = UsuarioAdminSerializer
-    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasMenuPermission('usuarios')]
     
     # Usuário admin padrão que não pode ser excluído
     ADMIN_USERNAME = 'admin'
@@ -5222,3 +5248,11 @@ def admin_inscricao_detalhe(request, inscricao_id):
     )
     serializer = InscricaoAdminSerializer(inscricao, context={'request': request})
     return Response(serializer.data)
+
+
+from rest_framework_simplejwt.views import TokenObtainPairView
+
+
+class TokenObtainPairThrottledView(TokenObtainPairView):
+    """Login admin com rate limit."""
+    throttle_classes = [LoginRateThrottle]

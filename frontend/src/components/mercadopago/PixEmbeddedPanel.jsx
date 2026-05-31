@@ -10,6 +10,7 @@ import { PayerDataForm, payerToApiPayload, isPayerValid } from './PayerDataForm'
 export function PixEmbeddedPanel({
   contexto = 'eventos',
   cobrancaId,
+  cobrancaCodigo,
   cobrancaLojaId,
   valor,
   defaultPayer = {},
@@ -44,6 +45,9 @@ export function PixEmbeddedPanel({
     setError(null)
     try {
       const body = { [bodyKey]: bodyId }
+      if (contexto === 'eventos' && cobrancaCodigo) {
+        body.codigo = cobrancaCodigo
+      }
       if (!pagadorAnonimo) {
         body.payer = payerToApiPayload(payer)
       }
@@ -63,7 +67,7 @@ export function PixEmbeddedPanel({
     } finally {
       setLoading(false)
     }
-  }, [payer, pixUrl, bodyKey, bodyId, onPixCreated, onAlreadyPaid, pagadorAnonimo])
+  }, [payer, pixUrl, bodyKey, bodyId, cobrancaCodigo, contexto, onPixCreated, onAlreadyPaid, pagadorAnonimo])
 
   const copiar = async () => {
     if (!pix?.qr_code) return

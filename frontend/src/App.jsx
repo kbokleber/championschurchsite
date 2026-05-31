@@ -144,7 +144,7 @@ function App() {
             <Footer />
           </div>
         } />
-        <Route path="/pagamento/:cobrancaId" element={<PagamentoPix />} />
+        <Route path="/pagamento/:codigo" element={<PagamentoPix />} />
         <Route path="/recibo/:codigo" element={<ReciboLoja />} />
 
         {/* Rota de Login */}

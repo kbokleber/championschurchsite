@@ -822,9 +822,9 @@ function MeusIngressos() {
                                 </p>
                               )}
                               
-                              {ingresso.cobranca_id && (
+                              {ingresso.cobranca_codigo && (
                                 <button
-                                  onClick={() => navigate(`/pagamento/${ingresso.cobranca_id}?auto=true`)}
+                                  onClick={() => navigate(`/pagamento/${ingresso.cobranca_codigo}?auto=true`)}
                                   className="mt-3 w-full min-h-[44px] bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
                                 >
                                   <ExternalLink className="h-4 w-4" />

@@ -4,7 +4,7 @@ URLs da API REST para Champions Church.
 
 from django.urls import path, include, reverse
 from rest_framework.routers import DefaultRouter
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     MembroViewSet, EventoViewSet, InscricaoViewSet, ContatoViewSet,
     CategoriaParticipanteViewSet, CobrancaViewSet,
@@ -18,6 +18,8 @@ from .views import (
     configuracao_publica, configuracao_admin,
     admin_testar_conexao_whatsapp, admin_testar_conexao_mercadopago,
     verificar_permissao_menu, menus_permitidos, popular_permissoes_menu,
+    TokenObtainPairThrottledView,
+    cobranca_publica,
     # Mercado Pago
     criar_pagamento_pix,
     criar_pagamento_pix_embutido,
@@ -86,7 +88,7 @@ router.register(r'loja/auditoria', LojaAuditoriaViewSet, basename='loja-auditori
 
 urlpatterns = [
     # Autenticação JWT
-    path('auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('auth/login/', TokenObtainPairThrottledView.as_view(), name='token_obtain_pair'),
     path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('auth/me/', get_current_user, name='current_user'),
     path('auth/alterar-senha/', alterar_minha_senha, name='alterar_minha_senha'),
@@ -136,11 +138,12 @@ urlpatterns = [
     ),
     
     # Mercado Pago
+    path('cobrancas/publico/<str:codigo>/', cobranca_publica, name='cobranca_publica'),
     path('mercadopago/criar-pix/', criar_pagamento_pix, name='mp_criar_pix'),
     path('mercadopago/criar-pix-embutido/', criar_pagamento_pix_embutido, name='mp_criar_pix_embutido'),
     path('mercadopago/pagar-cartao/', pagar_cartao, name='mp_pagar_cartao'),
     path('mercadopago/webhook/', mercadopago_webhook, name='mp_webhook'),
-    path('mercadopago/verificar/<int:cobranca_id>/', verificar_pagamento, name='mp_verificar'),
+    path('mercadopago/verificar/<str:codigo>/', verificar_pagamento, name='mp_verificar'),
     path('loja/mercadopago/verificar/<int:cobranca_loja_id>/', verificar_pagamento_loja, name='mp_verificar_loja'),
     path('loja/mercadopago/pagar-cartao/', pagar_cartao_loja, name='mp_pagar_cartao_loja'),
     path('loja/mercadopago/criar-pix-embutido/', criar_pagamento_pix_embutido_loja, name='mp_criar_pix_embutido_loja'),

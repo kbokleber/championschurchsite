@@ -12,6 +12,7 @@ import { useMercadoPagoMetodos } from './useMercadoPagoMetodos'
 export function MercadoPagoCheckout({
   contexto = 'eventos',
   cobrancaId,
+  cobrancaCodigo,
   cobrancaLojaId,
   valor,
   defaultPayer = {},
@@ -87,6 +88,7 @@ export function MercadoPagoCheckout({
         <PixEmbeddedPanel
           contexto={contexto}
           cobrancaId={cobrancaId}
+          cobrancaCodigo={cobrancaCodigo}
           cobrancaLojaId={cobrancaLojaId}
           valor={valor}
           defaultPayer={defaultPayer}
@@ -100,6 +102,7 @@ export function MercadoPagoCheckout({
         <CardPaymentBrick
           contexto={contexto}
           cobrancaId={cobrancaId}
+          cobrancaCodigo={cobrancaCodigo}
           cobrancaLojaId={cobrancaLojaId}
           amount={valor}
           defaultPayer={defaultPayer}

@@ -21,14 +21,18 @@ class RateLimitMiddleware:
     # Configurações de rate limit por endpoint
     # Desabilitado para permitir testes - pode ser reativado em produção se necessário
     RATE_LIMITS = {
-        # '/api/token/': {'requests': 5, 'window': 60},  # Login: 5/minuto
-        # '/api/participante/login/': {'requests': 5, 'window': 60},  # Login participante: 5/minuto
-        # '/api/participante/registro/': {'requests': 10, 'window': 3600},  # Registro: 10/hora
-        # '/api/mercadopago/criar-pix/': {'requests': 10, 'window': 60},  # Pagamento: 10/minuto
+        '/api/auth/login/': {'requests': 5, 'window': 60},
+        '/api/participante/login/': {'requests': 10, 'window': 60},
+        '/api/participante/registro/': {'requests': 10, 'window': 3600},
+        '/api/participante/buscar/': {'requests': 30, 'window': 60},
+        '/api/participante/consultar/': {'requests': 30, 'window': 60},
+        '/api/mercadopago/criar-pix/': {'requests': 20, 'window': 60},
+        '/api/mercadopago/criar-pix-embutido/': {'requests': 20, 'window': 60},
+        '/api/mercadopago/pagar-cartao/': {'requests': 20, 'window': 60},
+        '/api/mercadopago/verificar/': {'requests': 60, 'window': 60},
     }
     
-    # Rate limit global - aumentado significativamente para não bloquear durante testes
-    GLOBAL_RATE_LIMIT = {'requests': 10000, 'window': 60}  # 10000 req/minuto por IP (praticamente desabilitado)
+    GLOBAL_RATE_LIMIT = {'requests': 300, 'window': 60}
     
     def __init__(self, get_response):
         self.get_response = get_response

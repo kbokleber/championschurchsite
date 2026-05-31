@@ -49,6 +49,7 @@ function payerFromBrickForm(cardFormData, additionalData) {
 export function CardPaymentBrick({
   contexto = 'eventos',
   cobrancaId,
+  cobrancaCodigo,
   cobrancaLojaId,
   amount,
   defaultPayer = {},
@@ -185,6 +186,7 @@ export function CardPaymentBrick({
                       payload.cobranca_loja_id = cobrancaLojaId
                     } else {
                       payload.cobranca_id = cobrancaId
+                      payload.codigo = cobrancaCodigo
                     }
                     const { data } = await api.post(cardUrl, payload)
                     if (data.status === 'approved') {
@@ -296,6 +298,7 @@ export function CardPaymentBrick({
     mpInstance,
     valorNum,
     cobrancaId,
+    cobrancaCodigo,
     cobrancaLojaId,
     contexto,
     pagadorAnonimo,

@@ -295,7 +295,7 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',
+        'rest_framework.permissions.IsAuthenticated',
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
@@ -307,8 +307,11 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'anon': '100/minute',  # Usuários anônimos: 100 requisições/minuto
         'user': '300/minute',  # Usuários autenticados: 300 requisições/minuto
-        'login': '5/minute',   # Tentativas de login: 5/minuto
+        'login': '5/minute',   # Tentativas de login admin: 5/minuto
         'registro': '10/hour', # Registros: 10/hora
+        'participante_login': '10/minute',
+        'participante_busca': '30/minute',
+        'mp_pagamento': '20/minute',
     },
     # Renderização de erros
     'EXCEPTION_HANDLER': 'rest_framework.views.exception_handler',

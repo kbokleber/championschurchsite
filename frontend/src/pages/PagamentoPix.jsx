@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 
 function PagamentoPix() {
-  const { cobrancaId } = useParams();
+  const { codigo } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { atualizarIngressos } = useParticipante();
@@ -51,12 +51,12 @@ function PagamentoPix() {
         clearInterval(pollingRef.current);
       }
     };
-  }, [cobrancaId]);
+  }, [codigo]);
 
   const carregarCobranca = async () => {
     try {
       setLoading(true);
-      const response = await api.get(`/cobrancas/${cobrancaId}/`);
+      const response = await api.get(`/cobrancas/publico/${codigo}/`);
       setCobranca(response.data);
       
       if (response.data.status === 'pago') {
@@ -79,7 +79,7 @@ function PagamentoPix() {
     
     pollingRef.current = setInterval(async () => {
       try {
-        const response = await api.get(`/mercadopago/verificar/${cobrancaId}/`);
+        const response = await api.get(`/mercadopago/verificar/${codigo}/`);
         if (response.data.status === 'pago' || response.data.mp_status === 'approved') {
           setStatus('pago');
           clearInterval(pollingRef.current);
@@ -196,7 +196,7 @@ function PagamentoPix() {
             <ResumoCobrancaPagamento contexto="eventos" dados={cobranca} />
             <MercadoPagoCheckout
               contexto="eventos"
-              cobrancaId={Number(cobrancaId)}
+              cobrancaCodigo={codigo}
               valor={Number(cobranca?.valor)}
               defaultPayer={defaultPayer}
               metodos={metodosMp}

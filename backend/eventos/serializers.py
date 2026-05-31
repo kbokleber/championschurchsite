@@ -166,9 +166,9 @@ class MembroSerializer(serializers.ModelSerializer):
         model = Membro
         fields = [
             'id', 'nome', 'email', 'telefone', 'data_nascimento',
-            'sexo', 'endereco', 'data_cadastro', 'status', 'foto', 'senha_texto'
+            'sexo', 'endereco', 'data_cadastro', 'status', 'foto',
         ]
-        read_only_fields = ['id', 'data_cadastro', 'senha_texto']
+        read_only_fields = ['id', 'data_cadastro']
 
 
 class MembroResumoSerializer(serializers.ModelSerializer):
@@ -176,7 +176,7 @@ class MembroResumoSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Membro
-        fields = ['id', 'nome', 'email', 'telefone', 'status', 'senha_texto']
+        fields = ['id', 'nome', 'email', 'telefone', 'status']
 
 
 class CampoFormularioSerializer(serializers.ModelSerializer):
@@ -1015,6 +1015,31 @@ class CobrancaSerializer(serializers.ModelSerializer):
     
     def get_data_pagamento_formatada(self, obj):
         return self._formatar_data(obj.data_pagamento)
+
+    def get_evento_data(self, obj):
+        if obj.evento and obj.evento.data_inicio:
+            from django.utils import timezone
+            return timezone.localtime(obj.evento.data_inicio).strftime('%d/%m/%Y %H:%M')
+        return None
+
+
+class CobrancaPublicaSerializer(serializers.ModelSerializer):
+    """Dados mínimos da cobrança para a página pública de pagamento."""
+
+    membro_nome = serializers.CharField(source='membro.nome', read_only=True)
+    membro_email = serializers.EmailField(source='membro.email', read_only=True, allow_blank=True)
+    evento_titulo = serializers.CharField(source='evento.titulo', read_only=True)
+    evento_data = serializers.SerializerMethodField()
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    itens = CobrancaItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Cobranca
+        fields = [
+            'codigo', 'valor', 'descricao', 'status', 'status_display',
+            'membro_nome', 'membro_email', 'evento_titulo', 'evento_data', 'itens',
+        ]
+        read_only_fields = fields
 
     def get_evento_data(self, obj):
         if obj.evento and obj.evento.data_inicio:

@@ -27,6 +27,8 @@ function EventoDetalhe() {
   const [acompanhantesData, setAcompanhantesData] = useState([])
   const [senhaGerada, setSenhaGerada] = useState(null)
   const [novoCadastro, setNovoCadastro] = useState(false)
+  const [whatsappEnviado, setWhatsappEnviado] = useState(null)
+  const [whatsappMensagem, setWhatsappMensagem] = useState('')
   const [inscricaoErro, setInscricaoErro] = useState('')
   const [jaInscrito, setJaInscrito] = useState(false)
   const [acompanhantesAdicionados, setAcompanhantesAdicionados] = useState(false)
@@ -85,6 +87,8 @@ function EventoDetalhe() {
     setAcompanhantesAdicionados(false)
     setInscricaoData(null)
     setCobranca(null)
+    setWhatsappEnviado(null)
+    setWhatsappMensagem('')
     setRespostasForm({})
     setArquivosForm({})
     setErrosForm({})
@@ -449,6 +453,13 @@ function EventoDetalhe() {
         setAcompanhantesData(result.data.acompanhantes || [])
         setInscricaoSucesso(true)
         setNovoCadastro(result.data.novo_cadastro)
+        if (typeof result.data.whatsapp_enviado === 'boolean') {
+          setWhatsappEnviado(result.data.whatsapp_enviado)
+          setWhatsappMensagem(result.data.whatsapp_mensagem || '')
+        } else {
+          setWhatsappEnviado(null)
+          setWhatsappMensagem('')
+        }
         
         // Capturar cobrança se existir
         if (result.data.cobranca) {
@@ -849,16 +860,35 @@ function EventoDetalhe() {
                       </>
                     )}
                     
-                    {/* Aviso: senha enviada por WhatsApp (não exibir senha na tela) */}
-                    {novoCadastro && senhaGerada && (
+                    {/* Status do envio WhatsApp */}
+                    {whatsappEnviado === true && (
                       <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6 text-left">
                         <h4 className="font-semibold text-green-800 mb-2 flex items-center">
                           <Smartphone className="h-5 w-5 mr-2" />
-                          Acesso enviado
+                          Instruções enviadas
                         </h4>
                         <p className="text-sm text-green-700">
-                          A senha de acesso foi enviada via WhatsApp para o número <span className="font-medium">{formData.telefone}</span>. Use-a para acessar &quot;Meus Ingressos&quot;.
+                          As instruções de acesso foram enviadas via WhatsApp para o número{' '}
+                          <span className="font-medium">{formData.telefone}</span>. Confira no celular e acesse &quot;Meus Ingressos&quot; quando quiser.
                         </p>
+                      </div>
+                    )}
+                    {whatsappEnviado === false && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 text-left">
+                        <h4 className="font-semibold text-amber-800 mb-2 flex items-center">
+                          <AlertCircle className="h-5 w-5 mr-2" />
+                          WhatsApp não enviado
+                        </h4>
+                        <p className="text-sm text-amber-800">
+                          {whatsappMensagem || 'Não foi possível enviar a confirmação pelo WhatsApp. Sua inscrição foi registrada.'}
+                        </p>
+                        {senhaGerada && (
+                          <p className="text-sm text-amber-900 mt-3">
+                            Sua senha de acesso:{' '}
+                            <span className="font-mono font-bold tracking-widest">{senhaGerada}</span>
+                            {' '}— anote e use em &quot;Meus Ingressos&quot;.
+                          </p>
+                        )}
                       </div>
                     )}
                     

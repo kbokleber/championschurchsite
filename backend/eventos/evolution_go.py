@@ -165,6 +165,8 @@ def enviar_texto_evolution_go(
     mensagem: str,
     instancia_override: str | None = None,
     api_key_override: str | None = None,
+    timeout: int = 30,
+    max_endpoints: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Envia mensagem de texto para Evolution Go.
@@ -237,12 +239,14 @@ def enviar_texto_evolution_go(
             f"{base}/api/message/sendText",
         ])
     urls_candidatas = list(dict.fromkeys(urls_candidatas))
+    if max_endpoints is not None and max_endpoints > 0:
+        urls_candidatas = urls_candidatas[:max_endpoints]
 
     ultimo_erro = None
     for url in urls_candidatas:
         resultado["url_usada"] = url
         try:
-            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            response = requests.post(url, json=payload, headers=headers, timeout=timeout)
             resultado["http_status"] = response.status_code
 
             if 200 <= response.status_code < 300 and not _response_json_indica_falha(response):

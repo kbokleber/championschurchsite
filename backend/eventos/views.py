@@ -264,12 +264,41 @@ def _participante_pwd_token_sig(membro):
     return hmac.new(key, base, hashlib.sha256).hexdigest()[:24]
 
 
-def enviar_webhook_inscricao(dados_webhook):
+def _whatsapp_resposta_para_api(resultado):
+    """Converte resultado do Evolution Go em campos para a resposta da API."""
+    entregue = bool((resultado or {}).get('entregue'))
+    motivo = (resultado or {}).get('motivo') or ''
+    if entregue:
+        return {
+            'whatsapp_enviado': True,
+            'whatsapp_mensagem': 'Confirmação enviada para o seu WhatsApp.',
+        }
+    if motivo == 'configuracao_incompleta':
+        msg = (
+            'Não foi possível enviar a confirmação pelo WhatsApp: '
+            'a integração não está configurada. Sua inscrição foi registrada.'
+        )
+    elif motivo == 'telefone_invalido':
+        msg = (
+            'Não foi possível enviar pelo WhatsApp: número inválido. '
+            'Sua inscrição foi registrada.'
+        )
+    else:
+        msg = (
+            'Não foi possível enviar a confirmação pelo WhatsApp agora. '
+            'Sua inscrição foi registrada — tente novamente em alguns minutos ou '
+            'fale com a equipe da igreja.'
+        )
+    return {
+        'whatsapp_enviado': False,
+        'whatsapp_mensagem': msg,
+    }
+
+
+def enviar_webhook_inscricao(dados_webhook, *, timeout=30, max_endpoints=None):
     """
     Envia mensagem WhatsApp de inscrição via Evolution Go.
-    Chamado em uma thread separada para não bloquear a resposta.
     """
-    print('>>> WHATSAPP: Iniciando envio de mensagem de inscrição...')
     try:
         config = ConfiguracaoSite.get_config()
         config.refresh_from_db()
@@ -298,7 +327,13 @@ def enviar_webhook_inscricao(dados_webhook):
         }
         msg_payload = _build_whatsapp_message_payload(config, tipo_msg, variaveis_msg)
         telefone_destino = (dados_webhook.get('telefone') or '').strip()
-        resultado = enviar_texto_evolution_go(config, telefone_destino, msg_payload.get('mensagem', ''))
+        resultado = enviar_texto_evolution_go(
+            config,
+            telefone_destino,
+            msg_payload.get('mensagem', ''),
+            timeout=timeout,
+            max_endpoints=max_endpoints,
+        )
         if not resultado.get('entregue'):
             logger.error(
                 'WhatsApp inscrição falhou (tipo=%s, telefone=%s, motivo=%s, status=%s, erro=%s)',
@@ -317,7 +352,6 @@ def enviar_webhook_inscricao(dados_webhook):
             )
         return resultado
     except Exception as e:
-        print(f'>>> WHATSAPP ERRO: {str(e)}')
         logger.error(f'Erro ao enviar WhatsApp de inscrição: {str(e)}')
         return {'entregue': False, 'motivo': 'requisicao_erro', 'erro': str(e)}
 
@@ -1309,11 +1343,15 @@ def participante_registro(request):
                 'acompanhantes': acompanhantes_webhook,
                 'total_inscritos': 1 + todos_acompanhantes.count(),
             }
-            thread = threading.Thread(target=enviar_webhook_inscricao, args=(dados_webhook,))
-            thread.daemon = True
-            thread.start()
+            resultado_wh = enviar_webhook_inscricao(
+                dados_webhook,
+                timeout=12,
+                max_endpoints=2,
+            )
+            response.update(_whatsapp_resposta_para_api(resultado_wh))
         except Exception as e:
             logger.exception('Erro ao disparar webhook (acompanhantes adicionados): %s', e)
+            response.update(_whatsapp_resposta_para_api({'entregue': False, 'motivo': 'requisicao_erro'}))
         
         # Sempre retornar token para manter a sessão do participante (evitar novo login)
         import jwt
@@ -1815,9 +1853,12 @@ def participante_registro(request):
         'total_inscritos': 1 + len(inscricoes_acompanhantes),
     }
     
-    thread = threading.Thread(target=enviar_webhook_inscricao, args=(dados_webhook,))
-    thread.daemon = True
-    thread.start()
+    resultado_wh = enviar_webhook_inscricao(
+        dados_webhook,
+        timeout=12,
+        max_endpoints=2,
+    )
+    response_data.update(_whatsapp_resposta_para_api(resultado_wh))
     
     return Response(response_data, status=status.HTTP_201_CREATED)
 

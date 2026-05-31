@@ -34,6 +34,30 @@ def _mensagem_diagnostico_whatsapp_loja(diagnostico: dict) -> str:
             'Instância WhatsApp da cantina não está configurada. '
             'Em Configurações → WhatsApp → Credenciais (Loja/Cantina), informe a instância e teste a conexão.'
         )
+    if motivo == 'instancia_nao_informada':
+        return (
+            'Informe o nome da instância da cantina para testar URL, token e instância juntos.'
+        )
+    if motivo == 'instancia_nao_encontrada':
+        return (
+            'Instância WhatsApp da cantina não encontrada no servidor Evolution. '
+            'Verifique o nome exato cadastrado no painel.'
+        )
+    if motivo == 'global_api_key_necessaria':
+        return (
+            'Informe a GLOBAL_API_KEY do Evolution Go em Configurações → WhatsApp → Credenciais '
+            'para validar o nome da instância da cantina.'
+        )
+    if motivo == 'global_api_key_invalida':
+        return (
+            'A chave global do Evolution Go foi recusada. '
+            'Verifique a GLOBAL_API_KEY no painel do servidor.'
+        )
+    if motivo == 'token_instancia_incompativel':
+        return (
+            'O token da cantina não corresponde ao nome da instância informado. '
+            'Copie o par nome + token no painel Evolution.'
+        )
     if motivo == 'token_nao_configurado':
         return (
             'Token WhatsApp da cantina não está configurado. '
@@ -100,6 +124,7 @@ def _diagnostico_whatsapp_loja_config(config) -> dict:
     cfg_teste = _CfgTeste()
     cfg_teste.evolution_api_url = api_url
     cfg_teste.evolution_api_key = api_key_efetiva
+    cfg_teste.evolution_global_api_key = (getattr(config, 'evolution_global_api_key', '') or '').strip()
     cfg_teste.evolution_api_instance = instancia_loja
 
     diagnostico = diagnosticar_conexao_evolution_go(cfg_teste)

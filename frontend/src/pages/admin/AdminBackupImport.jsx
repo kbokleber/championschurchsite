@@ -421,8 +421,10 @@ function AdminBackupImport() {
           <h2 className="text-lg font-semibold text-gray-900">Configurações de integração</h2>
         </div>
         <p className="text-sm text-gray-600">
-          Exporte Mercado Pago, WhatsApp/Evolution e webhooks deste ambiente. Após restaurar um backup de produção,
-          importe o JSON salvo para voltar às credenciais de dev sem perder os dados reais.
+          Exporte Mercado Pago, WhatsApp/Evolution (URL, token da instância,{' '}
+          <strong>GLOBAL_API_KEY</strong> do Evolution Go, instâncias eventos/loja e templates) e webhooks deste
+          ambiente. Após restaurar um backup de produção, importe o JSON salvo para voltar às credenciais de dev sem
+          perder os dados reais.
         </p>
         <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm text-slate-700">
           <p className="font-medium text-slate-900">Fluxo recomendado</p>

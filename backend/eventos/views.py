@@ -3226,6 +3226,9 @@ def admin_testar_conexao_whatsapp(request):
     config_teste = SimpleNamespace(
         evolution_api_url=(request.data.get('evolution_api_url') or config.evolution_api_url or ''),
         evolution_api_key=(request.data.get('evolution_api_key') or config.evolution_api_key or ''),
+        evolution_global_api_key=(
+            request.data.get('evolution_global_api_key') or config.evolution_global_api_key or ''
+        ),
         evolution_api_instance=(request.data.get('evolution_api_instance') or config.evolution_api_instance or ''),
     )
     diagnostico = diagnosticar_conexao_evolution_go(config_teste)

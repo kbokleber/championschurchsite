@@ -29,9 +29,10 @@ INTEGRATION_FIELD_NAMES: tuple[str, ...] = (
     'mp_cartao_em_sandbox',
     'mp_pix_habilitado',
     'mp_cartao_habilitado',
-    # WhatsApp Evolution API
+    # WhatsApp Evolution API (evolution_global_api_key = GLOBAL_API_KEY do Evolution Go)
     'evolution_api_url',
     'evolution_api_key',
+    'evolution_global_api_key',
     'evolution_api_instance',
     'evolution_api_instance_loja',
     'evolution_api_key_loja',

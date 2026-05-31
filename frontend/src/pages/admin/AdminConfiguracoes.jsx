@@ -17,15 +17,98 @@ const CONFIG_BOOLEAN_KEYS = new Set([
   'mp_cartao_habilitado',
 ])
 
+function PlaceholderTag({ name, variant = 'double' }) {
+  const text = variant === 'double' ? `{{${name}}}` : `{${name}}`
+  return (
+    <code className="text-[11px] bg-amber-100/80 border border-amber-200 rounded px-1.5 py-0.5 text-amber-900 whitespace-nowrap">
+      {text}
+    </code>
+  )
+}
+
+function WhatsAppEventosPlaceholdersBox() {
+  const eventosGerais = ['nome', 'senha', 'telefone', 'email', 'igreja_nome']
+  const eventosInscricao = [
+    'evento',
+    'data_evento',
+    'local_evento',
+    'endereco_evento',
+    'status_pagamento',
+    'link_pagamento',
+    'valor_total',
+    'codigo_inscricao',
+  ]
+
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
+      <div>
+        <h4 className="font-medium text-amber-800">Placeholders — Eventos</h4>
+        <p className="text-xs text-amber-700 mt-1">
+          Use {'{{variavel}}'} nos templates abaixo (reset de senha e inscrições).
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {eventosGerais.map((p) => (
+          <PlaceholderTag key={`ev-geral-${p}`} name={p} />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {eventosInscricao.map((p) => (
+          <PlaceholderTag key={`ev-ins-${p}`} name={p} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function WhatsAppLojaPlaceholdersBox() {
+  const lojaRecibo = ['nome_saudacao', 'nome_igreja', 'codigo', 'total', 'itens', 'link_recibo']
+  const lojaReserva = ['nome_saudacao', 'nome_igreja', 'nome', 'data', 'itens', 'local_retirada']
+
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
+      <div>
+        <h4 className="font-medium text-amber-800">Placeholders — Cantina / Loja</h4>
+        <p className="text-xs text-amber-700 mt-1">
+          Use {'{variavel}'} nos templates de recibo e lembrete de reserva.
+        </p>
+      </div>
+
+      <div className="space-y-1">
+        <p className="text-xs text-amber-800 font-medium">Recibo (após pagamento)</p>
+        <div className="flex flex-wrap gap-1.5">
+          {lojaRecibo.map((p) => (
+            <PlaceholderTag key={`loja-rec-${p}`} name={p} variant="single" />
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <p className="text-xs text-amber-800 font-medium">Lembrete de reserva</p>
+        <div className="flex flex-wrap gap-1.5">
+          {lojaReserva.map((p) => (
+            <PlaceholderTag key={`loja-res-${p}`} name={p} variant="single" />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function WhatsAppTestResultBox({ resultado, labelStatus, getQrImage }) {
   if (!resultado) return null
+  const isDesconectado = resultado.motivo === 'whatsapp_desconectado'
+  const isInstanciaErro = ['instancia_nao_encontrada', 'instancia_nao_informada'].includes(resultado.motivo)
   return (
     <div className={`mt-4 rounded-lg border p-3 text-sm ${
       resultado.ok
         ? 'border-green-200 bg-green-50 text-green-800'
-        : resultado.motivo === 'whatsapp_desconectado'
+        : isDesconectado
           ? 'border-amber-200 bg-amber-50 text-amber-800'
-          : 'border-red-200 bg-red-50 text-red-800'
+          : isInstanciaErro
+            ? 'border-red-200 bg-red-50 text-red-800'
+            : 'border-red-200 bg-red-50 text-red-800'
     }`}>
       <p><strong>Status:</strong> {labelStatus(resultado)}</p>
       <p><strong>Motivo:</strong> {resultado.motivo || '-'}</p>
@@ -154,6 +237,7 @@ function AdminConfiguracoes() {
     // WhatsApp Evolution API
     evolution_api_url: '',
     evolution_api_key: '',
+    evolution_global_api_key: '',
     evolution_api_instance: '',
     evolution_api_instance_loja: '',
     evolution_api_key_loja: '',
@@ -182,6 +266,7 @@ function AdminConfiguracoes() {
   const [showAccessTokenProduction, setShowAccessTokenProduction] = useState(false)
   const [showMpWebhookSecret, setShowMpWebhookSecret] = useState(false)
   const [showEvolutionApiKey, setShowEvolutionApiKey] = useState(false)
+  const [showEvolutionGlobalApiKey, setShowEvolutionGlobalApiKey] = useState(false)
   const [showEvolutionLojaApiKey, setShowEvolutionLojaApiKey] = useState(false)
   const [destaquesHome, setDestaquesHome] = useState([novoDestaqueHome()])
   const [testingWhatsApp, setTestingWhatsApp] = useState(false)
@@ -253,6 +338,7 @@ function AdminConfiguracoes() {
         // WhatsApp Evolution API
         evolution_api_url: data.evolution_api_url || '',
         evolution_api_key: data.evolution_api_key || '',
+        evolution_global_api_key: data.evolution_global_api_key || '',
         evolution_api_instance: data.evolution_api_instance || '',
         evolution_api_instance_loja: data.evolution_api_instance_loja || '',
         evolution_api_key_loja: data.evolution_api_key_loja || '',
@@ -493,10 +579,24 @@ function AdminConfiguracoes() {
       const response = await api.post('/admin/whatsapp/testar-conexao/', {
         evolution_api_url: formData.evolution_api_url,
         evolution_api_key: apiKey,
+        evolution_global_api_key: formData.evolution_global_api_key,
         evolution_api_instance: instance,
       })
       setResult(response.data)
-      setMessage({ type: 'success', text: `Teste de conexão (${rotulo}) concluído com sucesso.` })
+      if (response.data?.ok) {
+        const aviso = response.data?.aviso
+        setMessage({
+          type: 'success',
+          text: aviso
+            ? `Teste (${rotulo}) OK: URL e token válidos. ${aviso}`
+            : `Teste de conexão (${rotulo}) concluído: URL, token e instância válidos.`,
+        })
+      } else {
+        setMessage({
+          type: 'error',
+          text: response.data?.detalhe || `Falha no teste (${rotulo}).`,
+        })
+      }
     } catch (error) {
       const result = error.response?.data
       if (result) setResult(result)
@@ -507,17 +607,33 @@ function AdminConfiguracoes() {
     }
   }
 
-  const handleTestarConexaoWhatsApp = () =>
-    _executarTesteWhatsApp({
+  const handleTestarConexaoWhatsApp = () => {
+    const instance = (formData.evolution_api_instance || '').trim()
+    const globalKey = (formData.evolution_global_api_key || '').trim()
+    if (!globalKey) {
+      setMessage({ type: 'error', text: 'Informe a GLOBAL_API_KEY do Evolution Go antes de testar.' })
+      return
+    }
+    if (!instance) {
+      setMessage({ type: 'error', text: 'Informe a instância dos Eventos antes de testar.' })
+      return
+    }
+    return _executarTesteWhatsApp({
       rotulo: 'Eventos',
-      instance: formData.evolution_api_instance,
+      instance,
       apiKey: formData.evolution_api_key,
       setLoading: setTestingWhatsApp,
       setResult: setWhatsAppTestResult,
     })
+  }
 
   const handleTestarConexaoWhatsAppLoja = () => {
     const instance = (formData.evolution_api_instance_loja || '').trim()
+    const globalKey = (formData.evolution_global_api_key || '').trim()
+    if (!globalKey) {
+      setMessage({ type: 'error', text: 'Informe a GLOBAL_API_KEY do Evolution Go antes de testar.' })
+      return
+    }
     if (!instance) {
       setMessage({ type: 'error', text: 'Informe a instância da Loja / Cantina antes de testar.' })
       return
@@ -549,6 +665,11 @@ function AdminConfiguracoes() {
     if (!result) return '-'
     if (result.ok) return 'Conectado'
     if (result.motivo === 'whatsapp_desconectado') return 'Desconectado'
+    if (result.motivo === 'instancia_nao_encontrada') return 'Instância não encontrada'
+    if (result.motivo === 'instancia_nao_informada') return 'Instância não informada'
+    if (result.motivo === 'global_api_key_necessaria') return 'Chave global necessária'
+    if (result.motivo === 'global_api_key_invalida') return 'Chave global inválida'
+    if (result.motivo === 'token_instancia_incompativel') return 'Token não combina com a instância'
     return 'Falha'
   }
 
@@ -1652,6 +1773,34 @@ function AdminConfiguracoes() {
                     </p>
                   </div>
 
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      GLOBAL_API_KEY (Evolution Go) *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showEvolutionGlobalApiKey ? 'text' : 'password'}
+                        name="evolution_global_api_key"
+                        value={formData.evolution_global_api_key}
+                        onChange={handleChange}
+                        className="input-field font-mono text-sm pr-10"
+                        placeholder="Chave global do servidor Evolution Go"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowEvolutionGlobalApiKey((s) => !s)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-700 rounded"
+                        title={showEvolutionGlobalApiKey ? 'Ocultar chave' : 'Mostrar chave'}
+                      >
+                        {showEvolutionGlobalApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Necessária para validar o nome da instância no teste de conexão (GET /instance/all).
+                      Encontre no painel ou nas variáveis do servidor Evolution Go.
+                    </p>
+                  </div>
+
                   {/* Instância dos Eventos */}
                   <div className="border border-gray-200 rounded-lg p-4 bg-white">
                     <h4 className="font-semibold text-gray-800 mb-1">Instância dos Eventos</h4>
@@ -1683,7 +1832,7 @@ function AdminConfiguracoes() {
                           </button>
                         </div>
                         <p className="text-xs text-gray-500 mt-1">
-                          Token da instância de eventos. A GLOBAL_API_KEY é só para rotas administrativas.
+                          Token exclusivo da instância de eventos (não use a chave global aqui).
                         </p>
                       </div>
 
@@ -1704,7 +1853,7 @@ function AdminConfiguracoes() {
 
                     <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
                       <p className="text-xs text-gray-500">
-                        Verifica autenticação e status da instância de eventos.
+                        Testa URL, token, chave global e nome da instância no catálogo do Evolution Go.
                       </p>
                       <button
                         type="button"
@@ -1790,7 +1939,7 @@ function AdminConfiguracoes() {
 
                     <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
                       <p className="text-xs text-gray-500">
-                        Verifica autenticação e status da instância da loja/cantina.
+                        Testa URL, token, chave global e nome da instância no catálogo do Evolution Go.
                       </p>
                       <button
                         type="button"
@@ -1837,12 +1986,10 @@ function AdminConfiguracoes() {
 
               {activeWhatsAppSubtab === 'mensagens' && (
                 <div className="space-y-6">
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                    <h4 className="font-medium text-amber-800 mb-1">Placeholders disponíveis</h4>
-                    <p className="text-xs text-amber-700">
-                      Use placeholders como: {'{{nome}}'}, {'{{evento}}'}, {'{{data_evento}}'}, {'{{local_evento}}'}, {'{{endereco_evento}}'}, {'{{senha}}'}, {'{{status_pagamento}}'}, {'{{link_pagamento}}'}, {'{{valor_total}}'}, {'{{codigo_inscricao}}'}, {'{{telefone}}'}, {'{{email}}'}, {'{{igreja_nome}}'}.
-                    </p>
-                  </div>
+                  <WhatsAppEventosPlaceholdersBox />
+
+                  <div className="border border-gray-200 rounded-lg p-4 bg-gray-50/50 space-y-5">
+                    <h3 className="text-base font-semibold text-gray-800">Eventos</h3>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1899,9 +2046,10 @@ function AdminConfiguracoes() {
                       placeholder="Olá {{nome}}, pagamento confirmado para o evento {{evento}}..."
                     />
                   </div>
+                  </div>
 
                   {/* Mensagens da Loja / Cantina (templates; credenciais ficam na aba Credenciais) */}
-                  <div className="border-t border-gray-200 pt-4 mt-4 space-y-5">
+                  <div className="border border-gray-200 rounded-lg p-4 bg-gray-50/50 space-y-5">
                     <div>
                       <h3 className="text-base font-semibold text-gray-800 mb-1">
                         Loja / Cantina
@@ -1911,6 +2059,8 @@ function AdminConfiguracoes() {
                         ficam na aba <strong>Credenciais → Instância da Loja / Cantina</strong>.
                       </p>
                     </div>
+
+                    <WhatsAppLojaPlaceholdersBox />
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1931,10 +2081,6 @@ function AdminConfiguracoes() {
                           'Documento não fiscal.'
                         }
                       />
-                      <p className="text-xs text-gray-500 mt-1">
-                        Placeholders: {'{nome_saudacao}'}, {'{nome_igreja}'}, {'{codigo}'},{' '}
-                        {'{total}'}, {'{itens}'}, {'{link_recibo}'}.
-                      </p>
                     </div>
 
                     <div>
@@ -1953,10 +2099,6 @@ function AdminConfiguracoes() {
                           'Passe na cantina para retirar e pagar quando puder. Obrigado!'
                         }
                       />
-                      <p className="text-xs text-gray-500 mt-1">
-                        Placeholders: {'{nome_saudacao}'}, {'{nome_igreja}'}, {'{nome}'},{' '}
-                        {'{itens}'}, {'{data}'}.
-                      </p>
                     </div>
                   </div>
                 </div>

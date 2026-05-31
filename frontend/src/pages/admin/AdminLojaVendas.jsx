@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Receipt, RefreshCw, Store, Trash2, FileText, X } from 'lucide-react'
 import api, { formatApiError } from '../../services/api'
@@ -20,6 +20,27 @@ const MEIO = {
   cartao_mp: 'Cartão/MP',
 }
 
+function fmtDataLocal(d) {
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+function paramsPeriodo(periodo, dataInicio, dataFim) {
+  const hoje = fmtDataLocal(new Date())
+  if (periodo === 'dia') {
+    return { data_inicio: hoje, data_fim: hoje }
+  }
+  if (periodo === 'mes') {
+    const now = new Date()
+    const first = new Date(now.getFullYear(), now.getMonth(), 1)
+    return { data_inicio: fmtDataLocal(first), data_fim: hoje }
+  }
+  if (periodo === 'personalizado' && dataInicio && dataFim) {
+    return { data_inicio: dataInicio, data_fim: dataFim }
+  }
+  return {}
+}
+
 function AdminLojaVendas() {
   const { user } = useAuth()
   const podeExcluirVenda = Boolean(user?.is_superuser)
@@ -27,6 +48,10 @@ function AdminLojaVendas() {
   const [loading, setLoading] = useState(true)
   const [fStatus, setFStatus] = useState('')
   const [fCat, setFCat] = useState('')
+  const [periodo, setPeriodo] = useState('dia')
+  const [dataInicio, setDataInicio] = useState('')
+  const [dataFim, setDataFim] = useState('')
+  const [periodoPersonalizadoAtivo, setPeriodoPersonalizadoAtivo] = useState(false)
   const [page, setPage] = useState(1)
   const [excluindoId, setExcluindoId] = useState(null)
   const [sincronizando, setSincronizando] = useState(false)
@@ -35,10 +60,14 @@ function AdminLojaVendas() {
   const load = async (opts = {}) => {
     try {
       setLoading(true)
-      const params = { page }
+      const params = {
+        page,
+        page_size: 20,
+        ...paramsPeriodo(periodo, dataInicio, dataFim),
+      }
       if (fStatus) params.status = fStatus
       if (fCat) params.categoria = fCat
-      const { data } = await api.get('/loja/vendas/', { params: { ...params, page_size: 20 } })
+      const { data } = await api.get('/loja/vendas/', { params })
       const firstRows = data.results || data
 
       if (opts.syncPending) {
@@ -53,7 +82,7 @@ function AdminLojaVendas() {
           await Promise.allSettled(
             pendentes.map((r) => api.get(`/loja/mercadopago/verificar/${r.cobranca_loja_id}/`)),
           )
-          const { data: data2 } = await api.get('/loja/vendas/', { params: { ...params, page_size: 20 } })
+          const { data: data2 } = await api.get('/loja/vendas/', { params })
           setRows(data2.results || data2)
           return
         }
@@ -70,8 +99,31 @@ function AdminLojaVendas() {
   }
 
   useEffect(() => {
+    if (periodo === 'personalizado' && !periodoPersonalizadoAtivo) return
     load({ syncPending: false })
-  }, [page, fStatus, fCat])
+  }, [page, fStatus, fCat, periodo, periodoPersonalizadoAtivo])
+
+  const canLoadCustom = useMemo(() => {
+    if (periodo !== 'personalizado') return true
+    return Boolean(dataInicio && dataFim)
+  }, [periodo, dataInicio, dataFim])
+
+  const handleAtualizar = () => {
+    if (periodo === 'personalizado') {
+      if (!dataInicio || !dataFim) return
+      setPeriodoPersonalizadoAtivo(true)
+      setPage(1)
+    }
+    load({ syncPending: true })
+  }
+
+  const handlePeriodoChange = (value) => {
+    setPage(1)
+    setPeriodo(value)
+    if (value !== 'personalizado') {
+      setPeriodoPersonalizadoAtivo(false)
+    }
+  }
 
   const excluirVenda = async (id) => {
     if (
@@ -109,6 +161,35 @@ function AdminLojaVendas() {
           <p className="text-gray-600 text-sm">Cantina e Loja juntas. Use os filtros para ver só Cantina ou só Loja.</p>
         </div>
         <div className="flex gap-2 flex-wrap items-center">
+          <select className="input text-sm" value={periodo} onChange={(e) => handlePeriodoChange(e.target.value)}>
+            <option value="dia">Hoje</option>
+            <option value="mes">Mês atual</option>
+            <option value="personalizado">Período personalizado</option>
+          </select>
+          {periodo === 'personalizado' && (
+            <>
+              <input
+                type="date"
+                className="input text-sm"
+                value={dataInicio}
+                onChange={(e) => {
+                  setPeriodoPersonalizadoAtivo(false)
+                  setDataInicio(e.target.value)
+                }}
+                title="Data inicial"
+              />
+              <input
+                type="date"
+                className="input text-sm"
+                value={dataFim}
+                onChange={(e) => {
+                  setPeriodoPersonalizadoAtivo(false)
+                  setDataFim(e.target.value)
+                }}
+                title="Data final"
+              />
+            </>
+          )}
           <select className="input text-sm" value={fStatus} onChange={(e) => { setPage(1); setFStatus(e.target.value) }}>
             <option value="">Todos status</option>
             {Object.keys(STATUS).map((k) => (
@@ -122,8 +203,8 @@ function AdminLojaVendas() {
           </select>
           <button
             type="button"
-            onClick={() => load({ syncPending: true })}
-            disabled={sincronizando}
+            onClick={handleAtualizar}
+            disabled={sincronizando || !canLoadCustom || loading}
             className="btn btn-secondary flex items-center gap-1 text-sm disabled:opacity-60"
             title="Atualiza lista e reconcilia pagamentos pendentes no Mercado Pago"
           >

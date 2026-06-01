@@ -53,6 +53,12 @@ from .cobranca_inscricao import (
     ajustar_cobrancas_ao_cancelar_inscricao,
     recalcular_cobranca_apos_mudanca_itens,
 )
+from .mp_cobranca_sync import (
+    cancelar_cobranca_evento_mp,
+    confirmar_cobranca_evento_paga_mp,
+    consultar_status_mp_cobranca,
+    resolver_pagamento_webhook_mp,
+)
 from .evolution_go import enviar_texto_evolution_go, diagnosticar_conexao_evolution_go
 from .serializers import (
     MembroSerializer, MembroResumoSerializer,
@@ -3977,21 +3983,23 @@ def _verificar_assinatura_webhook_mp(request):
     return True
 
 
-def _processar_webhook_mp_pagamento(resource_id):
+def _processar_webhook_mp_pagamento(resource_id, topic=None):
     """Processa um pagamento MP em background (chamado em thread)."""
     resource_id = str(resource_id or '')
-    if resource_id.startswith('ORD'):
-        order, _env = mp_buscar_order(resource_id)
-        payment = normalizar_order_cartao_response(order) if order else None
-    else:
-        payment, _env = mp_buscar_pagamento(resource_id)
+    payment, external_reference = resolver_pagamento_webhook_mp(resource_id, topic=topic)
     if not payment:
-        logger.error("MP não configurado ou pagamento %s não encontrado", resource_id)
+        logger.error("MP não configurado ou pagamento %s não encontrado (topic=%s)", resource_id, topic)
         return
     try:
         payment_status = payment.get("status")
-        external_reference = payment.get("external_reference")
-        logger.info(f"Pagamento {resource_id}: status={payment_status}, ref={external_reference}")
+        external_reference = external_reference or payment.get("external_reference")
+        logger.info(
+            "Pagamento %s (topic=%s): status=%s, ref=%s",
+            resource_id,
+            topic,
+            payment_status,
+            external_reference,
+        )
         if not external_reference:
             return
         try:
@@ -4000,29 +4008,13 @@ def _processar_webhook_mp_pagamento(resource_id):
             cobranca = None
         if cobranca is not None:
             if payment_status == 'approved':
-                if cobranca.status != 'pago':
-                    cobranca.status = 'pago'
-                    cobranca.data_pagamento = timezone.now()
-                    cobranca.referencia_externa = str(resource_id)
-                    pm = payment.get('payment_method_id') or ''
-                    if pm == 'pix':
-                        cobranca.metodo_pagamento = 'Mercado Pago (PIX)'
-                    elif payment.get('payment_type_id') in ('credit_card', 'debit_card', 'prepaid_card'):
-                        cobranca.metodo_pagamento = 'Mercado Pago (cartão)'
-                    cobranca.save()
-                    for item in cobranca.itens.all():
-                        inscricao = item.inscricao
-                        inscricao.status_pagamento = 'pago'
-                        inscricao.status = 'confirmada'
-                        inscricao.data_pagamento = timezone.now()
-                        inscricao.save()
-                    _disparar_webhook_cobranca_confirmada(cobranca)
-                    logger.info(f"Cobrança {cobranca.codigo} confirmada via MP!")
+                confirmar_cobranca_evento_paga_mp(
+                    cobranca,
+                    payment=payment,
+                    referencia_externa=str(resource_id),
+                )
             elif payment_status in ['cancelled', 'rejected']:
-                if cobranca.status == 'pendente':
-                    cobranca.status = 'cancelado'
-                    cobranca.save()
-                    logger.info(f"Cobrança {cobranca.codigo} cancelada/rejeitada")
+                cancelar_cobranca_evento_mp(cobranca)
             return
 
         # Cobrança de loja / cantina (tabela loja_cobrancaloja)
@@ -4086,20 +4078,22 @@ def mercadopago_webhook(request):
     if not resource_id:
         return Response({'status': 'no_id'})
 
-    request_id = request.headers.get('x-request-id') or f"webhook-{topic}-{resource_id}"
+    idempotency_key = f"mp:{topic}:{resource_id}"
 
-    # Idempotência: já processado?
-    if WebhookEventLog.objects.filter(request_id=request_id).exists():
-        return Response({'status': 'ok'})
+    def _run_webhook():
+        if WebhookEventLog.objects.filter(request_id=idempotency_key).exists():
+            return
+        try:
+            _processar_webhook_mp_pagamento(resource_id, topic=topic)
+            WebhookEventLog.objects.get_or_create(request_id=idempotency_key)
+        except Exception:
+            logger.exception(
+                "Webhook MP falhou (topic=%s, resource=%s); retentativa permitida",
+                topic,
+                resource_id,
+            )
 
-    try:
-        WebhookEventLog.objects.create(request_id=request_id)
-    except Exception:
-        return Response({'status': 'ok'})
-
-    # Resposta rápida; processar em background
-    import threading
-    threading.Thread(target=_processar_webhook_mp_pagamento, args=(resource_id,), daemon=True).start()
+    threading.Thread(target=_run_webhook, daemon=True).start()
     return Response({'status': 'accepted'})
 
 
@@ -4289,13 +4283,6 @@ def verificar_pagamento(request, codigo):
             'data_pagamento': cobranca.data_pagamento.strftime('%d/%m/%Y %H:%M:%S') if cobranca.data_pagamento else None,
         })
     
-    # Se não tem referência externa, ainda não foi gerado PIX
-    if not cobranca.referencia_externa:
-        return Response({
-            'status': 'aguardando_pix',
-            'cobranca_status': cobranca.status,
-        })
-    
     config = ConfiguracaoSite.get_config()
     if not config.mp_ativo:
         return Response({
@@ -4305,63 +4292,37 @@ def verificar_pagamento(request, codigo):
         })
 
     try:
-        mp_status = "pending"
-        ref = (cobranca.referencia_externa or '').strip()
-        if ref.startswith('ORD'):
-            order, _env = mp_buscar_order(ref, config)
-            if order:
-                mp_status = normalizar_order_cartao_response(order).get('status', 'pending')
-            print(f"[MP] Verificando order para cobrança {cobranca.codigo}: {ref}")
-        else:
-            results = mp_search_payments_by_reference(cobranca.codigo, config)
-            print(f"[MP] Verificando pagamento para cobrança {cobranca.codigo}: {len(results)} resultado(s)")
-            # Verificar se algum pagamento foi aprovado
-            for payment in results:
-                if payment.get("status") == "approved":
-                    mp_status = "approved"
-                    break
-                elif payment.get("status") in ["pending", "in_process"]:
-                    mp_status = payment.get("status")
-        if mp_status != 'approved' and not ref.startswith('ORD'):
-            for order in mp_search_orders_by_reference(cobranca.codigo, config):
-                order_payment = normalizar_order_cartao_response(order)
-                if order_payment.get("status") == "approved":
-                    mp_status = "approved"
-                    break
-                if order_payment.get("status") in ["pending", "in_process"]:
-                    mp_status = order_payment.get("status")
-        
-        # Se pagamento aprovado no MP mas não localmente, atualizar
+        mp_status, payment = consultar_status_mp_cobranca(cobranca, config)
+        if (
+            not cobranca.referencia_externa
+            and mp_status != 'approved'
+            and payment is None
+        ):
+            return Response({
+                'status': 'aguardando_pix',
+                'cobranca_status': cobranca.status,
+            })
+
+        logger.info(
+            "Verificação MP cobrança %s: mp_status=%s ref_local=%s",
+            cobranca.codigo,
+            mp_status,
+            cobranca.referencia_externa or '(vazio)',
+        )
+
         if mp_status == 'approved' and cobranca.status != 'pago':
-            cobranca.status = 'pago'
-            cobranca.data_pagamento = timezone.now()
-            cobranca.save()
-            
-            # Confirmar inscrições e gerar QR codes
-            for item in cobranca.itens.all():
-                inscricao = item.inscricao
-                inscricao.status_pagamento = 'pago'
-                inscricao.status = 'confirmada'
-                inscricao.data_pagamento = timezone.now()
-                
-                # Gerar QR Code se não existir
-                if not inscricao.qrcode:
-                    inscricao.gerar_qrcode()
-                
-                inscricao.save()
-            
-            _disparar_webhook_cobranca_confirmada(cobranca)
-        
+            confirmar_cobranca_evento_paga_mp(cobranca, payment=payment)
+
+        cobranca.refresh_from_db()
         return Response({
             'status': 'pago' if mp_status == 'approved' else mp_status,
             'cobranca_status': cobranca.status,
             'mp_status': mp_status,
             'data_pagamento': cobranca.data_pagamento.strftime('%d/%m/%Y %H:%M:%S') if cobranca.data_pagamento else None,
         })
-        
+
     except Exception as e:
-        logger.error(f"Erro ao verificar pagamento: {str(e)}")
-        print(f"[MP] Erro ao verificar: {str(e)}")
+        logger.error("Erro ao verificar pagamento: %s", e, exc_info=True)
         return Response({
             'status': cobranca.status,
             'cobranca_status': cobranca.status,
@@ -4514,16 +4475,12 @@ def _pagar_cartao_impl(request):
         cobranca.save(update_fields=['referencia_externa', 'metodo_pagamento'])
 
     if status_mp == 'approved':
-        cobranca.status = 'pago'
-        cobranca.data_pagamento = timezone.now()
-        cobranca.save(update_fields=['status', 'data_pagamento'])
-        for item in cobranca.itens.all():
-            inscricao = item.inscricao
-            inscricao.status_pagamento = 'pago'
-            inscricao.status = 'confirmada'
-            inscricao.data_pagamento = timezone.now()
-            inscricao.save()
-        _disparar_webhook_cobranca_confirmada(cobranca)
+        confirmar_cobranca_evento_paga_mp(
+            cobranca,
+            payment=payment,
+            referencia_externa=referencia_mp,
+            metodo_pagamento='Mercado Pago (cartão)',
+        )
         logger.info(f"Cobrança {cobranca.codigo} paga com cartão (payment_id={payment_id})")
 
     mp_env = get_mp_env_card(config)
@@ -4625,19 +4582,11 @@ def criar_pagamento_pix_embutido(request):
         return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     if result.get('already_approved'):
-        if cobranca.status != 'pago':
-            cobranca.status = 'pago'
-            cobranca.data_pagamento = timezone.now()
-            cobranca.referencia_externa = str(result.get('payment_id') or cobranca.referencia_externa or '')
-            cobranca.metodo_pagamento = 'Mercado Pago (PIX)'
-            cobranca.save()
-            for item in cobranca.itens.all():
-                ins = item.inscricao
-                ins.status_pagamento = 'pago'
-                ins.status = 'confirmada'
-                ins.data_pagamento = timezone.now()
-                ins.save()
-            _disparar_webhook_cobranca_confirmada(cobranca)
+        confirmar_cobranca_evento_paga_mp(
+            cobranca,
+            referencia_externa=str(result.get('payment_id') or cobranca.referencia_externa or ''),
+            metodo_pagamento='Mercado Pago (PIX)',
+        )
         return Response({**result, 'cobranca': {'id': cobranca.id, 'codigo': cobranca.codigo}})
 
     pid = result.get('payment_id')

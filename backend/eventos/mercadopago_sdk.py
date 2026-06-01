@@ -565,3 +565,34 @@ def mp_buscar_order(order_id: str, config=None):
         except Exception as exc:
             logger.warning('mp_buscar_order %s env=%s: %s', order_id, env, exc)
     return None, None
+
+
+def mp_buscar_merchant_order(merchant_order_id, config=None):
+    """Busca merchant order (Checkout Pro / preferências) pelo ID numérico."""
+    merchant_order_id = str(merchant_order_id or '').strip()
+    if not merchant_order_id:
+        return None, None
+    config = config or ConfiguracaoSite.get_config()
+    for env in ('production', 'sandbox'):
+        token = config.get_mp_access_token_for(env)
+        if not token:
+            continue
+        try:
+            r = requests.get(
+                f'https://api.mercadopago.com/merchant_orders/{merchant_order_id}',
+                headers={
+                    'Authorization': f'Bearer {token}',
+                    'User-Agent': 'ChampionsChurch-MercadoPago/1.0',
+                },
+                timeout=30,
+            )
+            if r.status_code == 200:
+                return r.json(), env
+        except Exception as exc:
+            logger.warning(
+                'mp_buscar_merchant_order %s env=%s: %s',
+                merchant_order_id,
+                env,
+                exc,
+            )
+    return None, None

@@ -343,6 +343,41 @@ function MeusIngressos() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [isLoggedIn, atualizarIngressos])
 
+  // Sincroniza pagamentos pendentes com o Mercado Pago (ex.: pagou e saiu da tela de checkout)
+  useEffect(() => {
+    if (!isLoggedIn || !ingressos?.length) return
+
+    const codigosPendentes = [
+      ...new Set(
+        ingressos
+          .filter((i) => i.pagamento_pendente && i.cobranca_codigo)
+          .map((i) => i.cobranca_codigo)
+      ),
+    ]
+    if (!codigosPendentes.length) return
+
+    let cancelled = false
+    const sincronizar = async () => {
+      for (const codigo of codigosPendentes) {
+        try {
+          await api.get(`/mercadopago/verificar/${codigo}/`)
+        } catch {
+          /* polling silencioso */
+        }
+      }
+      if (!cancelled) {
+        await atualizarIngressos({ silent: true })
+      }
+    }
+
+    sincronizar()
+    const intervalo = setInterval(sincronizar, 15000)
+    return () => {
+      cancelled = true
+      clearInterval(intervalo)
+    }
+  }, [isLoggedIn, ingressos, atualizarIngressos])
+
   // Atualiza status de check-in enquanto alguém aguarda entrada (evento online / tela aberta)
   useEffect(() => {
     if (!isLoggedIn || ingressos.length === 0) return

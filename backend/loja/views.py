@@ -1050,14 +1050,6 @@ def verificar_pagamento_loja(request, cobranca_loja_id: int):
             }
         )
 
-    if not cobranca.referencia_externa:
-        return Response(
-            {
-                'status': 'aguardando_pix',
-                'cobranca_status': cobranca.status,
-            }
-        )
-
     config = ConfiguracaoSite.get_config()
     if not config.mp_ativo:
         return Response(
@@ -1067,30 +1059,23 @@ def verificar_pagamento_loja(request, cobranca_loja_id: int):
                 'mp_error': 'MP não configurado',
             }
         )
-    try:
-        mp_status = 'pending'
-        ref = (cobranca.referencia_externa or '').strip()
-        if ref.startswith('ORD'):
-            order, _env = mp_buscar_order(ref, config)
-            if order:
-                mp_status = normalizar_order_cartao_response(order).get('status', 'pending')
-        else:
-            results = mp_search_payments_by_reference(cobranca.codigo, config)
-            for pay in results:
-                if pay.get('status') == 'approved':
-                    mp_status = 'approved'
-                    break
-                if pay.get('status') in ('pending', 'in_process'):
-                    mp_status = pay.get('status', 'pending')
-        if mp_status != 'approved' and not ref.startswith('ORD'):
-            for order in mp_search_orders_by_reference(cobranca.codigo, config):
-                order_payment = normalizar_order_cartao_response(order)
-                if order_payment.get('status') == 'approved':
-                    mp_status = 'approved'
-                    break
-                if order_payment.get('status') in ('pending', 'in_process'):
-                    mp_status = order_payment.get('status', 'pending')
 
+    if not cobranca.referencia_externa:
+        from eventos.mp_cobranca_sync import consultar_status_mp_cobranca
+
+        mp_status_probe, payment_probe = consultar_status_mp_cobranca(cobranca, config)
+        if mp_status_probe != 'approved' and payment_probe is None:
+            return Response(
+                {
+                    'status': 'aguardando_pix',
+                    'cobranca_status': cobranca.status,
+                }
+            )
+
+    try:
+        from eventos.mp_cobranca_sync import consultar_status_mp_cobranca
+
+        mp_status, _payment = consultar_status_mp_cobranca(cobranca, config)
         if mp_status == 'approved' and cobranca.status != 'pago':
             try:
                 with transaction.atomic():

@@ -40,6 +40,7 @@ function EventoForm() {
     evento_pago: false,
     valor_inscricao: '',
     formulario_inscricao: '',
+    permite_acompanhantes: true,
   })
   const [formulariosDisponiveis, setFormulariosDisponiveis] = useState([])
 
@@ -134,6 +135,7 @@ function EventoForm() {
         evento_pago: evento.evento_pago || false,
         valor_inscricao: evento.valor_inscricao || '',
         formulario_inscricao: evento.formulario_inscricao ?? '',
+        permite_acompanhantes: evento.permite_acompanhantes !== false,
       })
       
       const parsedDataInicio = parseDate(evento.data_inicio)
@@ -233,6 +235,7 @@ function EventoForm() {
       data.append('status', formData.status)
       data.append('destaque', formData.destaque)
       data.append('evento_pago', formData.evento_pago)
+      data.append('permite_acompanhantes', formData.permite_acompanhantes)
       
       // Valor da inscrição (apenas se evento é pago)
       if (formData.evento_pago && formData.valor_inscricao) {
@@ -484,6 +487,28 @@ function EventoForm() {
               Opcional. As respostas ficam visíveis apenas para administradores. Gerencie formulários em{' '}
               <Link to="/admin/formularios" className="text-primary-600 hover:underline">Formulários de Inscrição</Link>.
             </p>
+          </div>
+
+          <div className="border border-gray-200 rounded-lg p-4 bg-gray-50/60">
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                id="permite_acompanhantes"
+                name="permite_acompanhantes"
+                checked={formData.permite_acompanhantes}
+                onChange={handleChange}
+                className="w-5 h-5 mt-0.5 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+              />
+              <div>
+                <label htmlFor="permite_acompanhantes" className="text-sm font-medium text-gray-800">
+                  Permitir cadastro de acompanhantes na inscrição
+                </label>
+                <p className="text-xs text-gray-500 mt-1">
+                  Desmarque para eventos de casais em que o ingresso já é para o casal (ex.: encontros de casados).
+                  Nesse caso, a tela pública não exibirá a opção de adicionar acompanhantes.
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* Datas do Evento */}

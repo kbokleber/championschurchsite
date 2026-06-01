@@ -55,6 +55,7 @@ function EventoDetalhe() {
 
   const formularioDinamico = evento?.formulario_inscricao_detalhe
   const temQuestionarioInscricao = eventoTemQuestionarioInscricao(evento)
+  const permiteAcompanhantes = evento?.permite_acompanhantes !== false
 
   const exigeQuestionarioInscricao = temQuestionarioInscricao && !somenteAdicionandoAcompanhantes
 
@@ -85,6 +86,7 @@ function EventoDetalhe() {
     setInscricaoSucesso(false)
     setJaInscrito(false)
     setAcompanhantesAdicionados(false)
+    setAcompanhantes([])
     setInscricaoData(null)
     setCobranca(null)
     setWhatsappEnviado(null)
@@ -240,6 +242,7 @@ function EventoDetalhe() {
   }
 
   const adicionarAcompanhante = () => {
+    if (!permiteAcompanhantes) return
     const nome = novoAcompanhante.trim()
     if (nome && !acompanhantes.find(a => a.nome === nome)) {
       // Verificar vagas: se já inscrito e só adicionando acompanhantes, não conta vaga do responsável
@@ -317,7 +320,11 @@ function EventoDetalhe() {
     return `R$ ${valor.toFixed(2).replace('.', ',')}`
   }
 
-  const totalPessoasInscricao = somenteAdicionandoAcompanhantes ? acompanhantes.length : 1 + acompanhantes.length
+  const totalPessoasInscricao = !permiteAcompanhantes
+    ? 1
+    : somenteAdicionandoAcompanhantes
+      ? acompanhantes.length
+      : 1 + acompanhantes.length
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter') {
@@ -393,10 +400,12 @@ function EventoDetalhe() {
 
     try {
       // Preparar dados de acompanhantes (agora é objeto com nome e categoria)
-      const acompanhantesDataEnvio = acompanhantes.map(a => ({
-        nome: a.nome,
-        categoria_id: a.categoria_id || null
-      }))
+      const acompanhantesDataEnvio = permiteAcompanhantes
+        ? acompanhantes.map(a => ({
+            nome: a.nome,
+            categoria_id: a.categoria_id || null
+          }))
+        : []
 
       const formulario = formularioDinamico
       const temFormulario = enviarQuestionario
@@ -725,11 +734,13 @@ function EventoDetalhe() {
                           Você já está inscrito!
                         </h3>
                         <p className="text-gray-600 mb-4">
-                          Deseja adicionar acompanhantes? Preencha os dados abaixo.
+                          {permiteAcompanhantes
+                            ? 'Deseja adicionar acompanhantes? Preencha os dados abaixo.'
+                            : 'Seu ingresso para este evento já está confirmado.'}
                         </p>
                         
                         {/* Mostra acompanhantes existentes */}
-                        {acompanhantesData.length > 0 && (
+                        {permiteAcompanhantes && acompanhantesData.length > 0 && (
                           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4 text-left">
                             <h4 className="font-semibold text-gray-700 mb-2">Acompanhantes já cadastrados:</h4>
                             <ul className="text-sm text-gray-600 space-y-1">
@@ -760,6 +771,7 @@ function EventoDetalhe() {
                           </div>
                         )}
                         
+                        {permiteAcompanhantes && (
                         <button
                           onClick={() => {
                             setInscricaoSucesso(false)
@@ -770,6 +782,7 @@ function EventoDetalhe() {
                         >
                           Adicionar Acompanhantes
                         </button>
+                        )}
                         <Link 
                           to={`/meus-ingressos${formData.telefone ? `?telefone=${encodeURIComponent(formData.telefone.replace(/\D/g, ''))}` : ''}`}
                           className="btn-outline w-full block text-center"
@@ -1083,6 +1096,7 @@ function EventoDetalhe() {
                           </div>
 
                           {/* Acompanhantes */}
+                          {permiteAcompanhantes && (
                           <div className="border-t pt-4 mt-4">
                             <label className="label flex items-center">
                               <UserPlus className="h-4 w-4 mr-1" />
@@ -1175,6 +1189,7 @@ function EventoDetalhe() {
                               </p>
                             )}
                           </div>
+                          )}
                           
                           {/* Resumo de valores (para eventos pagos) */}
                           {evento.evento_pago && (

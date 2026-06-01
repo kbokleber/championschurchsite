@@ -423,7 +423,7 @@ class EventoSerializer(serializers.ModelSerializer):
             'inscricoes_abertas', 'status_inscricao',
             'evento_pago', 'valor_inscricao', 'valor_inscricao_formatado',
             'imagem', 'status', 'status_display', 'destaque',
-            'formulario_inscricao', 'formulario_inscricao_detalhe',
+            'formulario_inscricao', 'formulario_inscricao_detalhe', 'permite_acompanhantes',
             'criado_em', 'atualizado_em', 'criado_em_formatado'
         ]
         read_only_fields = ['id', 'criado_em', 'atualizado_em']

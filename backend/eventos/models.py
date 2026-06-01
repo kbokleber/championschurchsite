@@ -238,6 +238,11 @@ class Evento(models.Model):
         blank=True,
         help_text='Formulário opcional exibido durante a inscrição. Se vazio, o evento não coleta respostas extras.'
     )
+    permite_acompanhantes = models.BooleanField(
+        default=True,
+        verbose_name='Permite acompanhantes',
+        help_text='Desative para eventos em que o ingresso já contempla o casal/grupo (sem cadastro extra de acompanhantes).'
+    )
     criado_em = models.DateTimeField(auto_now_add=True, verbose_name='Criado em')
     atualizado_em = models.DateTimeField(auto_now=True, verbose_name='Atualizado em')
     

@@ -62,7 +62,7 @@ class EventoAdmin(admin.ModelAdmin):
             'fields': ('vagas', 'status', 'destaque')
         }),
         ('Formulário de Inscrição (opcional)', {
-            'fields': ('formulario_inscricao',),
+            'fields': ('formulario_inscricao', 'permite_acompanhantes'),
             'description': 'Selecione um formulário reaproveitável para coletar informações extras no ato da inscrição. As respostas ficam visíveis apenas para administradores.',
         }),
         ('Registro', {

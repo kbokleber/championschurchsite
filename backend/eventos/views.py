@@ -1010,6 +1010,17 @@ def participante_registro(request):
             {'error': 'Inscrições encerradas para este evento'},
             status=status.HTTP_400_BAD_REQUEST
         )
+
+    if not evento.permite_acompanhantes and acompanhantes:
+        return Response(
+            {
+                'success': False,
+                'error': 'Este evento não permite cadastro de acompanhantes. O ingresso é individual ou já contempla o casal.',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not evento.permite_acompanhantes:
+        acompanhantes = []
     
     # Buscar ou criar membro principal
     novo_cadastro = False
@@ -1063,7 +1074,12 @@ def participante_registro(request):
             response = {
                 'success': True,
                 'ja_inscrito': True,
-                'message': 'Você já está inscrito neste evento. Deseja adicionar acompanhantes?',
+                'message': (
+                    'Você já está inscrito neste evento.'
+                    if not evento.permite_acompanhantes
+                    else 'Você já está inscrito neste evento. Deseja adicionar acompanhantes?'
+                ),
+                'permite_acompanhantes': evento.permite_acompanhantes,
                 'participante': {
                     'id': membro.id,
                     'nome': membro.nome,

@@ -224,6 +224,17 @@ def restaurar_sqlite_de_fixture(db_fixture_path: Path, sqlite_backup_path: Path)
         raise ValueError(f'Falha ao carregar dados no SQLite.{hint} Detalhe: {msg}') from exc
 
 
+def aplicar_migrations_pos_restore() -> dict:
+    """Reconcilia drift e aplica migrations pendentes após pg_restore."""
+    from eventos.migration_drift import reconcile_eventos_migration_drift
+
+    connections.close_all()
+    drift = reconcile_eventos_migration_drift()
+    call_command('migrate', '--noinput', verbosity=0)
+    connections.close_all()
+    return drift
+
+
 def regenerar_qrcodes_inscricoes_ausentes() -> dict:
     """Recria PNGs de QR Code quando o banco referencia arquivo ausente após restore."""
     from eventos.models import Inscricao
@@ -236,7 +247,9 @@ def regenerar_qrcodes_inscricoes_ausentes() -> dict:
     ja_presentes = 0
     erros = 0
 
-    for ins in Inscricao.objects.filter(status__in=['confirmada', 'pendente']).iterator():
+    for ins in Inscricao.objects.filter(status__in=['confirmada', 'pendente']).only(
+        'pk', 'codigo', 'status_pagamento', 'qrcode'
+    ):
         if ins.status_pagamento == 'pendente':
             continue
         rel = (ins.qrcode.name if ins.qrcode else '').strip()
@@ -338,6 +351,7 @@ def importar_backup_de_arquivo(backup_file: Path) -> dict:
     media_root = Path(settings.MEDIA_ROOT)
     media_stats = None
     qrcode_stats = None
+    migration_drift = None
 
     with tempfile.TemporaryDirectory(prefix='champions_restore_') as tmpdir:
         tmp_path = Path(tmpdir)
@@ -392,6 +406,7 @@ def importar_backup_de_arquivo(backup_file: Path) -> dict:
                     )
                 except RuntimeError as exc:
                     raise ValueError(f'Falha ao restaurar PostgreSQL: {exc}') from exc
+                migration_drift = aplicar_migrations_pos_restore()
             elif engine_kind == 'sqlite':
                 fixture_file_name = manifest.get('database_fixture_file') or 'database.json'
                 db_fixture_from_manifest = extract_dir / fixture_file_name
@@ -442,4 +457,6 @@ def importar_backup_de_arquivo(backup_file: Path) -> dict:
         aviso = qrcode_stats.get('aviso')
         if aviso:
             detail += f" Aviso QR: {aviso}"
-    return {'detail': detail, 'media': media_stats, 'qrcodes': qrcode_stats}
+    if migration_drift and (migration_drift.get('faked') or migration_drift.get('unmarked')):
+        detail += ' Migrations reconciliadas após restore.'
+    return {'detail': detail, 'media': media_stats, 'qrcodes': qrcode_stats, 'migrations': migration_drift}

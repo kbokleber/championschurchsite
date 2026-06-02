@@ -647,18 +647,10 @@ class Inscricao(models.Model):
         self.qrcode.save(filename, ContentFile(buffer.read()), save=True)
     
     def delete(self, *args, **kwargs):
-        """Remove o arquivo do QR Code; após CASCADE remove itens, recalcula ou exclui cobranças (incl. pagas)."""
-        from .cobranca_inscricao import pos_delete_inscricao_cascade_cobrancas
-
-        cids = set(
-            CobrancaItem.objects.filter(inscricao=self).values_list(
-                'cobranca_id', flat=True
-            )
-        )
+        """Remove QR code; itens de cobrança permanecem (SET_NULL) para histórico."""
         if self.qrcode:
             self.qrcode.delete(save=False)
         super().delete(*args, **kwargs)
-        pos_delete_inscricao_cascade_cobrancas(cids)
 
 
 class Cobranca(models.Model):
@@ -777,9 +769,11 @@ class CobrancaItem(models.Model):
     )
     inscricao = models.ForeignKey(
         Inscricao,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name='itens_cobranca',
-        verbose_name='Inscrição'
+        verbose_name='Inscrição',
+        null=True,
+        blank=True,
     )
     valor = models.DecimalField(
         max_digits=10,

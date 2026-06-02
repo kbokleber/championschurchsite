@@ -63,11 +63,16 @@ def recalcular_cobranca_apos_mudanca_itens(cobranca, request=None, disparar_webh
         cobranca.delete()
         return
 
-    statuses = [item.inscricao.status_pagamento for item in itens]
+    statuses = []
+    for item in itens:
+        if item.inscricao_id:
+            statuses.append(item.inscricao.status_pagamento)
+        else:
+            statuses.append('cancelado')
     novo_valor = sum(
         float(item.valor)
         for item in itens
-        if item.inscricao.status_pagamento != 'cancelado'
+        if (item.inscricao.status_pagamento if item.inscricao_id else 'cancelado') != 'cancelado'
     )
     cobranca.valor = novo_valor
     if all(s == 'cancelado' for s in statuses):

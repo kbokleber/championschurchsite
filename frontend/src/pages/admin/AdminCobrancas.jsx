@@ -24,6 +24,7 @@ const PAGE_SIZE = 10;
 function AdminCobrancas() {
   const [searchParams] = useSearchParams();
   const [cobrancas, setCobrancas] = useState([]);
+  const [todasCobrancas, setTodasCobrancas] = useState([]);
   const [eventos, setEventos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filtroEvento, setFiltroEvento] = useState(searchParams.get('evento') || '');
@@ -56,7 +57,12 @@ function AdminCobrancas() {
 
   useEffect(() => {
     carregarDados();
-  }, [filtroEvento, filtroStatus, page]);
+  }, [filtroEvento, filtroStatus]);
+
+  useEffect(() => {
+    const inicio = (page - 1) * PAGE_SIZE;
+    setCobrancas(todasCobrancas.slice(inicio, inicio + PAGE_SIZE));
+  }, [todasCobrancas, page]);
 
   const carregarDados = async () => {
     try {
@@ -66,23 +72,29 @@ function AdminCobrancas() {
       const eventosRes = await api.get('/eventos/', { params: { incluir_particulares: 'true' } });
       setEventos(eventosRes.data.results || eventosRes.data);
       
-      // Carregar cobranças com paginação (backend usa PAGE_SIZE=10)
-      const params = { page };
-      if (filtroEvento) params.evento = filtroEvento;
-      if (filtroStatus) params.status = filtroStatus;
-      
+      // Carregar todas as cobranças (paginadas no backend) para não perder histórico
+      const listParams = {};
+      if (filtroEvento) listParams.evento = filtroEvento;
+      if (filtroStatus) listParams.status = filtroStatus;
+
+      const todas = [];
+      let pageNum = 1;
+      let hasMore = true;
+      while (hasMore) {
+        const cobrancasRes = await api.get('/cobrancas/', { params: { ...listParams, page: pageNum } });
+        const data = cobrancasRes.data;
+        const lista = data.results ?? (Array.isArray(data) ? data : []);
+        todas.push(...lista);
+        hasMore = !!data.next && lista.length > 0;
+        pageNum += 1;
+      }
+      setTodasCobrancas(todas);
+      setTotalCount(todas.length);
+
       const resumoParams = {};
       if (filtroEvento) resumoParams.evento = filtroEvento;
 
-      const [cobrancasRes, resumoRes] = await Promise.all([
-        api.get('/cobrancas/', { params }),
-        api.get('/cobrancas/resumo/', { params: resumoParams }),
-      ]);
-      const data = cobrancasRes.data;
-      const lista = data.results ?? data;
-      setCobrancas(Array.isArray(lista) ? lista : []);
-      setTotalCount(typeof data.count === 'number' ? data.count : lista.length);
-
+      const resumoRes = await api.get('/cobrancas/resumo/', { params: resumoParams });
       const resumo = resumoRes.data || {};
       setTotais({
         pendente_valor: resumo.pendente_valor ?? 0,
@@ -364,9 +376,9 @@ function AdminCobrancas() {
           <div className="p-8 text-center">
             <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <p className="text-gray-500">Nenhuma cobrança encontrada</p>
-            {(totais.isento_qtd > 0 || totais.cancelado_qtd > 0) && (
+            {(totais.isento_qtd > 0 || totais.cancelado_qtd > 0) && totalCount === 0 && (
               <p className="text-sm text-gray-400 mt-2 max-w-md mx-auto">
-                Isenções e cancelamentos cadastrados diretamente no evento entram nos totais acima; esta lista mostra apenas cobranças de pagamento.
+                Use o filtro de status (Isento ou Cancelado) se estiver ocultando registros anteriores.
               </p>
             )}
           </div>

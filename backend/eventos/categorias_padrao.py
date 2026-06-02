@@ -2,7 +2,7 @@
 Grupo padrão e faixas Adulto / Adolescente / Criança.
 """
 
-from .models import CategoriaParticipante, GrupoCategoria
+from .models import CategoriaParticipante, GrupoCategoria, Inscricao
 
 FAIXAS_PADRAO = (
     {
@@ -39,6 +39,44 @@ def get_grupo_padrao():
     return garantir_grupo_padrao()
 
 
+def _deduplicar_faixas_grupo(grupo, nome_faixa, cat_principal):
+    """Remove faixas duplicadas no mesmo grupo, preservando inscrições."""
+    duplicatas = CategoriaParticipante.objects.filter(
+        grupo=grupo, nome=nome_faixa,
+    ).exclude(pk=cat_principal.pk).order_by('pk')
+    for dup in duplicatas:
+        Inscricao.objects.filter(categoria=dup).update(categoria=cat_principal)
+        dup.delete()
+
+
+def _garantir_faixa_no_grupo(grupo, defs):
+    """Garante uma única faixa por nome no grupo padrão."""
+    qs = CategoriaParticipante.objects.filter(
+        grupo=grupo, nome=defs['nome'],
+    ).order_by('pk')
+    cat = qs.first()
+    if cat and qs.count() > 1:
+        _deduplicar_faixas_grupo(grupo, defs['nome'], cat)
+    if cat is None:
+        cat = CategoriaParticipante.objects.create(
+            grupo=grupo,
+            padrao_sistema=True,
+            ativo=True,
+            **defs,
+        )
+    else:
+        changed = []
+        if not cat.padrao_sistema:
+            cat.padrao_sistema = True
+            changed.append('padrao_sistema')
+        if not cat.ativo:
+            cat.ativo = True
+            changed.append('ativo')
+        if changed:
+            cat.save(update_fields=changed)
+    return cat
+
+
 def garantir_grupo_padrao():
     """Garante grupo Padrão com as 3 faixas; retorna instância do grupo."""
     grupo, _ = GrupoCategoria.objects.get_or_create(
@@ -55,25 +93,28 @@ def garantir_grupo_padrao():
         grupo.save(update_fields=['nome', 'padrao_sistema'])
 
     for defs in FAIXAS_PADRAO:
-        defaults = {**defs, 'grupo': grupo, 'padrao_sistema': True, 'ativo': True}
-        cat, created = CategoriaParticipante.objects.get_or_create(
-            grupo=grupo,
-            nome=defs['nome'],
-            defaults=defaults,
-        )
-        if not created and not cat.padrao_sistema:
-            cat.padrao_sistema = True
-            cat.save(update_fields=['padrao_sistema'])
+        _garantir_faixa_no_grupo(grupo, defs)
 
-    # Categorias existentes sem grupo → mover para Padrão
     CategoriaParticipante.objects.filter(grupo__isnull=True).update(grupo=grupo)
 
     return grupo
 
 
+def _faixa_do_grupo(grupo, nome_faixa):
+    if not grupo:
+        return None
+    qs = CategoriaParticipante.objects.filter(
+        grupo=grupo, nome=nome_faixa, ativo=True,
+    ).order_by('pk')
+    cat = qs.first()
+    if cat and qs.count() > 1:
+        _deduplicar_faixas_grupo(grupo, nome_faixa, cat)
+    return cat
+
+
 def get_categoria_adulto_padrao():
     grupo = garantir_grupo_padrao()
-    return CategoriaParticipante.objects.get(grupo=grupo, nome='Adulto')
+    return _faixa_do_grupo(grupo, 'Adulto')
 
 
 def categorias_do_evento(evento):
@@ -105,9 +146,7 @@ def get_categoria_do_grupo_evento(evento, nome_faixa):
     if not grupo:
         garantir_grupo_padrao()
         grupo = get_grupo_padrao()
-    return CategoriaParticipante.objects.filter(
-        grupo=grupo, nome=nome_faixa, ativo=True,
-    ).first()
+    return _faixa_do_grupo(grupo, nome_faixa)
 
 
 def resolver_categoria_titular(evento, categoria_id=None):

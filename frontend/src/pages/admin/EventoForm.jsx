@@ -5,7 +5,41 @@ import api, { formatApiError } from '../../services/api'
 import { getMediaUrl } from '../../services/utils'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import DatePickerBR from '../../components/DatePickerBR'
+import ConfirmModal from '../../components/ConfirmModal'
 import { useConfiguracao } from '../../contexts/ConfiguracaoContext'
+
+function parseValorInscricao(valor) {
+  if (valor === '' || valor == null) return null
+  const n = parseFloat(String(valor).replace(',', '.'))
+  return Number.isFinite(n) ? n : null
+}
+
+function valoresInscricaoIguais(a, b) {
+  const va = parseValorInscricao(a)
+  const vb = parseValorInscricao(b)
+  if (va == null && vb == null) return true
+  if (va == null || vb == null) return false
+  return Math.abs(va - vb) < 0.001
+}
+
+function alteracaoValorSignificativa(antigo, novo) {
+  const a = parseValorInscricao(antigo)
+  const n = parseValorInscricao(novo)
+  if (a == null && n == null) return false
+  if (a == null || n == null) return true
+  const diff = Math.abs(n - a)
+  if (diff < 0.01) return false
+  const menor = Math.min(a, n)
+  if (menor === 0) return diff >= 1
+  const ratio = Math.max(a, n) / menor
+  return ratio >= 2 && diff >= 1
+}
+
+function formatarValorReais(valor) {
+  const n = parseValorInscricao(valor)
+  if (n == null) return '—'
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
 
 function EventoForm() {
   const { id } = useParams()
@@ -23,6 +57,10 @@ function EventoForm() {
   const [imagemRemovida, setImagemRemovida] = useState(false)
   const [linkInscricaoPublico, setLinkInscricaoPublico] = useState('')
   const [copiadoLink, setCopiadoLink] = useState(false)
+  const [valorInscricaoOriginal, setValorInscricaoOriginal] = useState(null)
+  const [temInscricoes, setTemInscricoes] = useState(false)
+  const [confirmValorModal, setConfirmValorModal] = useState(false)
+  const [confirmarAlteracaoValor, setConfirmarAlteracaoValor] = useState(false)
   
   // Estados para as datas (objetos Date)
   const [dataInicio, setDataInicio] = useState(null)
@@ -295,13 +333,17 @@ function EventoForm() {
         destaque: evento.destaque || false,
         status: evento.status || 'agendado',
         evento_pago: evento.evento_pago || false,
-        valor_inscricao: evento.valor_inscricao || '',
+        valor_inscricao: evento.valor_inscricao != null ? String(evento.valor_inscricao) : '',
         formulario_inscricao: evento.formulario_inscricao ?? '',
         permite_acompanhantes: evento.permite_acompanhantes !== false,
         permite_inscricao_adolescente: evento.permite_inscricao_adolescente === true,
         evento_particular: evento.evento_particular === true,
         grupo_categorias: evento.grupo_categorias ?? '',
       })
+      setValorInscricaoOriginal(
+        evento.valor_inscricao != null ? String(evento.valor_inscricao) : null,
+      )
+      setTemInscricoes(Boolean(evento.tem_inscricoes))
       setLinkInscricaoPublico(buildLinkInscricao(evento))
       
       const parsedDataInicio = parseDate(evento.data_inicio)
@@ -403,23 +445,41 @@ function EventoForm() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    setError('')
+
+    if (!dataInicio) {
+      setError('A data e hora de início é obrigatória.')
+      return
+    }
+
+    const valorMudou = isEditing && !valoresInscricaoIguais(
+      formData.valor_inscricao,
+      valorInscricaoOriginal,
+    )
+    const precisaConfirmarValor = isEditing
+      && formData.evento_pago
+      && temInscricoes
+      && valorMudou
+      && alteracaoValorSignificativa(valorInscricaoOriginal, formData.valor_inscricao)
+      && !confirmarAlteracaoValor
+
+    if (precisaConfirmarValor) {
+      setConfirmValorModal(true)
+      return
+    }
+
+    await enviarFormulario(confirmarAlteracaoValor)
+  }
+
+  const enviarFormulario = async (comConfirmacaoValor = false) => {
     setSaving(true)
     setError('')
 
-    // Debug: ver no F12 > Console se o submit foi acionado
     if (typeof console !== 'undefined' && console.debug) {
       console.debug('[EventoForm] Submit acionado', { isEditing, id, imagemRemovida, temArquivo: !!imagemFile })
     }
 
-    // Validar data de início obrigatória
-    if (!dataInicio) {
-      setError('A data e hora de início é obrigatória.')
-      setSaving(false)
-      return
-    }
-
     try {
-      // Usar FormData para suportar upload de arquivo
       const data = new FormData()
       
       data.append('titulo', formData.titulo)
@@ -440,9 +500,24 @@ function EventoForm() {
         data.append('grupo_categorias', '')
       }
       
-      // Valor da inscrição (apenas se evento é pago)
-      if (formData.evento_pago && formData.valor_inscricao) {
-        data.append('valor_inscricao', parseFloat(formData.valor_inscricao))
+      const valorMudou = isEditing && !valoresInscricaoIguais(
+        formData.valor_inscricao,
+        valorInscricaoOriginal,
+      )
+
+      if (formData.evento_pago) {
+        if (!isEditing || valorMudou) {
+          const valor = parseValorInscricao(formData.valor_inscricao)
+          if (valor == null) {
+            setError('Informe o valor da inscrição para eventos pagos.')
+            setSaving(false)
+            return
+          }
+          data.append('valor_inscricao', valor)
+          if (comConfirmacaoValor) {
+            data.append('confirmar_alteracao_valor', 'true')
+          }
+        }
       } else if (isEditing) {
         data.append('valor_inscricao', '')
       }
@@ -495,6 +570,7 @@ function EventoForm() {
       }
       if (isEditing) {
         await api.put(`/eventos/${id}/`, data)
+        setConfirmarAlteracaoValor(false)
         navigate('/admin/eventos')
       } else {
         const response = await api.post('/eventos/', data)
@@ -506,6 +582,7 @@ function EventoForm() {
       }
     } catch (error) {
       console.error('Erro ao salvar evento:', error)
+      setConfirmarAlteracaoValor(false)
       if (error.response?.data) {
         // Verificar se a resposta é um objeto (JSON) ou string (HTML de erro)
         if (typeof error.response.data === 'object' && error.response.data !== null) {
@@ -930,8 +1007,13 @@ function EventoForm() {
                     />
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    Informe o valor em reais (ex: 50.00)
+                    Valor base cobrado do titular. Faixas do grupo (ex.: Adulto 100%) são percentuais sobre este valor — não confundir com o preço do evento.
                   </p>
+                  {isEditing && temInscricoes && (
+                    <p className="text-xs text-amber-700 mt-1">
+                      Este evento já possui inscrições. Alterações grandes no valor exigem confirmação.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -1139,6 +1221,22 @@ function EventoForm() {
           </div>
         </form>
       </div>
+
+      <ConfirmModal
+        isOpen={confirmValorModal}
+        onClose={() => setConfirmValorModal(false)}
+        onConfirm={async () => {
+          setConfirmValorModal(false)
+          setConfirmarAlteracaoValor(true)
+          await enviarFormulario(true)
+        }}
+        type="warning"
+        title="Alterar valor da inscrição?"
+        message={`O valor passará de ${formatarValorReais(valorInscricaoOriginal)} para ${formatarValorReais(formData.valor_inscricao)}. Inscrições e cobranças já geradas mantêm o valor original.`}
+        confirmText="Sim, alterar valor"
+        cancelText="Voltar"
+        loading={saving}
+      />
     </div>
   )
 }

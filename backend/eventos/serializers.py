@@ -2,6 +2,8 @@
 Serializers para a API REST da Champions Church.
 """
 
+from decimal import Decimal
+
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from django.db import transaction
@@ -420,6 +422,7 @@ class EventoSerializer(serializers.ModelSerializer):
     )
     link_acesso = serializers.UUIDField(read_only=True)
     link_inscricao_publico = serializers.SerializerMethodField()
+    tem_inscricoes = serializers.SerializerMethodField()
     
     class Meta:
         model = Evento
@@ -429,14 +432,40 @@ class EventoSerializer(serializers.ModelSerializer):
             'local', 'endereco', 'vagas', 'vagas_disponiveis', 'esta_lotado',
             'inscricao_inicio', 'inscricao_fim', 'inscricao_inicio_formatada', 'inscricao_fim_formatada',
             'inscricoes_abertas', 'status_inscricao',
-            'evento_pago', 'valor_inscricao', 'valor_inscricao_formatado',
+            'evento_pago', 'valor_inscricao', 'valor_inscricao_formatado', 'tem_inscricoes',
             'imagem', 'status', 'status_display', 'destaque',
             'formulario_inscricao', 'formulario_inscricao_detalhe', 'permite_acompanhantes',
             'permite_inscricao_adolescente', 'evento_particular', 'link_acesso', 'link_inscricao_publico',
             'grupo_categorias', 'grupo_categorias_nome',
             'criado_em', 'atualizado_em', 'criado_em_formatado'
         ]
-        read_only_fields = ['id', 'criado_em', 'atualizado_em', 'link_acesso']
+        read_only_fields = ['id', 'criado_em', 'atualizado_em', 'link_acesso', 'tem_inscricoes']
+
+    @staticmethod
+    def _confirmar_alteracao_valor(request) -> bool:
+        if not request:
+            return False
+        val = request.data.get('confirmar_alteracao_valor')
+        return str(val).strip().lower() in ('true', '1', 'yes', 'on')
+
+    @staticmethod
+    def _alteracao_valor_significativa(antigo, novo) -> bool:
+        if antigo is None and novo is None:
+            return False
+        if antigo is None or novo is None:
+            return True
+        a = Decimal(str(antigo))
+        n = Decimal(str(novo))
+        if a == n:
+            return False
+        diff = abs(n - a)
+        if diff < Decimal('0.01'):
+            return False
+        menor = min(a, n)
+        if menor == 0:
+            return diff >= Decimal('1')
+        ratio = max(a, n) / menor
+        return ratio >= Decimal('2') and diff >= Decimal('1')
     
     def validate(self, attrs):
         permite = attrs.get(
@@ -453,7 +482,27 @@ class EventoSerializer(serializers.ModelSerializer):
         if evento_particular:
             attrs['destaque'] = False
 
+        if self.instance and 'valor_inscricao' in attrs:
+            antigo = self.instance.valor_inscricao
+            novo = attrs['valor_inscricao']
+            if self._alteracao_valor_significativa(antigo, novo):
+                tem_insc = self.instance.inscricoes.exclude(
+                    status_pagamento='cancelado',
+                ).exists()
+                if tem_insc and not self._confirmar_alteracao_valor(
+                    self.context.get('request'),
+                ):
+                    raise serializers.ValidationError({
+                        'valor_inscricao': (
+                            'Alteração significativa no valor com inscrições existentes. '
+                            'Confirme a alteração antes de salvar.'
+                        ),
+                    })
+
         return attrs
+
+    def get_tem_inscricoes(self, obj):
+        return obj.inscricoes.exclude(status_pagamento='cancelado').exists()
 
     def _garantir_link_acesso(self, validated_data, instance=None):
         evento_particular = validated_data.get(
@@ -1075,14 +1124,29 @@ class DestaqueHomeItemSerializer(serializers.ModelSerializer):
 class CobrancaItemSerializer(serializers.ModelSerializer):
     """Serializer para itens de cobrança."""
     
-    membro_nome = serializers.CharField(source='inscricao.membro.nome', read_only=True)
-    categoria = serializers.CharField(source='inscricao.categoria.nome', read_only=True, allow_null=True)
-    status_inscricao = serializers.CharField(source='inscricao.status_pagamento', read_only=True)
+    membro_nome = serializers.SerializerMethodField()
+    categoria = serializers.SerializerMethodField()
+    status_inscricao = serializers.SerializerMethodField()
     
     class Meta:
         model = CobrancaItem
         fields = ['id', 'inscricao', 'membro_nome', 'categoria', 'valor', 'descricao', 'status_inscricao']
         read_only_fields = ['id']
+
+    def get_membro_nome(self, obj):
+        if obj.inscricao_id and obj.inscricao.membro_id:
+            return obj.inscricao.membro.nome
+        return (obj.descricao or '').strip() or 'Participante removido'
+
+    def get_categoria(self, obj):
+        if obj.inscricao_id and obj.inscricao.categoria_id:
+            return obj.inscricao.categoria.nome
+        return None
+
+    def get_status_inscricao(self, obj):
+        if obj.inscricao_id:
+            return obj.inscricao.status_pagamento
+        return 'cancelado'
 
 
 class CobrancaSerializer(serializers.ModelSerializer):

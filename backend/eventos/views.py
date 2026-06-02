@@ -687,21 +687,22 @@ def _serializar_ingressos(membro):
     Retorna todos os ingressos (ativos e já realizados); o frontend filtra por data.
     QR codes de eventos inativos continuam inválidos no check-in.
     """
-    # Inscrições próprias do membro (não acompanhantes), todas (ativo/finalizado/cancelado)
+    # Inscrições próprias do membro (inclui canceladas para exibir na área do participante)
     inscricoes = Inscricao.objects.filter(
         membro=membro,
-        status__in=['confirmada', 'pendente'],
+        status__in=['confirmada', 'pendente', 'cancelada'],
         is_acompanhante=False
     ).select_related('evento').order_by('-evento__data_inicio')
     
     ingressos = []
     for inscricao in inscricoes:
+        cancelada = inscricao.status == 'cancelada'
         # Buscar acompanhantes desta inscrição (mesmo evento, responsável = membro)
         acompanhantes = Inscricao.objects.filter(
             evento=inscricao.evento,
             responsavel=membro,
             is_acompanhante=True,
-            status__in=['confirmada', 'pendente']
+            status__in=['confirmada', 'pendente', 'cancelada']
         ).select_related('membro')
         
         acompanhantes_lista = []
@@ -726,38 +727,41 @@ def _serializar_ingressos(membro):
         valor_total = valor_responsavel + valor_total_acompanhantes
         
         # Verificar se pagamento está pendente (responsável OU cobrança de acompanhantes)
-        pagamento_pendente = inscricao.status_pagamento == 'pendente'
+        pagamento_pendente = not cancelada and inscricao.status_pagamento == 'pendente'
         cobranca_codigo = None
         
-        # Cobrança ligada à inscrição do responsável
-        cobranca_item = CobrancaItem.objects.filter(
-            inscricao=inscricao,
-            cobranca__status='pendente'
-        ).select_related('cobranca').first()
-        if cobranca_item:
-            cobranca_codigo = str(cobranca_item.cobranca.codigo)
-            pagamento_pendente = True
-        
-        # Cobrança só de acompanhantes (ex.: adicionou Nilma depois; responsável já pagou)
-        if cobranca_codigo is None:
-            cobranca_acomp = Cobranca.objects.filter(
-                membro=membro,
-                evento=inscricao.evento,
-                status='pendente'
-            ).first()
-            if cobranca_acomp:
-                cobranca_codigo = str(cobranca_acomp.codigo)
+        if not cancelada:
+            # Cobrança ligada à inscrição do responsável
+            cobranca_item = CobrancaItem.objects.filter(
+                inscricao=inscricao,
+                cobranca__status='pendente'
+            ).select_related('cobranca').first()
+            if cobranca_item:
+                cobranca_codigo = str(cobranca_item.cobranca.codigo)
                 pagamento_pendente = True
-                # Mostrar só o valor que falta pagar (esta cobrança), não somar ao que já foi pago
-                valor_total = float(cobranca_acomp.valor)
+            
+            # Cobrança só de acompanhantes (ex.: adicionou Nilma depois; responsável já pagou)
+            if cobranca_codigo is None:
+                cobranca_acomp = Cobranca.objects.filter(
+                    membro=membro,
+                    evento=inscricao.evento,
+                    status='pendente'
+                ).first()
+                if cobranca_acomp:
+                    cobranca_codigo = str(cobranca_acomp.codigo)
+                    pagamento_pendente = True
+                    # Mostrar só o valor que falta pagar (esta cobrança), não somar ao que já foi pago
+                    valor_total = float(cobranca_acomp.valor)
         
         dt_inicio = timezone.localtime(inscricao.evento.data_inicio)
         dt_fim = timezone.localtime(inscricao.evento.data_fim) if inscricao.evento.data_fim else None
         ingressos.append({
             'id': inscricao.id,
             'codigo': inscricao.codigo,
-            # QR Code só aparece se pagamento não estiver pendente
-            'qrcode': inscricao.qrcode.url if inscricao.qrcode and not pagamento_pendente else None,
+            'status': inscricao.status,
+            'motivo_cancelamento': inscricao.motivo_cancelamento or '',
+            # QR Code só aparece se pagamento não estiver pendente e inscrição ativa
+            'qrcode': inscricao.qrcode.url if inscricao.qrcode and not pagamento_pendente and not cancelada else None,
             'evento': {
                 'id': inscricao.evento.id,
                 'titulo': inscricao.evento.titulo,
@@ -771,6 +775,7 @@ def _serializar_ingressos(membro):
                 'status': inscricao.evento.status,
                 'evento_pago': inscricao.evento.evento_pago,
                 'valor_inscricao': float(inscricao.evento.valor_inscricao) if inscricao.evento.valor_inscricao else None,
+                'inscricoes_abertas': inscricao.evento.inscricoes_abertas,
             },
             'data_inscricao': timezone.localtime(inscricao.data_inscricao).strftime('%d/%m/%Y %H:%M'),
             'presente': inscricao.presente,
@@ -1138,6 +1143,9 @@ def participante_registro(request):
         )
     if not evento.permite_acompanhantes:
         acompanhantes = []
+    
+    # Expirar reservas vencidas antes de verificar inscrição existente
+    expirar_reservas_evento(evento)
     
     # Buscar ou criar membro principal
     novo_cadastro = False
@@ -1680,11 +1688,21 @@ def participante_registro(request):
     ).first()
     if inscricao_cancelada:
         inscricao = inscricao_cancelada
+        agora = timezone.now()
         inscricao.status = status_inscricao
         inscricao.status_pagamento = status_pagamento
         inscricao.valor_inscricao = valor_total
         inscricao.categoria = categoria_titular
-        inscricao.save(update_fields=['status', 'status_pagamento', 'valor_inscricao', 'categoria'])
+        inscricao.motivo_cancelamento = ''
+        inscricao.data_inscricao = agora
+        inscricao.presente = False
+        inscricao.data_checkin = None
+        inscricao.data_pagamento = None
+        inscricao.save(update_fields=[
+            'status', 'status_pagamento', 'valor_inscricao', 'categoria',
+            'motivo_cancelamento', 'data_inscricao', 'presente', 'data_checkin',
+            'data_pagamento',
+        ])
         # Gravar respostas do formulário (se houver)
         _salvar_respostas_formulario(inscricao)
         # Criar acompanhantes (novos membros + inscrições)
@@ -1730,8 +1748,10 @@ def participante_registro(request):
                 evento=evento,
                 valor=valor_total,
                 descricao=f"Inscrição: {', '.join(itens_desc)}",
-                status='pendente'
+                status='pendente',
+                reserva_expira_em=reserva_expira_em_para_agora(),
             )
+            aplicar_reserva_expira_cobranca(cobranca)
             CobrancaItem.objects.create(
                 cobranca=cobranca,
                 inscricao=inscricao,
@@ -4031,6 +4051,8 @@ class CobrancaViewSet(viewsets.ModelViewSet):
         pendente = Decimal('0')
         pago = Decimal('0')
         for item in items.iterator():
+            if not item.inscricao_id:
+                continue
             sp = item.inscricao.status_pagamento
             valor = item.valor or Decimal('0')
             if sp == 'pendente':

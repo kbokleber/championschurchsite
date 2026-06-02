@@ -471,6 +471,15 @@ function MeusIngressos() {
   }
 
   const getStatusBadge = (ingresso) => {
+    if (ingresso.status === 'cancelada') {
+      return (
+        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+          <X className="h-3 w-3 mr-1" />
+          Cancelada
+        </span>
+      )
+    }
+
     // Primeiro verificar se pagamento está pendente
     if (ingresso.pagamento_pendente) {
       return (
@@ -805,7 +814,9 @@ function MeusIngressos() {
                   ingressosFiltrados.map((ingresso) => (
                     <div 
                       key={ingresso.id}
-                      className="bg-white rounded-xl shadow-lg overflow-hidden"
+                      className={`bg-white rounded-xl shadow-lg overflow-hidden ${
+                        ingresso.status === 'cancelada' ? 'ring-1 ring-red-200' : ''
+                      }`}
                     >
                       <div className="flex flex-col md:flex-row">
                         {/* QR Code */}
@@ -843,6 +854,14 @@ function MeusIngressos() {
                                 Salvar QR Code
                               </button>
                             </>
+                          ) : ingresso.status === 'cancelada' ? (
+                            <div className="text-center w-full">
+                              <div className={`${CLASSE_QR_WRAPPER} mb-2 sm:mb-3 aspect-square bg-red-50 rounded-lg flex flex-col items-center justify-center border border-red-200`}>
+                                <X className="h-10 w-10 sm:h-12 sm:w-12 text-red-400 mb-1" />
+                              </div>
+                              <p className="text-xs sm:text-sm font-medium text-red-700">Inscrição cancelada</p>
+                              <p className="text-xs text-red-600 mt-1 px-2">Sem QR Code válido</p>
+                            </div>
                           ) : ingresso.pagamento_pendente ? (
                             /* Pagamento Pendente - aguardando para gerar QR Code */
                             <div className="text-center w-full">
@@ -917,6 +936,27 @@ function MeusIngressos() {
                               </div>
                             </div>
                           </div>
+
+                          {ingresso.status === 'cancelada' && (
+                            <div className="mt-3 sm:mt-4 p-3 sm:p-4 rounded-lg bg-red-50 border border-red-100 text-sm text-red-800">
+                              {ingresso.motivo_cancelamento ? (
+                                <p className="mb-2">
+                                  <span className="font-semibold">Motivo:</span>{' '}
+                                  {ingresso.motivo_cancelamento}
+                                </p>
+                              ) : (
+                                <p className="mb-2">Esta inscrição foi cancelada.</p>
+                              )}
+                              {ingresso.evento.inscricoes_abertas && (
+                                <Link
+                                  to={`/eventos/${ingresso.evento.id}`}
+                                  className="inline-flex items-center text-sm font-medium text-primary-700 hover:text-primary-800 underline"
+                                >
+                                  Inscrever-se novamente neste evento
+                                </Link>
+                              )}
+                            </div>
+                          )}
 
                           <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t text-xs sm:text-sm text-gray-500 flex flex-wrap gap-3 sm:gap-4">
                             <span>Inscrito em: {ingresso.data_inscricao}</span>

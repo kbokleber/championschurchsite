@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from io import BytesIO
 
 from django.db import transaction
+from django.utils import timezone
 from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Font
@@ -207,6 +209,24 @@ def criar_inscricao_isenta(
         motivo_isencao=(motivo_isencao or '').strip(),
         liberador_isencao=(liberador_por or '').strip(),
         observacoes=' | '.join(obs_partes),
+    )
+
+    from .models import Cobranca, CobrancaItem
+
+    desc_cob = (motivo_isencao or '').strip() or 'Isenção administrativa'
+    cobranca = Cobranca.objects.create(
+        membro=membro,
+        evento=evento,
+        valor=Decimal('0'),
+        status='isento',
+        data_pagamento=timezone.now(),
+        descricao=f'Isenção: {desc_cob}',
+    )
+    CobrancaItem.objects.create(
+        cobranca=cobranca,
+        inscricao=inscricao,
+        valor=Decimal('0'),
+        descricao=nome,
     )
 
     return {

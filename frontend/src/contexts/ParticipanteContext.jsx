@@ -234,7 +234,9 @@ export function ParticipanteProvider({ children }) {
         ? apiError
         : err.response?.status === 401
           ? 'Telefone ou senha incorretos.'
-          : 'Erro ao fazer login. Tente novamente.'
+          : err.response?.status >= 500
+            ? 'Erro ao realizar inscrição. Tente novamente em instantes.'
+            : 'Erro ao realizar inscrição. Tente novamente.'
       return { success: false, error: msg }
     }
   }

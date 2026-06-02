@@ -67,6 +67,12 @@ except Exception as e:
 PYEOF
 
 # Executar migrações
+echo "Reconciliando drift de migrations (pós-backup)..."
+python manage.py reconcile_migration_drift || {
+    echo "✗ ERRO ao reconciliar migrations"
+    exit 1
+}
+
 echo "Executando migrações do banco de dados..."
 if python manage.py migrate --noinput; then
     echo "✓ Migrações executadas com sucesso!"

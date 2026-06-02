@@ -1,6 +1,8 @@
 from django.db import migrations, models
 import django.db.models.deletion
 
+from eventos.migration_idempotent import AddFieldIfNotExists, CreateModelIfNotExists
+
 
 FAIXAS_PADRAO = (
     {
@@ -73,7 +75,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.CreateModel(
+        CreateModelIfNotExists(
             name='GrupoCategoria',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
@@ -93,7 +95,7 @@ class Migration(migrations.Migration):
                 'ordering': ['padrao_sistema', 'nome'],
             },
         ),
-        migrations.AddField(
+        AddFieldIfNotExists(
             model_name='categoriaparticipante',
             name='grupo',
             field=models.ForeignKey(
@@ -105,7 +107,7 @@ class Migration(migrations.Migration):
                 verbose_name='Grupo',
             ),
         ),
-        migrations.AddField(
+        AddFieldIfNotExists(
             model_name='categoriaparticipante',
             name='padrao_sistema',
             field=models.BooleanField(
@@ -114,7 +116,7 @@ class Migration(migrations.Migration):
                 verbose_name='Faixa padrão do sistema',
             ),
         ),
-        migrations.AddField(
+        AddFieldIfNotExists(
             model_name='evento',
             name='grupo_categorias',
             field=models.ForeignKey(

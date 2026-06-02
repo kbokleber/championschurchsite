@@ -13,6 +13,30 @@ import {
   eventoTemQuestionarioInscricao,
 } from '../utils/formularioInscricao'
 
+function AvisoReservaPagamento({ cobranca, minutosFallback = 30 }) {
+  if (!cobranca) return null
+  const minutos = cobranca.reserva_minutos ?? minutosFallback
+  const prazo = cobranca.reserva_expira_em
+    ? new Date(cobranca.reserva_expira_em).toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : null
+  return (
+    <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4 text-left text-sm text-orange-900">
+      <p className="font-semibold flex items-center gap-2">
+        <Clock className="h-4 w-4 shrink-0" />
+        Sua vaga está reservada por {minutos} minutos
+      </p>
+      <p className="mt-1">
+        Conclua o pagamento{prazo ? ` até ${prazo}` : ''}. Se não pagar nesse prazo, a vaga será liberada.
+      </p>
+    </div>
+  )
+}
+
 function EventoDetalhe() {
   const { id, linkAcesso } = useParams()
   const navigate = useNavigate()
@@ -847,6 +871,7 @@ function EventoDetalhe() {
                             <p className="text-sm text-amber-700 mb-3">
                               Valor: {formatarValor(inscricaoData?.valor_total || cobranca.valor)}
                             </p>
+                            <AvisoReservaPagamento cobranca={cobranca} />
                             <button
                               onClick={() => navigate(`/pagamento/${cobranca.codigo}?auto=true`)}
                               className="w-full btn-primary py-2 mb-2 flex items-center justify-center gap-2"
@@ -914,8 +939,10 @@ function EventoDetalhe() {
                           Inscrição Realizada!
                         </h3>
                         <p className="text-gray-600 mb-4">
-                          Aguardando confirmação de pagamento para liberar o ingresso.
+                          Conclua o pagamento em até {cobranca?.reserva_minutos ?? 30} minutos para manter sua vaga. Os ingressos serão liberados após a confirmação.
                         </p>
+                        
+                        <AvisoReservaPagamento cobranca={cobranca} />
                         
                         {/* Resumo do valor */}
                         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 text-left">

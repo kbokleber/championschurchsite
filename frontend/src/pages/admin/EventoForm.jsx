@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Save, X, Image, DollarSign, Copy, Check } from 'lucide-react'
-import api from '../../services/api'
+import { ArrowLeft, Save, X, Image, DollarSign, Copy, Check, Upload, FileSpreadsheet, Gift } from 'lucide-react'
+import api, { formatApiError } from '../../services/api'
 import { getMediaUrl } from '../../services/utils'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import DatePickerBR from '../../components/DatePickerBR'
@@ -49,6 +49,145 @@ function EventoForm() {
   })
   const [formulariosDisponiveis, setFormulariosDisponiveis] = useState([])
   const [gruposCategorias, setGruposCategorias] = useState([])
+
+  // Isenções administrativas (somente edição + evento pago)
+  const [isencaoResumo, setIsencaoResumo] = useState({ total_isentos: 0, vagas_disponiveis: null })
+  const [isencaoForm, setIsencaoForm] = useState({
+    nome_completo: '',
+    telefone: '',
+    motivo_isencao: '',
+    liberador_por: '',
+  })
+  const [isencaoSalvando, setIsencaoSalvando] = useState(false)
+  const [isencaoMsg, setIsencaoMsg] = useState('')
+  const [isencaoErro, setIsencaoErro] = useState('')
+  const [importArquivo, setImportArquivo] = useState(null)
+  const [importPreview, setImportPreview] = useState(null)
+  const [importando, setImportando] = useState(false)
+  const importInputRef = useRef(null)
+
+  useEffect(() => {
+    if (isEditing && id && formData.evento_pago) {
+      carregarIsencaoResumo()
+    }
+  }, [id, isEditing, formData.evento_pago])
+
+  const carregarIsencaoResumo = async () => {
+    try {
+      const res = await api.get(`/eventos/${id}/isencoes/resumo/`)
+      setIsencaoResumo(res.data)
+    } catch (err) {
+      console.error('Erro ao carregar resumo de isenções:', err)
+    }
+  }
+
+  const handleIsencaoChange = (e) => {
+    const { name, value } = e.target
+    setIsencaoForm((prev) => ({ ...prev, [name]: value }))
+  }
+
+  const handleSalvarIsencao = async () => {
+    const nome = (isencaoForm.nome_completo || '').trim()
+    const telefone = (isencaoForm.telefone || '').trim()
+    if (!nome || !telefone) {
+      setIsencaoErro('Nome completo e telefone são obrigatórios.')
+      return
+    }
+    setIsencaoSalvando(true)
+    setIsencaoMsg('')
+    setIsencaoErro('')
+    try {
+      const res = await api.post(`/eventos/${id}/isencoes/criar/`, {
+        ...isencaoForm,
+        nome_completo: nome,
+        telefone,
+      })
+      let msg = res.data.message || 'Isenção registrada.'
+      if (res.data.whatsapp_mensagem) {
+        msg += ` ${res.data.whatsapp_mensagem}`
+      }
+      if (res.data.whatsapp_aviso) {
+        msg += ` (${res.data.whatsapp_aviso})`
+      }
+      setIsencaoMsg(msg)
+      setIsencaoForm({ nome_completo: '', telefone: '', motivo_isencao: '', liberador_por: '' })
+      if (res.data.total_isentos_evento != null) {
+        setIsencaoResumo((prev) => ({ ...prev, total_isentos: res.data.total_isentos_evento }))
+      }
+      carregarIsencaoResumo()
+    } catch (err) {
+      setIsencaoErro(formatApiError(err, 'Erro ao registrar isenção.'))
+    } finally {
+      setIsencaoSalvando(false)
+    }
+  }
+
+  const handleBaixarModeloIsencao = async () => {
+    try {
+      const response = await api.get(`/eventos/${id}/isencoes/modelo/`, { responseType: 'blob' })
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      const disp = response.headers['content-disposition']
+      const match = disp && /filename="?([^"]+)"?/.exec(disp)
+      link.download = match ? match[1] : `isencoes_evento_${id}.xlsx`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      alert('Erro ao baixar modelo.')
+      console.error(err)
+    }
+  }
+
+  const handlePreviewImportIsencao = async () => {
+    if (!importArquivo) {
+      setIsencaoErro('Selecione um arquivo .xlsx.')
+      return
+    }
+    setImportando(true)
+    setIsencaoErro('')
+    setImportPreview(null)
+    const fd = new FormData()
+    fd.append('arquivo', importArquivo)
+    fd.append('confirmar', 'false')
+    try {
+      const res = await api.post(`/eventos/${id}/isencoes/importar/`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setImportPreview(res.data)
+    } catch (err) {
+      setIsencaoErro(err.response?.data?.error || 'Erro ao ler planilha.')
+    } finally {
+      setImportando(false)
+    }
+  }
+
+  const handleConfirmarImportIsencao = async () => {
+    if (!importArquivo) return
+    setImportando(true)
+    setIsencaoErro('')
+    const fd = new FormData()
+    fd.append('arquivo', importArquivo)
+    fd.append('confirmar', 'true')
+    try {
+      const res = await api.post(`/eventos/${id}/isencoes/importar/`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setIsencaoMsg(
+        `Importação concluída: ${res.data.importados} novo(s), ${res.data.ignorados} já inscrito(s), ${res.data.erros} erro(s).`
+      )
+      setImportPreview(null)
+      setImportArquivo(null)
+      if (importInputRef.current) importInputRef.current.value = ''
+      carregarIsencaoResumo()
+    } catch (err) {
+      setIsencaoErro(err.response?.data?.error || 'Erro ao importar planilha.')
+    } finally {
+      setImportando(false)
+    }
+  }
 
   const tiposEvento = [
     { value: 'culto', label: 'Culto' },
@@ -873,6 +1012,107 @@ function EventoForm() {
               </div>
             </div>
           </div>
+
+          {/* Isenções administrativas */}
+          {isEditing && formData.evento_pago && (
+            <div className="border-t pt-6 mt-6">
+              <h3 className="text-lg font-semibold text-church-navy mb-1 flex items-center gap-2">
+                <Gift className="h-5 w-5" />
+                Isenções administrativas
+              </h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Cadastre isentos avulsos ou importe planilha. Telefone: DDD + número juntos, só dígitos, sem traço nem espaço (ex.: 11999998888).
+                Reimportações ignoram quem já está inscrito neste evento.
+              </p>
+              {isencaoResumo.total_isentos != null && (
+                <p className="text-sm text-gray-600 mb-4">
+                  <span className="font-medium">{isencaoResumo.total_isentos}</span> isento(s) neste evento
+                  {isencaoResumo.vagas_disponiveis != null && (
+                    <> · <span className="font-medium">{isencaoResumo.vagas_disponiveis}</span> vaga(s) disponível(is)</>
+                  )}
+                </p>
+              )}
+
+              {isencaoMsg && (
+                <div className="mb-4 text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                  {isencaoMsg}
+                </div>
+              )}
+              {isencaoErro && (
+                <div className="mb-4 text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  {isencaoErro}
+                </div>
+              )}
+
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="border border-gray-200 rounded-lg p-4 bg-gray-50/50 space-y-3">
+                  <h4 className="font-medium text-gray-800">Cadastro avulso</h4>
+                  <div>
+                    <label className="label">Nome completo *</label>
+                    <input name="nome_completo" value={isencaoForm.nome_completo} onChange={handleIsencaoChange} className="input-field" />
+                  </div>
+                  <div>
+                    <label className="label">Telefone (WhatsApp) *</label>
+                    <input name="telefone" value={isencaoForm.telefone} onChange={handleIsencaoChange} className="input-field" placeholder="DDD + número, só dígitos (ex.: 11999998888)" />
+                  </div>
+                  <div>
+                    <label className="label">Motivo da isenção</label>
+                    <input name="motivo_isencao" value={isencaoForm.motivo_isencao} onChange={handleIsencaoChange} className="input-field" />
+                  </div>
+                  <div>
+                    <label className="label">Liberado por</label>
+                    <input name="liberador_por" value={isencaoForm.liberador_por} onChange={handleIsencaoChange} className="input-field" />
+                  </div>
+                  <button type="button" onClick={handleSalvarIsencao} disabled={isencaoSalvando} className="btn-primary w-full disabled:opacity-50">
+                    {isencaoSalvando ? 'Salvando...' : 'Registrar isenção'}
+                  </button>
+                </div>
+
+                <div className="border border-gray-200 rounded-lg p-4 space-y-3">
+                  <h4 className="font-medium text-gray-800">Importar planilha (.xlsx)</h4>
+                  <button type="button" onClick={handleBaixarModeloIsencao} className="btn-outline w-full inline-flex items-center justify-center gap-2">
+                    <FileSpreadsheet className="h-4 w-4" />
+                    Baixar modelo
+                  </button>
+                  <input
+                    ref={importInputRef}
+                    type="file"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    onChange={(e) => {
+                      setImportArquivo(e.target.files?.[0] || null)
+                      setImportPreview(null)
+                    }}
+                    className="block w-full text-sm text-gray-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={handlePreviewImportIsencao}
+                    disabled={importando || !importArquivo}
+                    className="btn-outline w-full inline-flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <Upload className="h-4 w-4" />
+                    {importando ? 'Processando...' : 'Pré-visualizar importação'}
+                  </button>
+
+                  {importPreview && (
+                    <div className="text-sm bg-white border border-gray-200 rounded-lg p-3 space-y-2">
+                      <p><strong>{importPreview.a_importar}</strong> a importar · <strong>{importPreview.ignorados?.length ?? 0}</strong> ignorado(s) · <strong>{importPreview.erros?.length ?? 0}</strong> erro(s)</p>
+                      {importPreview.a_importar > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleConfirmarImportIsencao}
+                          disabled={importando}
+                          className="btn-primary w-full disabled:opacity-50"
+                        >
+                          {importando ? 'Importando...' : `Confirmar importação (${importPreview.a_importar})`}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Submit Buttons */}
           <div className="flex flex-col sm:flex-row gap-4 pt-6 border-t">

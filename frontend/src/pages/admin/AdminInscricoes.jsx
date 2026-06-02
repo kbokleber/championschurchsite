@@ -28,6 +28,7 @@ function AdminInscricoes() {
     action: null, // 'cancelar' | 'deletar'
   })
   const [actionLoading, setActionLoading] = useState(false)
+  const [motivoCancelamento, setMotivoCancelamento] = useState('')
 
   // Modal "Ver respostas"
   const [respostasModal, setRespostasModal] = useState({
@@ -80,6 +81,7 @@ function AdminInscricoes() {
 
   // Abre o modal para cancelar
   const handleCancelar = (inscricao) => {
+    setMotivoCancelamento('')
     setModalConfig({
       isOpen: true,
       type: 'warning',
@@ -92,15 +94,15 @@ function AdminInscricoes() {
   }
   
   // Executa o cancelamento
-  const executarCancelar = async (id) => {
+  const executarCancelar = async (id, motivo) => {
     setActionLoading(true)
     try {
-      await api.post(`/inscricoes/${id}/cancelar/`)
+      await api.post(`/inscricoes/${id}/cancelar/`, { motivo })
       fetchInscricoes()
       fecharModal()
     } catch (error) {
       console.error('Erro ao cancelar inscrição:', error)
-      alert('Erro ao cancelar inscrição.')
+      alert(error?.response?.data?.error || 'Erro ao cancelar inscrição.')
     } finally {
       setActionLoading(false)
     }
@@ -136,6 +138,7 @@ function AdminInscricoes() {
 
   // Fechar modal
   const fecharModal = () => {
+    setMotivoCancelamento('')
     setModalConfig(prev => ({ ...prev, isOpen: false }))
   }
   
@@ -147,7 +150,8 @@ function AdminInscricoes() {
     
     switch (action) {
       case 'cancelar':
-        executarCancelar(inscricao.id)
+        if (!motivoCancelamento.trim()) return
+        executarCancelar(inscricao.id, motivoCancelamento.trim())
         break
       case 'deletar':
         executarDeletar(inscricao.id)
@@ -263,6 +267,7 @@ function AdminInscricoes() {
       pendente: { bg: 'bg-amber-100', text: 'text-amber-800', label: `Pendente R$ ${valorFormatado}` },
       pago: { bg: 'bg-green-100', text: 'text-green-800', label: 'Pago' },
       isento: { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Isento' },
+      cancelado: { bg: 'bg-red-100', text: 'text-red-800', label: 'Cancelado' },
     }
     const statusConfig = config[statusPagamento] || config.nao_aplicavel
     return (
@@ -272,11 +277,22 @@ function AdminInscricoes() {
     )
   }
 
+  const renderMotivoCancelamento = (inscricao) => {
+    if (inscricao.status !== 'cancelada' || !inscricao.motivo_cancelamento) return null
+    return (
+      <p className="text-xs text-gray-500 mt-1 max-w-[220px] leading-snug" title={inscricao.motivo_cancelamento}>
+        <span className="font-medium text-gray-600">Motivo: </span>
+        {inscricao.motivo_cancelamento}
+      </p>
+    )
+  }
+
   const getPagamentoViaResponsavelBadge = (statusPagamento) => {
     const config = {
       pago: { bg: 'bg-green-100', text: 'text-green-800', label: 'Pago via responsável' },
       pendente: { bg: 'bg-amber-100', text: 'text-amber-800', label: 'Pendente via responsável' },
       isento: { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Isento via responsável' },
+      cancelado: { bg: 'bg-red-100', text: 'text-red-800', label: 'Cancelado via responsável' },
       nao_aplicavel: { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Via responsável' },
     }
     const statusConfig = config[statusPagamento] || config.nao_aplicavel
@@ -425,6 +441,7 @@ function AdminInscricoes() {
               <option value="pendente">Pgto Pendente</option>
               <option value="pago">Pago</option>
               <option value="isento">Isento</option>
+              <option value="cancelado">Cancelado</option>
               <option value="nao_aplicavel">Gratuito</option>
             </select>
             
@@ -512,7 +529,10 @@ function AdminInscricoes() {
                         <span className="text-gray-400">-</span>
                       )}
                     </td>
-                    <td className="px-6 py-4">{getStatusBadge(inscricao.status)}</td>
+                    <td className="px-6 py-4">
+                      {getStatusBadge(inscricao.status)}
+                      {renderMotivoCancelamento(inscricao)}
+                    </td>
                     <td className="px-6 py-4">
                       {inscricao.is_acompanhante ? (
                         getPagamentoViaResponsavelBadge(inscricao.status_pagamento)
@@ -625,6 +645,7 @@ function AdminInscricoes() {
                     <span className="inline-flex items-center text-sm text-gray-600"><Tag className="h-3 w-3 mr-1" />{inscricao.categoria_nome}</span>
                   )}
                 </div>
+                {renderMotivoCancelamento(inscricao)}
               </div>
             </div>
           ))}
@@ -673,7 +694,24 @@ function AdminInscricoes() {
         confirmText={modalConfig.confirmText}
         cancelText="Voltar"
         loading={actionLoading}
+        confirmDisabled={modalConfig.action === 'cancelar' && !motivoCancelamento.trim()}
       >
+        {modalConfig.action === 'cancelar' && (
+          <div className="mt-4 text-left">
+            <label htmlFor="motivo-cancelamento-inscricao" className="block text-sm font-medium text-gray-700 mb-1">
+              Motivo do cancelamento <span className="text-red-600">*</span>
+            </label>
+            <textarea
+              id="motivo-cancelamento-inscricao"
+              value={motivoCancelamento}
+              onChange={(e) => setMotivoCancelamento(e.target.value)}
+              rows={3}
+              maxLength={300}
+              placeholder="Descreva o motivo do cancelamento..."
+              className="input-field w-full resize-none"
+            />
+          </div>
+        )}
         {/* Detalhes da inscrição no modal */}
         {modalConfig.inscricao && (
           <div className="bg-gray-50 rounded-lg p-4 text-left">

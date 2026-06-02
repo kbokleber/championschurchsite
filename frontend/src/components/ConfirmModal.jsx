@@ -28,6 +28,7 @@ function ConfirmModal({
   showCancel = true,
   loading = false,
   children,
+  confirmDisabled = false,
 }) {
   const [isVisible, setIsVisible] = useState(false)
   const [isAnimating, setIsAnimating] = useState(false)
@@ -58,7 +59,7 @@ function ConfirmModal({
   }
 
   const handleConfirm = () => {
-    if (!loading && onConfirm) {
+    if (!loading && !confirmDisabled && onConfirm) {
       onConfirm()
     }
   }
@@ -171,7 +172,7 @@ function ConfirmModal({
           )}
           <button
             onClick={handleConfirm}
-            disabled={loading}
+            disabled={loading || confirmDisabled}
             className={`w-full sm:flex-1 px-4 py-3.5 sm:py-3 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${config.confirmBg}`}
           >
             {loading ? (

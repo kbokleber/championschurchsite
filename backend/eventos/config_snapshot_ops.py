@@ -43,6 +43,7 @@ INTEGRATION_FIELD_NAMES: tuple[str, ...] = (
     'wa_msg_inscricao_gratis',
     'wa_msg_inscricao_paga_pendente',
     'wa_msg_inscricao_paga_confirmada',
+    'wa_msg_inscricao_isenta_admin',
 )
 
 INTEGRATION_BOOLEAN_FIELDS: frozenset[str] = frozenset({

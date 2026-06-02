@@ -35,8 +35,11 @@ function WhatsAppEventosPlaceholdersBox() {
     'endereco_evento',
     'status_pagamento',
     'link_pagamento',
+    'link_ingressos',
     'valor_total',
     'codigo_inscricao',
+    'motivo_isencao',
+    'liberador_por',
   ]
 
   return (
@@ -227,6 +230,7 @@ function AdminConfiguracoes() {
     mp_cartao_em_sandbox: false,
     mp_pix_habilitado: true,
     mp_cartao_habilitado: true,
+    reserva_pagamento_minutos: 30,
     mp_public_key_sandbox: '',
     mp_access_token_sandbox: '',
     mp_public_key_production: '',
@@ -246,6 +250,7 @@ function AdminConfiguracoes() {
     wa_msg_inscricao_gratis: '',
     wa_msg_inscricao_paga_pendente: '',
     wa_msg_inscricao_paga_confirmada: '',
+    wa_msg_inscricao_isenta_admin: '',
     wa_msg_recibo_loja: '',
     wa_msg_reserva_loja: ''
   })
@@ -328,6 +333,7 @@ function AdminConfiguracoes() {
         mp_cartao_em_sandbox: data.mp_cartao_em_sandbox || false,
         mp_pix_habilitado: data.mp_pix_habilitado !== false,
         mp_cartao_habilitado: data.mp_cartao_habilitado !== false,
+        reserva_pagamento_minutos: data.reserva_pagamento_minutos ?? 30,
         mp_public_key_sandbox: data.mp_public_key_sandbox || '',
         mp_access_token_sandbox: data.mp_access_token_sandbox || '',
         mp_public_key_production: data.mp_public_key_production || '',
@@ -347,6 +353,7 @@ function AdminConfiguracoes() {
         wa_msg_inscricao_gratis: data.wa_msg_inscricao_gratis || '',
         wa_msg_inscricao_paga_pendente: data.wa_msg_inscricao_paga_pendente || '',
         wa_msg_inscricao_paga_confirmada: data.wa_msg_inscricao_paga_confirmada || '',
+        wa_msg_inscricao_isenta_admin: data.wa_msg_inscricao_isenta_admin || '',
         wa_msg_recibo_loja: data.wa_msg_recibo_loja || '',
         wa_msg_reserva_loja: data.wa_msg_reserva_loja || ''
       })
@@ -2046,6 +2053,25 @@ function AdminConfiguracoes() {
                       placeholder="Olá {{nome}}, pagamento confirmado para o evento {{evento}}..."
                     />
                   </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Isenção cadastrada pelo admin (avulso / planilha)
+                    </label>
+                    <textarea
+                      name="wa_msg_inscricao_isenta_admin"
+                      value={formData.wa_msg_inscricao_isenta_admin}
+                      onChange={handleChange}
+                      rows={5}
+                      className="input-field"
+                      placeholder={
+                        'Olá {{nome}}! Sua inscrição com isenção no evento {{evento}} foi confirmada.\n' +
+                        'Data: {{data_evento}}\n' +
+                        'Acesse seus ingressos: {{link_ingressos}}\n' +
+                        'Login: telefone {{telefone}} · Senha: {{senha}}'
+                      }
+                    />
+                  </div>
                   </div>
 
                   {/* Mensagens da Loja / Cantina (templates; credenciais ficam na aba Credenciais) */}
@@ -2111,6 +2137,26 @@ function AdminConfiguracoes() {
           {/* Tab: Mercado Pago */}
           {activeTab === 'mercadopago' && (
             <div className="space-y-6">
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <label className="block text-sm font-medium text-gray-800 mb-1">
+                  Tempo de reserva da vaga (minutos)
+                </label>
+                <p className="text-sm text-gray-600 mb-3">
+                  Após inscrever-se sem pagar em evento pago, a vaga fica reservada por este tempo.
+                  Depois disso a reserva expira e a vaga libera para outra pessoa.
+                </p>
+                <input
+                  type="number"
+                  name="reserva_pagamento_minutos"
+                  min={1}
+                  max={1440}
+                  value={formData.reserva_pagamento_minutos ?? 30}
+                  onChange={handleChange}
+                  className="input-field max-w-xs"
+                />
+                <p className="text-xs text-gray-500 mt-2">Entre 1 e 1440 minutos (24 horas). Padrão: 30.</p>
+              </div>
+
               {/* Aviso Ambiente */}
               <div className={`border rounded-lg p-4 ${
                 formData.mp_ambiente === 'production' 

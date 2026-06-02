@@ -21,6 +21,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes, authentication_classes, throttle_classes
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly, AllowAny
 from rest_framework.exceptions import ValidationError, PermissionDenied, NotFound
@@ -52,6 +53,7 @@ from .throttles import (
 )
 from .cobranca_inscricao import (
     ajustar_cobrancas_ao_cancelar_inscricao,
+    aplicar_cancelamento_inscricao,
     recalcular_cobranca_apos_mudanca_itens,
 )
 from .mp_cobranca_sync import (
@@ -59,6 +61,23 @@ from .mp_cobranca_sync import (
     confirmar_cobranca_evento_paga_mp,
     consultar_status_mp_cobranca,
     resolver_pagamento_webhook_mp,
+)
+from .reservas import (
+    get_reserva_pagamento_minutos,
+    aplicar_reserva_expira_cobranca,
+    cobranca_reserva_valida,
+    expirar_reservas_cobranca,
+    expirar_reservas_evento,
+    reserva_expira_em_para_agora,
+    verificar_vagas_disponiveis,
+)
+from .isencoes_import import (
+    contar_isentos_evento,
+    criar_inscricao_isenta,
+    executar_importacao_isencoes,
+    gerar_modelo_isencao_xlsx,
+    parse_linhas_isencao_xlsx,
+    preview_importacao_isencoes,
 )
 from .evolution_go import enviar_texto_evolution_go, diagnosticar_conexao_evolution_go
 from .serializers import (
@@ -124,6 +143,17 @@ WHATSAPP_TEMPLATE_DEFAULTS = {
         "Endereço: {{endereco_evento}}\n"
         "Status: {{status_pagamento}}"
     ),
+    'inscricao_isenta_admin': (
+        "Olá {{nome}}! Sua inscrição com isenção no evento {{evento}} foi confirmada.\n"
+        "Data: {{data_evento}}\n"
+        "Local: {{local_evento}}\n"
+        "Endereço: {{endereco_evento}}\n\n"
+        "Acesse seus ingressos (QR code): {{link_ingressos}}\n"
+        "Login: telefone {{telefone}}\n"
+        "Senha: {{senha}}\n\n"
+        "Código: {{codigo_inscricao}}\n"
+        "{{igreja_nome}}"
+    ),
 }
 
 
@@ -133,6 +163,7 @@ def _whatsapp_template_from_config(config, tipo_msg):
         'inscricao_gratis': 'wa_msg_inscricao_gratis',
         'inscricao_paga_pendente': 'wa_msg_inscricao_paga_pendente',
         'inscricao_paga_confirmada': 'wa_msg_inscricao_paga_confirmada',
+        'inscricao_isenta_admin': 'wa_msg_inscricao_isenta_admin',
     }
     attr = attr_map.get(tipo_msg)
     if not attr:
@@ -291,6 +322,94 @@ def _whatsapp_resposta_para_api(resultado):
         'whatsapp_enviado': False,
         'whatsapp_mensagem': msg,
     }
+
+
+def _formatar_telefone_whatsapp(telefone):
+    tel = (telefone or '').strip()
+    if len(tel) == 11:
+        return f"({tel[:2]}) {tel[2:7]}-{tel[7:]}"
+    if len(tel) == 10:
+        return f"({tel[:2]}) {tel[2:6]}-{tel[6:]}"
+    return tel
+
+
+def _formatar_data_evento_whatsapp(dt):
+    if dt is None:
+        return ''
+    if timezone.is_aware(dt):
+        dt = timezone.localtime(dt)
+    return dt.strftime('%d/%m/%Y %H:%M')
+
+
+def _montar_variaveis_whatsapp_isencao_admin(membro, inscricao, evento, config, request=None):
+    frontend_base_url = _resolver_frontend_base_url({
+        'frontend_base_url': (request.headers.get('Origin') or request.META.get('HTTP_ORIGIN') or '').strip() if request else '',
+        'base_url': request.build_absolute_uri('/').rstrip('/') if request else '',
+    })
+    link_ingressos = f'{frontend_base_url}/meus-ingressos' if frontend_base_url else ''
+    senha = (membro.senha_texto or '').strip()
+    if not senha:
+        senha = 'Use a senha que você já utiliza no sistema.'
+    return {
+        'nome': membro.nome or '',
+        'telefone': _formatar_telefone_whatsapp(membro.telefone),
+        'senha': senha,
+        'email': membro.email or '',
+        'evento': evento.titulo or '',
+        'data_evento': _formatar_data_evento_whatsapp(evento.data_inicio),
+        'local_evento': evento.local or '',
+        'endereco_evento': evento.endereco or '',
+        'codigo_inscricao': inscricao.codigo or '',
+        'link_ingressos': link_ingressos,
+        'motivo_isencao': inscricao.motivo_isencao or '',
+        'liberador_por': inscricao.liberador_isencao or '',
+        'status_pagamento': 'isento',
+        'igreja_nome': config.nome_igreja or '',
+    }
+
+
+def enviar_whatsapp_inscricao_isenta_admin(membro, inscricao, evento, *, request=None, timeout=12):
+    """Envia WhatsApp de confirmação para inscrição isenta cadastrada pelo admin."""
+    try:
+        config = ConfiguracaoSite.get_config()
+        config.refresh_from_db()
+        variaveis = _montar_variaveis_whatsapp_isencao_admin(
+            membro, inscricao, evento, config, request=request
+        )
+        msg_payload = _build_whatsapp_message_payload(config, 'inscricao_isenta_admin', variaveis)
+        resultado = enviar_texto_evolution_go(
+            config,
+            membro.telefone or '',
+            msg_payload.get('mensagem', ''),
+            timeout=timeout,
+        )
+        if not resultado.get('entregue'):
+            logger.error(
+                'WhatsApp isencao_admin falhou (telefone=%s, motivo=%s, status=%s, erro=%s)',
+                resultado.get('telefone') or membro.telefone,
+                resultado.get('motivo'),
+                resultado.get('http_status'),
+                (resultado.get('erro') or '')[:300],
+            )
+        else:
+            logger.info(
+                'WhatsApp isencao_admin enviado (telefone=%s, inscricao=%s)',
+                resultado.get('telefone'),
+                inscricao.id,
+            )
+        return resultado
+    except Exception as e:
+        logger.error('Erro ao enviar WhatsApp isencao_admin: %s', e)
+        return {'entregue': False, 'motivo': 'requisicao_erro', 'erro': str(e)}
+
+
+def _disparar_whatsapp_isencao_admin_background(membro, inscricao, evento, request=None):
+    thread = threading.Thread(
+        target=enviar_whatsapp_inscricao_isenta_admin,
+        kwargs={'membro': membro, 'inscricao': inscricao, 'evento': evento, 'request': request},
+    )
+    thread.daemon = True
+    thread.start()
 
 
 def enviar_webhook_inscricao(dados_webhook, *, timeout=30, max_endpoints=None):
@@ -1223,6 +1342,7 @@ def participante_registro(request):
                 cobranca_pendente.valor = float(cobranca_pendente.valor) + valor_novos_acompanhantes
                 cobranca_pendente.descricao += f', {descricao_itens}'
                 cobranca_pendente.save()
+                aplicar_reserva_expira_cobranca(cobranca_pendente, renovar=True)
                 cobranca = cobranca_pendente
             else:
                 # Criar nova cobrança apenas se não existir pendente
@@ -1231,7 +1351,8 @@ def participante_registro(request):
                     evento=evento,
                     valor=valor_novos_acompanhantes,
                     descricao=f'Inscrição adicional: {descricao_itens}',
-                    status='pendente'
+                    status='pendente',
+                    reserva_expira_em=reserva_expira_em_para_agora(),
                 )
             
             # Adicionar itens à cobrança (vincular cada inscrição de acompanhante)
@@ -1260,6 +1381,7 @@ def participante_registro(request):
                 cobranca_pendente.valor = float(cobranca_pendente.valor) + valor_novos_acompanhantes
                 cobranca_pendente.descricao += f', {", ".join([a["nome"] for a in acompanhantes_para_criar])}'
                 cobranca_pendente.save()
+                aplicar_reserva_expira_cobranca(cobranca_pendente, renovar=True)
                 cobranca = cobranca_pendente
             
             novo_valor_total = float(inscricao_existente.valor_inscricao or 0) + valor_novos_acompanhantes
@@ -1382,11 +1504,17 @@ def participante_registro(request):
     
     # Nova inscrição: verificar vagas (responsável + acompanhantes)
     if evento.vagas is not None:
-        vagas_disponiveis = evento.vagas_disponiveis or 0
         total_inscricoes = 1 + len(acompanhantes)
-        if total_inscricoes > vagas_disponiveis:
+        ok_vagas, vagas_disponiveis = verificar_vagas_disponiveis(evento, total_inscricoes)
+        if not ok_vagas:
             return Response(
-                {'error': f'Vagas insuficientes. Disponível: {vagas_disponiveis}'},
+                {
+                    'error': (
+                        f'Vagas insuficientes. Disponíveis: {vagas_disponiveis}. '
+                        f'Inscrições pendentes de pagamento reservam vaga por '
+                        f'{get_reserva_pagamento_minutos()} minutos.'
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -1636,7 +1764,10 @@ def participante_registro(request):
         response_data = {
             'success': True,
             'novo_cadastro': novo_cadastro,
-            'message': 'Inscrição realizada com sucesso!' if not evento.evento_pago else 'Inscrição realizada! Aguardando confirmação de pagamento.',
+            'message': 'Inscrição realizada com sucesso!' if not evento.evento_pago else (
+            f'Inscrição realizada! Sua vaga está reservada por {get_reserva_pagamento_minutos()} minutos. '
+            'Conclua o pagamento para liberar os ingressos.'
+        ),
             'token': token,
             'participante': {'id': membro.id, 'nome': membro.nome, 'telefone': membro.telefone, 'email': membro.email},
             'inscricao': {
@@ -1736,7 +1867,8 @@ def participante_registro(request):
             evento=evento,
             valor=valor_total,
             descricao=f"Inscrição: {', '.join(itens_desc)}",
-            status='pendente'
+            status='pendente',
+            reserva_expira_em=reserva_expira_em_para_agora(),
         )
         
         # Adicionar item do responsável à cobrança
@@ -1777,7 +1909,10 @@ def participante_registro(request):
     response_data = {
         'success': True,
         'novo_cadastro': novo_cadastro,
-        'message': 'Inscrição realizada com sucesso!' if not evento.evento_pago else 'Inscrição realizada! Aguardando confirmação de pagamento.',
+        'message': 'Inscrição realizada com sucesso!' if not evento.evento_pago else (
+            f'Inscrição realizada! Sua vaga está reservada por {get_reserva_pagamento_minutos()} minutos. '
+            'Conclua o pagamento para liberar os ingressos.'
+        ),
         'token': token,
         'participante': {
             'id': membro.id,
@@ -1809,7 +1944,10 @@ def participante_registro(request):
             'valor': float(cobranca.valor),
             'status': cobranca.status,
             'descricao': cobranca.descricao,
+            'reserva_expira_em': cobranca.reserva_expira_em.isoformat() if cobranca.reserva_expira_em else None,
+            'reserva_minutos': get_reserva_pagamento_minutos(),
         } if cobranca else None,
+        'reserva_minutos': get_reserva_pagamento_minutos() if cobranca else None,
     }
     
     # Incluir senha na resposta
@@ -2287,6 +2425,119 @@ class EventoViewSet(viewsets.ModelViewSet):
         serializer = EventoListaSerializer(eventos, many=True)
         return Response(serializer.data)
     
+    @action(detail=True, methods=['get'], url_path='isencoes/modelo')
+    def isencoes_modelo(self, request, pk=None):
+        """Download do modelo XLSX para importação de isenções."""
+        evento = self.get_object()
+        content = gerar_modelo_isencao_xlsx(evento)
+        filename = f'isencoes_{evento.id}_{evento.titulo[:30].replace(" ", "_")}.xlsx'
+        response = HttpResponse(
+            content,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path='isencoes/importar',
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def isencoes_importar(self, request, pk=None):
+        """Importa planilha de isenções (ignora quem já está inscrito no evento)."""
+        evento = self.get_object()
+        arquivo = request.FILES.get('arquivo')
+        if not arquivo:
+            return Response({'error': 'Envie o arquivo .xlsx no campo "arquivo".'}, status=400)
+        if not str(arquivo.name or '').lower().endswith('.xlsx'):
+            return Response({'error': 'Formato inválido. Use arquivo .xlsx.'}, status=400)
+        try:
+            linhas = parse_linhas_isencao_xlsx(arquivo)
+        except ValidationError as exc:
+            detail = exc.detail
+            msg = detail[0] if isinstance(detail, list) else str(detail)
+            return Response({'error': msg}, status=400)
+
+        confirmar = str(request.data.get('confirmar', 'false')).lower() in ('1', 'true', 'yes', 'sim')
+        if not confirmar:
+            preview = preview_importacao_isencoes(evento, linhas)
+            return Response({
+                'preview': True,
+                'total_linhas': preview['total_linhas'],
+                'a_importar': len(preview['importar']),
+                'ignorados': preview['ignorados'],
+                'erros': preview['erros'],
+                'vagas_disponiveis': preview['vagas_disponiveis'],
+            })
+
+        resultado = executar_importacao_isencoes(evento, linhas)
+        for item in resultado.get('criados') or []:
+            try:
+                inscricao = Inscricao.objects.select_related('membro', 'evento').get(
+                    pk=item['inscricao_id']
+                )
+                _disparar_whatsapp_isencao_admin_background(
+                    inscricao.membro, inscricao, evento, request=request
+                )
+            except Inscricao.DoesNotExist:
+                logger.warning('Isenção importada sem inscrição id=%s para WhatsApp', item.get('inscricao_id'))
+        return Response({
+            'success': True,
+            'importados': resultado['importados'],
+            'ignorados': resultado['ignorados'],
+            'erros': resultado['erros'],
+            'criados': resultado['criados'],
+            'ignorados_detalhe': resultado['ignorados_detalhe'],
+            'erros_detalhe': resultado['erros_detalhe'],
+            'total_isentos_evento': contar_isentos_evento(evento),
+        })
+
+    @action(detail=True, methods=['post'], url_path='isencoes/criar')
+    def isencoes_criar(self, request, pk=None):
+        """Cadastra uma inscrição isenta avulsa (sem envio de WhatsApp)."""
+        evento = self.get_object()
+        try:
+            result = criar_inscricao_isenta(
+                evento,
+                nome_completo=request.data.get('nome_completo') or request.data.get('nome', ''),
+                telefone=request.data.get('telefone', ''),
+                motivo_isencao=request.data.get('motivo_isencao', ''),
+                liberador_por=request.data.get('liberador_por', ''),
+            )
+        except ValidationError as exc:
+            detail = exc.detail
+            msg = detail[0] if isinstance(detail, list) else str(detail)
+            return Response({'error': msg}, status=400)
+
+        inscricao = result['inscricao']
+        membro = result['membro']
+        resultado_wh = enviar_whatsapp_inscricao_isenta_admin(
+            membro, inscricao, evento, request=request
+        )
+        serializer = InscricaoSerializer(inscricao, context={'request': request})
+        response_data = {
+            'success': True,
+            'message': 'Inscrição isenta registrada com sucesso.',
+            'inscricao': serializer.data,
+            'total_isentos_evento': contar_isentos_evento(evento),
+        }
+        wh_info = _whatsapp_resposta_para_api(resultado_wh)
+        if wh_info.get('whatsapp_enviado'):
+            response_data['whatsapp_mensagem'] = 'Confirmação enviada no WhatsApp da pessoa.'
+        else:
+            response_data['whatsapp_aviso'] = wh_info.get('whatsapp_mensagem')
+        return Response(response_data, status=201)
+
+    @action(detail=True, methods=['get'], url_path='isencoes/resumo')
+    def isencoes_resumo(self, request, pk=None):
+        evento = self.get_object()
+        return Response({
+            'total_isentos': contar_isentos_evento(evento),
+            'vagas_disponiveis': evento.vagas_disponiveis,
+            'vagas_total': evento.vagas,
+        })
+
     @action(detail=True, methods=['get'])
     def inscritos(self, request, pk=None):
         """Lista os inscritos em um evento específico."""
@@ -2342,10 +2593,14 @@ class InscricaoViewSet(viewsets.ModelViewSet):
         Cancela a inscrição. Na cobrança, se for a única inscrição, grava status *cancelado*
         (e valor zerado) mantendo o registo; com mais de um, remove só o item e recalcula.
         """
+        motivo = (request.data.get('motivo') or '').strip()
+        if not motivo:
+            return Response(
+                {'error': 'Informe o motivo do cancelamento.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         inscricao = self.get_object()
-        inscricao.status = 'cancelada'
-        if inscricao.status_pagamento == 'pendente':
-            inscricao.status_pagamento = 'nao_aplicavel'
+        aplicar_cancelamento_inscricao(inscricao, motivo=motivo)
         inscricao.save()
         ajustar_cobrancas_ao_cancelar_inscricao(inscricao)
         inscricao.refresh_from_db()
@@ -3619,6 +3874,12 @@ class CobrancaViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def cancelar(self, request, pk=None):
         """Cancela uma cobrança."""
+        motivo = (request.data.get('motivo') or '').strip()
+        if not motivo:
+            return Response(
+                {'error': 'Informe o motivo do cancelamento.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         cobranca = self.get_object()
         
         if cobranca.status == 'pago':
@@ -3633,8 +3894,7 @@ class CobrancaViewSet(viewsets.ModelViewSet):
         # Cancelar inscrições vinculadas
         for item in cobranca.itens.all():
             inscricao = item.inscricao
-            inscricao.status = 'cancelada'
-            inscricao.status_pagamento = 'cancelado' if inscricao.status_pagamento == 'pendente' else inscricao.status_pagamento
+            aplicar_cancelamento_inscricao(inscricao, motivo=motivo)
             inscricao.save()
         
         serializer = CobrancaSerializer(cobranca)
@@ -3732,6 +3992,12 @@ class CobrancaViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='itens/(?P<item_id>[^/.]+)/cancelar')
     def cancelar_item(self, request, pk=None, item_id=None):
         """Cancela inscrição de um único participante (item) na cobrança."""
+        motivo = (request.data.get('motivo') or '').strip()
+        if not motivo:
+            return Response(
+                {'error': 'Informe o motivo do cancelamento.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         cobranca = self.get_object()
         item = get_object_or_404(CobrancaItem, cobranca=cobranca, id=item_id)
         inscricao = item.inscricao
@@ -3740,8 +4006,7 @@ class CobrancaViewSet(viewsets.ModelViewSet):
                 {'error': 'Inscrição já está cancelada'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        inscricao.status = 'cancelada'
-        inscricao.status_pagamento = 'cancelado'
+        aplicar_cancelamento_inscricao(inscricao, motivo=motivo)
         inscricao.save()
         self._atualizar_status_cobranca_apos_itens(cobranca)
         serializer = CobrancaSerializer(cobranca)
@@ -3816,6 +4081,19 @@ from .mp_payments import (
 def cobranca_publica(request, codigo):
     """Retorna dados da cobrança para pagamento público (somente por UUID)."""
     cobranca = obter_cobranca_evento_por_codigo(codigo)
+    expirar_reservas_cobranca(cobranca)
+    cobranca.refresh_from_db()
+    if cobranca.status == 'cancelado':
+        return Response(
+            {
+                'error': (
+                    f'A reserva expirou após {get_reserva_pagamento_minutos()} minutos sem pagamento. '
+                    'A vaga foi liberada. Inscreva-se novamente se ainda houver vagas.'
+                ),
+                'reserva_expirada': True,
+            },
+            status=status.HTTP_410_GONE,
+        )
     serializer = CobrancaPublicaSerializer(cobranca)
     return Response(serializer.data)
 
@@ -3839,6 +4117,18 @@ def criar_pagamento_pix(request):
         return Response(
             {'error': f'Cobrança já está com status: {cobranca.get_status_display()}'},
             status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if not cobranca_reserva_valida(cobranca):
+        return Response(
+            {
+                'error': (
+                    f'A reserva expirou após {get_reserva_pagamento_minutos()} minutos sem pagamento. '
+                    'Inscreva-se novamente se ainda houver vagas.'
+                ),
+                'reserva_expirada': True,
+            },
+            status=status.HTTP_410_GONE,
         )
     
     # Verificar se MP está configurado
@@ -4417,6 +4707,21 @@ def verificar_pagamento(request, codigo):
         return Response(
             {'error': 'Cobrança não encontrada'},
             status=status.HTTP_404_NOT_FOUND
+        )
+
+    expirar_reservas_cobranca(cobranca)
+    cobranca.refresh_from_db()
+    if cobranca.status == 'cancelado':
+        return Response(
+            {
+                'status': 'cancelado',
+                'cobranca_status': cobranca.status,
+                'reserva_expirada': True,
+                'error': (
+                    f'A reserva expirou após {get_reserva_pagamento_minutos()} minutos sem pagamento.'
+                ),
+            },
+            status=status.HTTP_410_GONE,
         )
     
     # Se já está pago localmente, retornar

@@ -280,11 +280,12 @@ class Evento(models.Model):
     
     @property
     def vagas_disponiveis(self):
-        """Retorna o número de vagas disponíveis."""
+        """Retorna o número de vagas disponíveis (confirmadas + reservas pendentes válidas)."""
         if self.vagas is None:
             return None  # Vagas ilimitadas
-        inscritos = self.inscricoes.filter(status='confirmada').count()
-        return max(0, self.vagas - inscritos)
+        from .reservas import contar_inscricoes_ocupando_vaga
+        ocupadas = contar_inscricoes_ocupando_vaga(self)
+        return max(0, self.vagas - ocupadas)
     
     @property
     def esta_lotado(self):
@@ -482,6 +483,7 @@ class Inscricao(models.Model):
         ('pendente', 'Pendente'),
         ('pago', 'Pago'),
         ('isento', 'Isento'),
+        ('cancelado', 'Cancelado'),
     ]
     
     membro = models.ForeignKey(
@@ -567,6 +569,22 @@ class Inscricao(models.Model):
     observacoes = models.TextField(
         verbose_name='Observações',
         blank=True
+    )
+    motivo_isencao = models.CharField(
+        max_length=300,
+        verbose_name='Motivo da isenção',
+        blank=True,
+    )
+    liberador_isencao = models.CharField(
+        max_length=200,
+        verbose_name='Liberado por',
+        blank=True,
+        help_text='Quem autorizou a isenção (admin/pastor)',
+    )
+    motivo_cancelamento = models.CharField(
+        max_length=300,
+        verbose_name='Motivo do cancelamento',
+        blank=True,
     )
     presente = models.BooleanField(
         default=False,
@@ -726,6 +744,12 @@ class Cobranca(models.Model):
         verbose_name='Método de Pagamento',
         blank=True,
         help_text='Ex: PIX, Cartão de Crédito, etc.'
+    )
+    reserva_expira_em = models.DateTimeField(
+        verbose_name='Reserva expira em',
+        null=True,
+        blank=True,
+        help_text='Prazo para pagamento antes de liberar a vaga (eventos pagos).',
     )
     
     class Meta:
@@ -1064,6 +1088,14 @@ class ConfiguracaoSite(models.Model):
         verbose_name='Aceitar cartão',
         help_text='Exibe pagamento com cartão (Brick) em eventos e na loja/cantina.',
     )
+    reserva_pagamento_minutos = models.PositiveSmallIntegerField(
+        default=30,
+        verbose_name='Minutos de reserva da vaga',
+        help_text=(
+            'Tempo em que a vaga fica reservada após inscrição sem pagamento em eventos pagos. '
+            'Após esse prazo, a reserva expira e a vaga libera para outra pessoa.'
+        ),
+    )
 
     # WhatsApp Evolution API
     evolution_api_url = models.URLField(
@@ -1134,6 +1166,16 @@ class ConfiguracaoSite(models.Model):
         verbose_name='Template WhatsApp - Inscrição paga confirmada',
         blank=True,
         help_text='Mensagem para pagamento confirmado (evento pago).'
+    )
+    wa_msg_inscricao_isenta_admin = models.TextField(
+        verbose_name='Template WhatsApp - Isenção cadastrada pelo admin',
+        blank=True,
+        help_text=(
+            'Mensagem ao cadastrar isenção avulsa ou importar planilha. '
+            'Placeholders: {{nome}}, {{telefone}}, {{senha}}, {{evento}}, {{data_evento}}, '
+            '{{local_evento}}, {{endereco_evento}}, {{link_ingressos}}, {{codigo_inscricao}}, '
+            '{{motivo_isencao}}, {{liberador_por}}, {{igreja_nome}}.'
+        ),
     )
     
     # Metadata

@@ -102,6 +102,20 @@ def confirmar_cobranca_evento_paga_mp(
             cobranca.refresh_from_db()
             return False
 
+        from .reservas import get_reserva_pagamento_minutos, cancelar_reserva_cobranca
+        if c.status == 'pendente':
+            # Revalida dentro do lock (evita confirmar após expirar reserva)
+            expira_em = c.reserva_expira_em
+            from datetime import timedelta
+            from django.utils import timezone as tz
+            agora = tz.now()
+            if expira_em is None:
+                expira_em = c.data_criacao + timedelta(minutes=get_reserva_pagamento_minutos())
+            if agora >= expira_em:
+                cancelar_reserva_cobranca(c)
+                cobranca.refresh_from_db()
+                return False
+
         c.status = 'pago'
         c.data_pagamento = timezone.now()
         if ref:

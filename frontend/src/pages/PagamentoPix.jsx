@@ -66,7 +66,12 @@ function PagamentoPix() {
       }
     } catch (err) {
       console.error('Erro ao carregar cobrança:', err);
-      setError('Cobrança não encontrada');
+      const msg = err.response?.data?.error;
+      if (err.response?.status === 410 || err.response?.data?.reserva_expirada) {
+        setError(msg || 'A reserva expirou. Inscreva-se novamente se ainda houver vagas.');
+      } else {
+        setError(msg || 'Cobrança não encontrada');
+      }
     } finally {
       setLoading(false);
     }
@@ -193,6 +198,19 @@ function PagamentoPix() {
 
         <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
           <div className="p-6">
+            {cobranca?.status === 'pendente' && (
+              <div className="mb-4 bg-orange-50 border border-orange-200 rounded-lg p-3 text-sm text-orange-900">
+                <p className="font-semibold flex items-center gap-2">
+                  <Clock className="w-4 h-4 shrink-0" />
+                  Vaga reservada por {cobranca.reserva_minutos ?? 30} minutos
+                </p>
+                <p className="mt-1">
+                  {cobranca.reserva_expira_em
+                    ? `Pague até ${new Date(cobranca.reserva_expira_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} ou a vaga será liberada.`
+                    : 'Conclua o pagamento neste prazo ou a vaga será liberada para outras pessoas.'}
+                </p>
+              </div>
+            )}
             <ResumoCobrancaPagamento contexto="eventos" dados={cobranca} />
             <MercadoPagoCheckout
               contexto="eventos"

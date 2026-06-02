@@ -4,6 +4,20 @@ Cobranças e itens ligados a inscrições: recálculo, remoção e limpeza após
 
 from decimal import Decimal
 
+MOTIVO_RESERVA_EXPIRADA = (
+    'Pagamento não realizado dentro do prazo de reserva da vaga.'
+)
+
+
+def aplicar_cancelamento_inscricao(inscricao, *, motivo=''):
+    """Marca inscrição como cancelada; pagamento pendente vira cancelado."""
+    inscricao.status = 'cancelada'
+    if inscricao.status_pagamento == 'pendente':
+        inscricao.status_pagamento = 'cancelado'
+    if motivo:
+        inscricao.motivo_cancelamento = str(motivo).strip()[:300]
+    return inscricao
+
 
 def ajustar_cobrancas_ao_cancelar_inscricao(inscricao):
     """

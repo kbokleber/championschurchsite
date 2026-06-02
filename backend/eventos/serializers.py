@@ -792,6 +792,7 @@ class InscricaoSerializer(serializers.ModelSerializer):
             'codigo', 'qrcode',
             'data_inscricao', 'data_inscricao_formatada',
             'status', 'status_display', 'observacoes',
+            'motivo_cancelamento',
             'valor_inscricao', 'valor_inscricao_formatado',
             'status_pagamento', 'status_pagamento_display',
             'data_pagamento', 'data_pagamento_formatada',
@@ -1000,6 +1001,7 @@ class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
             # Mercado Pago
             'mp_ambiente', 'mp_ativo', 'mp_cartao_em_sandbox',
             'mp_pix_habilitado', 'mp_cartao_habilitado',
+            'reserva_pagamento_minutos',
             'mp_loja_pix_email', 'mp_loja_pix_cpf_cnpj',
             'mp_public_key_sandbox', 'mp_access_token_sandbox',
             'mp_public_key_production', 'mp_access_token_production',
@@ -1012,6 +1014,7 @@ class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
             'wa_msg_recibo_loja', 'wa_msg_reserva_loja',
             'wa_msg_reset_senha', 'wa_msg_inscricao_gratis',
             'wa_msg_inscricao_paga_pendente', 'wa_msg_inscricao_paga_confirmada',
+            'wa_msg_inscricao_isenta_admin',
             'destaques_home',
             'atualizado_em'
         ]
@@ -1028,6 +1031,16 @@ class ConfiguracaoSiteSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 'Com o Mercado Pago ativo, habilite pelo menos PIX ou cartão.'
             )
+        minutos = attrs.get('reserva_pagamento_minutos')
+        if minutos is not None:
+            if minutos < 1:
+                raise serializers.ValidationError(
+                    {'reserva_pagamento_minutos': 'Informe pelo menos 1 minuto.'}
+                )
+            if minutos > 24 * 60:
+                raise serializers.ValidationError(
+                    {'reserva_pagamento_minutos': 'O máximo é 1440 minutos (24 horas).'}
+                )
         return attrs
 
     def get_mp_access_token_sandbox_masked(self, obj):
@@ -1127,14 +1140,20 @@ class CobrancaPublicaSerializer(serializers.ModelSerializer):
     evento_data = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     itens = CobrancaItemSerializer(many=True, read_only=True)
+    reserva_minutos = serializers.SerializerMethodField()
 
     class Meta:
         model = Cobranca
         fields = [
             'codigo', 'valor', 'descricao', 'status', 'status_display',
             'membro_nome', 'membro_email', 'evento_titulo', 'evento_data', 'itens',
+            'reserva_expira_em', 'reserva_minutos',
         ]
         read_only_fields = fields
+
+    def get_reserva_minutos(self, obj):
+        from .reservas import get_reserva_pagamento_minutos
+        return get_reserva_pagamento_minutos()
 
     def get_evento_data(self, obj):
         if obj.evento and obj.evento.data_inicio:

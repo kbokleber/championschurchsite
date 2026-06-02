@@ -42,6 +42,7 @@ function AdminCobrancas() {
     cobranca: null,
     item: null,
   });
+  const [motivoCancelamento, setMotivoCancelamento] = useState('');
 
   useEffect(() => {
     setPage(1);
@@ -100,6 +101,7 @@ function AdminCobrancas() {
   };
 
   const fecharModal = () => {
+    setMotivoCancelamento('');
     setModalConfig({ isOpen: false, action: null, cobranca: null, item: null });
   };
 
@@ -122,6 +124,7 @@ function AdminCobrancas() {
   };
 
   const cancelarCobranca = (cobranca, item = null) => {
+    setMotivoCancelamento('');
     setModalConfig({
       isOpen: true,
       action: 'cancelar',
@@ -135,6 +138,9 @@ function AdminCobrancas() {
     const cobrancaId = modalConfig.cobranca.id;
     const item = modalConfig.item;
     const chaveProcessando = item ? `${cobrancaId}-${item.id}` : cobrancaId;
+    const motivo = motivoCancelamento.trim();
+
+    if (modalConfig.action === 'cancelar' && !motivo) return;
 
     try {
       if (item) setProcessandoItem(chaveProcessando);
@@ -146,7 +152,7 @@ function AdminCobrancas() {
         } else if (modalConfig.action === 'isentar') {
           await api.post(`/cobrancas/${cobrancaId}/itens/${item.id}/isentar/`);
         } else if (modalConfig.action === 'cancelar') {
-          await api.post(`/cobrancas/${cobrancaId}/itens/${item.id}/cancelar/`);
+          await api.post(`/cobrancas/${cobrancaId}/itens/${item.id}/cancelar/`, { motivo });
         }
       } else {
         if (modalConfig.action === 'confirmar') {
@@ -154,14 +160,16 @@ function AdminCobrancas() {
         } else if (modalConfig.action === 'isentar') {
           await api.post(`/cobrancas/${cobrancaId}/isentar/`);
         } else if (modalConfig.action === 'cancelar') {
-          await api.post(`/cobrancas/${cobrancaId}/cancelar/`);
+          await api.post(`/cobrancas/${cobrancaId}/cancelar/`, { motivo });
         }
       }
       fecharModal();
       carregarDados();
     } catch (error) {
       console.error('Erro na ação:', error);
-      alert(modalConfig.action === 'confirmar' ? 'Erro ao confirmar pagamento' : modalConfig.action === 'isentar' ? 'Erro ao isentar' : 'Erro ao cancelar');
+      const msg = error?.response?.data?.error
+        || (modalConfig.action === 'confirmar' ? 'Erro ao confirmar pagamento' : modalConfig.action === 'isentar' ? 'Erro ao isentar' : 'Erro ao cancelar');
+      alert(msg);
     } finally {
       if (item) setProcessandoItem(null);
       else setProcessando(null);
@@ -561,7 +569,24 @@ function AdminCobrancas() {
         confirmText={getModalConfig().confirmText}
         cancelText="Voltar"
         loading={modalConfig.item ? processandoItem === `${modalConfig.cobranca?.id}-${modalConfig.item?.id}` : processando === modalConfig.cobranca?.id}
+        confirmDisabled={modalConfig.action === 'cancelar' && !motivoCancelamento.trim()}
       >
+        {modalConfig.action === 'cancelar' && (
+          <div className="mt-4 text-left">
+            <label htmlFor="motivo-cancelamento-cobranca" className="block text-sm font-medium text-gray-700 mb-1">
+              Motivo do cancelamento <span className="text-red-600">*</span>
+            </label>
+            <textarea
+              id="motivo-cancelamento-cobranca"
+              value={motivoCancelamento}
+              onChange={(e) => setMotivoCancelamento(e.target.value)}
+              rows={3}
+              maxLength={300}
+              placeholder="Descreva o motivo do cancelamento..."
+              className="input-field w-full resize-none"
+            />
+          </div>
+        )}
         {modalConfig.cobranca && (
           <div className="bg-gray-50 rounded-lg p-4 text-left">
             <div className="space-y-2 text-sm">

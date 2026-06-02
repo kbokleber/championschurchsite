@@ -29,6 +29,7 @@ RUN pip install --user --no-warn-script-location -r requirements.txt
 FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/home/django/.local/lib/python3.11/site-packages \
     PATH=/usr/local/bin:/home/django/.local/bin:$PATH \
     DJANGO_SETTINGS_MODULE=champions_backend.settings
 

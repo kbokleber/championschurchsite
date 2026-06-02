@@ -229,8 +229,12 @@ def regenerar_qrcodes_inscricoes_ausentes() -> dict:
     from eventos.models import Inscricao
 
     media_root = Path(settings.MEDIA_ROOT)
+    qrcodes_dir = media_root / 'qrcodes'
+    qrcodes_dir.mkdir(parents=True, exist_ok=True)
+
     regenerados = 0
     ja_presentes = 0
+    erros = 0
 
     for ins in Inscricao.objects.filter(status__in=['confirmada', 'pendente']).iterator():
         if ins.status_pagamento == 'pendente':
@@ -241,16 +245,22 @@ def regenerar_qrcodes_inscricoes_ausentes() -> dict:
             continue
         if not ins.codigo:
             continue
-        ins.gerar_qrcode()
-        regenerados += 1
+        try:
+            ins.gerar_qrcode()
+            regenerados += 1
+        except Exception as exc:
+            erros += 1
+            logger.warning('Falha ao regenerar QR da inscrição %s: %s', ins.pk, exc)
 
-    qrcodes_dir = media_root / 'qrcodes'
     n_disk = sum(1 for f in qrcodes_dir.iterdir() if f.is_file()) if qrcodes_dir.is_dir() else 0
-    return {
+    result = {
         'regenerados': regenerados,
         'ja_presentes': ja_presentes,
         'qrcodes_no_disco': n_disk,
     }
+    if erros:
+        result['erros'] = erros
+    return result
 
 
 def gerar_backup_package(host_header: str) -> tuple[bytes, str]:
@@ -394,7 +404,12 @@ def importar_backup_de_arquivo(backup_file: Path) -> dict:
                 qrcode_stats = regenerar_qrcodes_inscricoes_ausentes()
             except Exception as exc:
                 logger.warning('Regeneração parcial de QR Codes após import: %s', exc, exc_info=True)
-                qrcode_stats = {'regenerados': 0, 'aviso': str(exc)}
+                qrcode_stats = {
+                    'regenerados': 0,
+                    'ja_presentes': 0,
+                    'qrcodes_no_disco': 0,
+                    'aviso': str(exc),
+                }
         except Exception:
             if engine_kind == 'sqlite' and sqlite_backup_path.exists():
                 try:
@@ -421,7 +436,10 @@ def importar_backup_de_arquivo(backup_file: Path) -> dict:
         )
     if qrcode_stats:
         detail += (
-            f" QR Codes: {qrcode_stats['qrcodes_no_disco']} no disco; "
-            f"{qrcode_stats['regenerados']} regenerado(s)."
+            f" QR Codes: {qrcode_stats.get('qrcodes_no_disco', 0)} no disco; "
+            f"{qrcode_stats.get('regenerados', 0)} regenerado(s)."
         )
+        aviso = qrcode_stats.get('aviso')
+        if aviso:
+            detail += f" Aviso QR: {aviso}"
     return {'detail': detail, 'media': media_stats, 'qrcodes': qrcode_stats}

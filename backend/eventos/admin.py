@@ -40,7 +40,7 @@ class EventoAdmin(admin.ModelAdmin):
     list_filter = ['tipo', 'status', 'destaque', 'data_inicio']
     search_fields = ['titulo', 'descricao', 'local']
     ordering = ['-data_inicio']
-    readonly_fields = ['criado_em', 'atualizado_em']
+    readonly_fields = ['criado_em', 'atualizado_em', 'link_acesso']
     list_editable = ['destaque', 'status']
     
     fieldsets = (
@@ -59,10 +59,10 @@ class EventoAdmin(admin.ModelAdmin):
             'description': 'Defina se o evento é pago e o valor da inscrição'
         }),
         ('Configurações', {
-            'fields': ('vagas', 'status', 'destaque')
+            'fields': ('vagas', 'status', 'destaque', 'evento_particular', 'link_acesso')
         }),
         ('Formulário de Inscrição (opcional)', {
-            'fields': ('formulario_inscricao', 'permite_acompanhantes'),
+            'fields': ('formulario_inscricao', 'permite_inscricao_adolescente', 'permite_acompanhantes', 'grupo_categorias'),
             'description': 'Selecione um formulário reaproveitável para coletar informações extras no ato da inscrição. As respostas ficam visíveis apenas para administradores.',
         }),
         ('Registro', {

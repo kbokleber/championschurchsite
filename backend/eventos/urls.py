@@ -7,7 +7,7 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     MembroViewSet, EventoViewSet, InscricaoViewSet, ContatoViewSet,
-    CategoriaParticipanteViewSet, CobrancaViewSet,
+    CategoriaParticipanteViewSet, GrupoCategoriaViewSet, CobrancaViewSet,
     PermissaoMenuViewSet, GrupoViewSet, UsuarioAdminViewSet,
     FormularioInscricaoViewSet,
     admin_respostas_inscricao, admin_arquivo_resposta, admin_inscricao_detalhe,
@@ -75,6 +75,7 @@ router.register(r'eventos', EventoViewSet, basename='evento')
 router.register(r'inscricoes', InscricaoViewSet, basename='inscricao')
 router.register(r'contatos', ContatoViewSet, basename='contato')
 router.register(r'categorias', CategoriaParticipanteViewSet, basename='categoria')
+router.register(r'grupos-categorias', GrupoCategoriaViewSet, basename='grupo-categoria')
 router.register(r'cobrancas', CobrancaViewSet, basename='cobranca')
 router.register(r'permissoes-menu', PermissaoMenuViewSet, basename='permissaomenu')
 router.register(r'grupos', GrupoViewSet, basename='grupo')

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { Calendar, MapPin, Users, Clock, ArrowLeft, Check, AlertCircle, Lock, DollarSign, QrCode, Download, Phone, Smartphone, UserPlus, X, UserCheck, ExternalLink, FileText } from 'lucide-react'
 import LoadingSpinner from '../components/LoadingSpinner'
@@ -14,7 +14,7 @@ import {
 } from '../utils/formularioInscricao'
 
 function EventoDetalhe() {
-  const { id } = useParams()
+  const { id, linkAcesso } = useParams()
   const navigate = useNavigate()
   const { configuracao } = useConfiguracao()
   const { registrar, isLoggedIn, participante } = useParticipante()
@@ -35,6 +35,7 @@ function EventoDetalhe() {
   const [somenteAdicionandoAcompanhantes, setSomenteAdicionandoAcompanhantes] = useState(false)
   const [cobranca, setCobranca] = useState(null)
   const [categorias, setCategorias] = useState([])
+  const [categoriaTitularId, setCategoriaTitularId] = useState('')
   const [formData, setFormData] = useState({
     nome: '',
     telefone: '',
@@ -52,10 +53,18 @@ function EventoDetalhe() {
   const [showFormularioModal, setShowFormularioModal] = useState(false)
   /** Questionário validado via "Salvar e continuar" no modal. */
   const [questionarioSalvo, setQuestionarioSalvo] = useState(false)
+  /** Evita reabrir o popup do questionário após o usuário fechar manualmente. */
+  const questionarioAutoAbertoRef = useRef(false)
 
   const formularioDinamico = evento?.formulario_inscricao_detalhe
   const temQuestionarioInscricao = eventoTemQuestionarioInscricao(evento)
   const permiteAcompanhantes = evento?.permite_acompanhantes !== false
+  const permiteInscricaoAdolescente = evento?.permite_inscricao_adolescente === true
+
+  const categoriasTitular = useMemo(
+    () => categorias.filter((c) => ['Adulto', 'Adolescente'].includes(c.nome)),
+    [categorias]
+  )
 
   const exigeQuestionarioInscricao = temQuestionarioInscricao && !somenteAdicionandoAcompanhantes
 
@@ -96,13 +105,24 @@ function EventoDetalhe() {
     setErrosForm({})
     setShowFormularioModal(false)
     setQuestionarioSalvo(false)
+    setCategoriaTitularId('')
+    questionarioAutoAbertoRef.current = false
+    if (!id && !linkAcesso) {
+      setLoading(false)
+      setEvento(null)
+      return
+    }
     const fetchEvento = async () => {
       try {
-        const response = await api.get(`/eventos/${id}/`)
+        const url = linkAcesso
+          ? `/eventos/por-link/${linkAcesso}/`
+          : `/eventos/${id}/`
+        const response = await api.get(url)
         setEvento(response.data)
         
-        // Carregar categorias para eventos pagos e gratuitos (adulto, idade, etc.)
-        fetchCategorias()
+        if (response.data.permite_inscricao_adolescente || response.data.permite_acompanhantes !== false) {
+          fetchCategorias(response.data.id, response.data.permite_inscricao_adolescente === true)
+        }
       } catch (error) {
         console.error('Erro ao carregar evento:', error)
         setEvento(null)
@@ -112,7 +132,18 @@ function EventoDetalhe() {
     }
 
     fetchEvento()
-  }, [id])
+  }, [id, linkAcesso])
+
+  useEffect(() => {
+    if (!evento?.evento_particular) return undefined
+    const meta = document.createElement('meta')
+    meta.name = 'robots'
+    meta.content = 'noindex, nofollow'
+    document.head.appendChild(meta)
+    return () => {
+      document.head.removeChild(meta)
+    }
+  }, [evento?.evento_particular])
 
   const abrirQuestionarioModal = useCallback((erros = {}) => {
     setErrosForm(erros)
@@ -137,21 +168,26 @@ function EventoDetalhe() {
     return []
   }
 
-  const fetchCategorias = async () => {
+  const fetchCategorias = async (eventoId, titularDefaultAdolescente = false) => {
     try {
       let lista = []
+      const params = eventoId ? { evento_id: eventoId } : {}
       try {
-        const response = await api.get('/categorias/ativas/')
+        const response = await api.get('/categorias/ativas/', { params })
         lista = normalizarListaCategorias(response.data)
       } catch (_) {
-        // Fallback: endpoint ativas pode não estar disponível em alguns deploys
-        const response = await api.get('/categorias/', { params: { ativo: 'true' } })
+        const response = await api.get('/categorias/', { params: { ativo: 'true', ...params } })
         lista = normalizarListaCategorias(response.data)
       }
       setCategorias(lista)
-      if (lista.length > 0) {
-        setNovoAcompanhanteCategoria(lista[0].id)
-      }
+      const adulto = lista.find((c) => c.nome === 'Adulto')
+      const adolescente = lista.find((c) => c.nome === 'Adolescente')
+      const defaultAcompanhanteId = adulto?.id ?? lista[0]?.id ?? ''
+      const defaultTitularId = titularDefaultAdolescente
+        ? (adolescente?.id ?? adulto?.id ?? lista[0]?.id ?? '')
+        : (adulto?.id ?? lista[0]?.id ?? '')
+      setNovoAcompanhanteCategoria(defaultAcompanhanteId)
+      setCategoriaTitularId((prev) => prev || defaultTitularId)
     } catch (error) {
       console.error('Erro ao carregar categorias:', error)
     }
@@ -176,6 +212,35 @@ function EventoDetalhe() {
 
   const precisaQuestionarioPendente =
     identificacaoConcluida && exigeQuestionarioInscricao && !questionarioCompleto
+
+  // Questionário dinâmico só no popup — abre automaticamente após identificação (uma vez)
+  useEffect(() => {
+    if (!identificacaoConcluida) {
+      questionarioAutoAbertoRef.current = false
+      return
+    }
+    if (
+      !exigeQuestionarioInscricao ||
+      questionarioCompleto ||
+      jaInscrito ||
+      inscricaoSucesso ||
+      !evento?.inscricoes_abertas ||
+      showFormularioModal ||
+      questionarioAutoAbertoRef.current
+    ) {
+      return
+    }
+    questionarioAutoAbertoRef.current = true
+    setShowFormularioModal(true)
+  }, [
+    identificacaoConcluida,
+    exigeQuestionarioInscricao,
+    questionarioCompleto,
+    jaInscrito,
+    inscricaoSucesso,
+    evento?.inscricoes_abertas,
+    showFormularioModal,
+  ])
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -280,9 +345,12 @@ function EventoDetalhe() {
     if (!evento?.evento_pago || !evento.valor_inscricao) return 0
     
     const valorEvento = parseFloat(evento.valor_inscricao)
+    let total = 0
     
-    // Responsável paga valor integral só se não for apenas adição de acompanhantes
-    let total = somenteAdicionandoAcompanhantes ? 0 : valorEvento
+    // Titular: sempre valor integral (faixa Adulto/Adolescente é só classificação)
+    if (!somenteAdicionandoAcompanhantes) {
+      total += valorEvento
+    }
     
     // Valor dos acompanhantes (baseado na categoria selecionada)
     acompanhantes.forEach(acomp => {
@@ -421,6 +489,9 @@ function EventoDetalhe() {
         if (formData.email) fd.append('email', formData.email)
         fd.append('evento_id', String(evento.id))
         fd.append('acompanhantes', JSON.stringify(acompanhantesDataEnvio))
+        if (permiteInscricaoAdolescente && !somenteAdicionandoAcompanhantes && categoriaTitularId) {
+          fd.append('categoria_id', String(categoriaTitularId))
+        }
         // Respostas no formato { campo_id: valor }
         const respostasDict = {}
         for (const [cid, valor] of Object.entries(respostasForm)) {
@@ -440,13 +511,15 @@ function EventoDetalhe() {
           evento_id: evento.id,
           acompanhantes: acompanhantesDataEnvio,
         }
+        if (permiteInscricaoAdolescente && !somenteAdicionandoAcompanhantes && categoriaTitularId) {
+          payload.categoria_id = categoriaTitularId
+        }
         if (enviarFormulario) {
           payload.respostas = { ...respostasForm }
         }
       }
 
       // Usar o novo endpoint de registro de participante
-      // Responsável não precisa de categoria (sempre adulto, valor integral)
       const result = await registrar(payload)
 
       if (result.success) {
@@ -572,11 +645,24 @@ function EventoDetalhe() {
 
   if (!evento) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center">
-        <h1 className="text-2xl font-bold text-gray-800 mb-4">Evento não encontrado</h1>
-        <Link to="/eventos" className="btn-primary">
-          Voltar para Eventos
-        </Link>
+      <div className="min-h-screen flex flex-col items-center justify-center px-4 text-center">
+        <h1 className="text-2xl font-bold text-gray-800 mb-2">
+          {linkAcesso ? 'Link inválido ou evento indisponível' : 'Evento não encontrado'}
+        </h1>
+        {linkAcesso && (
+          <p className="text-gray-600 mb-4">
+            Verifique se o endereço está correto ou fale com quem compartilhou o convite.
+          </p>
+        )}
+        {linkAcesso ? (
+          <Link to="/" className="btn-primary">
+            Voltar ao início
+          </Link>
+        ) : (
+          <Link to="/eventos" className="btn-primary">
+            Voltar para Eventos
+          </Link>
+        )}
       </div>
     )
   }
@@ -1095,6 +1181,31 @@ function EventoDetalhe() {
                             />
                           </div>
 
+                          {permiteInscricaoAdolescente && !somenteAdicionandoAcompanhantes && categoriasTitular.length > 0 && (
+                            <div>
+                              <label htmlFor="categoria_titular" className="label">
+                                Você é *
+                              </label>
+                              <select
+                                id="categoria_titular"
+                                value={categoriaTitularId}
+                                onChange={(e) => setCategoriaTitularId(e.target.value)}
+                                className="input-field"
+                                required
+                              >
+                                {categoriasTitular.map((cat) => (
+                                  <option key={cat.id} value={cat.id}>
+                                    {cat.nome}
+                                    {cat.descricao ? ` — ${cat.descricao}` : ''}
+                                  </option>
+                                ))}
+                              </select>
+                              <p className="text-xs text-gray-500 mt-1">
+                                Informe se a inscrição é para adulto ou adolescente. O valor da inscrição principal é sempre integral.
+                              </p>
+                            </div>
+                          )}
+
                           {/* Acompanhantes */}
                           {permiteAcompanhantes && (
                           <div className="border-t pt-4 mt-4">
@@ -1202,7 +1313,13 @@ function EventoDetalhe() {
                                 {/* Responsável - só mostra quando não for apenas adição de acompanhantes */}
                                 {!somenteAdicionandoAcompanhantes && (
                                   <p className="flex justify-between">
-                                    <span>{formData.nome || 'Você'} (Adulto):</span>
+                                    <span>
+                                      {formData.nome || 'Você'}
+                                      {permiteInscricaoAdolescente && categoriaTitularId
+                                        ? ` (${categoriasTitular.find((c) => String(c.id) === String(categoriaTitularId))?.nome || 'Adulto'})`
+                                        : ' (Adulto)'}
+                                      :
+                                    </span>
                                     <span className="font-medium">
                                       {formatarValor(parseFloat(evento.valor_inscricao))}
                                     </span>
@@ -1231,36 +1348,6 @@ function EventoDetalhe() {
                             </div>
                           )}
 
-                          {identificacaoConcluida && exigeQuestionarioInscricao && formularioDinamico && (
-                            <div className="space-y-2 border-t border-gray-100 pt-4">
-                              <div className="p-3 bg-primary-50 border border-primary-200 rounded-lg text-sm text-primary-900">
-                                <p className="font-semibold flex items-center gap-2">
-                                  <FileText className="h-4 w-4 flex-shrink-0" />
-                                  Questionário: {formularioDinamico.nome}
-                                </p>
-                                <p className="text-xs text-primary-700 mt-1 leading-snug">
-                                  {questionarioCompleto
-                                    ? 'Questionário preenchido. Você pode revisar antes de confirmar.'
-                                    : 'Etapa obrigatória: abra o questionário, responda e clique em "Salvar e continuar".'}
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setInscricaoErro('')
-                                  abrirQuestionarioModal({})
-                                }}
-                                disabled={inscricaoLoading}
-                                className="w-full flex items-center justify-center gap-2 rounded-lg border-2 border-primary-600 bg-white px-4 py-2.5 text-sm font-semibold text-primary-800 shadow-sm hover:bg-primary-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                <FileText className="h-4 w-4 flex-shrink-0" />
-                                {questionarioCompleto
-                                  ? 'Revisar questionário do evento'
-                                  : 'Abrir questionário do evento *'}
-                              </button>
-                            </div>
-                          )}
-
                           <button
                             type="submit"
                             disabled={inscricaoLoading || buscandoParticipante}
@@ -1271,7 +1358,7 @@ function EventoDetalhe() {
                               : buscandoParticipante
                                 ? 'Verificando telefone…'
                                 : precisaQuestionarioPendente
-                                  ? 'Abrir questionário (obrigatório)'
+                                  ? 'Responder questionário *'
                                   : `Confirmar inscrição${totalPessoasInscricao > 0 ? ` (${totalPessoasInscricao} ${totalPessoasInscricao === 1 ? 'pessoa' : 'pessoas'})` : ''}`}
                           </button>
                         </form>

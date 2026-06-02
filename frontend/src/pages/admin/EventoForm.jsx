@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Save, X, Image, DollarSign } from 'lucide-react'
+import { ArrowLeft, Save, X, Image, DollarSign, Copy, Check } from 'lucide-react'
 import api from '../../services/api'
 import { getMediaUrl } from '../../services/utils'
 import LoadingSpinner from '../../components/LoadingSpinner'
@@ -21,6 +21,8 @@ function EventoForm() {
   const [imagemPreview, setImagemPreview] = useState(null)
   const [imagemFile, setImagemFile] = useState(null)
   const [imagemRemovida, setImagemRemovida] = useState(false)
+  const [linkInscricaoPublico, setLinkInscricaoPublico] = useState('')
+  const [copiadoLink, setCopiadoLink] = useState(false)
   
   // Estados para as datas (objetos Date)
   const [dataInicio, setDataInicio] = useState(null)
@@ -41,8 +43,12 @@ function EventoForm() {
     valor_inscricao: '',
     formulario_inscricao: '',
     permite_acompanhantes: true,
+    permite_inscricao_adolescente: false,
+    evento_particular: false,
+    grupo_categorias: '',
   })
   const [formulariosDisponiveis, setFormulariosDisponiveis] = useState([])
+  const [gruposCategorias, setGruposCategorias] = useState([])
 
   const tiposEvento = [
     { value: 'culto', label: 'Culto' },
@@ -96,7 +102,19 @@ function EventoForm() {
       }
     }
     carregarFormularios()
+    carregarGruposCategorias()
   }, [])
+
+  const carregarGruposCategorias = async () => {
+    try {
+      const response = await api.get('/grupos-categorias/')
+      setGruposCategorias(response.data.results || response.data)
+    } catch (err) {
+      if (err?.response?.status !== 403) {
+        console.error('Erro ao carregar grupos de categorias:', err)
+      }
+    }
+  }
 
   // Preencher campos com configurações quando criar novo evento
   // Aguardar configurações carregarem e só preencher uma vez
@@ -111,6 +129,11 @@ function EventoForm() {
       setCamposPreenchidos(true)
     }
   }, [isEditing, configLoading, configuracao, camposPreenchidos])
+
+  const buildLinkInscricao = (evento) => {
+    if (!evento?.link_acesso) return ''
+    return `${window.location.origin}/inscricao/${evento.link_acesso}`
+  }
 
   const fetchEvento = async () => {
     try {
@@ -136,7 +159,11 @@ function EventoForm() {
         valor_inscricao: evento.valor_inscricao || '',
         formulario_inscricao: evento.formulario_inscricao ?? '',
         permite_acompanhantes: evento.permite_acompanhantes !== false,
+        permite_inscricao_adolescente: evento.permite_inscricao_adolescente === true,
+        evento_particular: evento.evento_particular === true,
+        grupo_categorias: evento.grupo_categorias ?? '',
       })
+      setLinkInscricaoPublico(buildLinkInscricao(evento))
       
       const parsedDataInicio = parseDate(evento.data_inicio)
       
@@ -160,11 +187,40 @@ function EventoForm() {
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target
+    if (name === 'permite_acompanhantes' && type === 'checkbox' && !checked) {
+      setFormData(prev => ({
+        ...prev,
+        permite_acompanhantes: false,
+        grupo_categorias: '',
+      }))
+      setError('')
+      return
+    }
+    if (name === 'evento_particular' && type === 'checkbox') {
+      setFormData(prev => ({
+        ...prev,
+        evento_particular: checked,
+        destaque: checked ? false : prev.destaque,
+      }))
+      setError('')
+      return
+    }
     setFormData(prev => ({
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }))
     setError('')
+  }
+
+  const copiarLinkInscricao = async () => {
+    if (!linkInscricaoPublico) return
+    try {
+      await navigator.clipboard.writeText(linkInscricaoPublico)
+      setCopiadoLink(true)
+      setTimeout(() => setCopiadoLink(false), 2000)
+    } catch {
+      setError('Não foi possível copiar o link. Selecione e copie manualmente.')
+    }
   }
 
   const handleImagemChange = (e) => {
@@ -233,9 +289,17 @@ function EventoForm() {
       data.append('data_inicio', formatDateForAPI(dataInicio))
       data.append('local', formData.local)
       data.append('status', formData.status)
-      data.append('destaque', formData.destaque)
+      data.append('destaque', formData.evento_particular ? false : formData.destaque)
       data.append('evento_pago', formData.evento_pago)
       data.append('permite_acompanhantes', formData.permite_acompanhantes)
+      data.append('permite_inscricao_adolescente', formData.permite_inscricao_adolescente)
+      data.append('evento_particular', formData.evento_particular)
+
+      if (formData.permite_acompanhantes && formData.grupo_categorias) {
+        data.append('grupo_categorias', formData.grupo_categorias)
+      } else {
+        data.append('grupo_categorias', '')
+      }
       
       // Valor da inscrição (apenas se evento é pago)
       if (formData.evento_pago && formData.valor_inscricao) {
@@ -292,11 +356,15 @@ function EventoForm() {
       }
       if (isEditing) {
         await api.put(`/eventos/${id}/`, data)
+        navigate('/admin/eventos')
       } else {
-        await api.post('/eventos/', data)
+        const response = await api.post('/eventos/', data)
+        if (response.data?.evento_particular) {
+          navigate(`/admin/eventos/${response.data.id}`)
+        } else {
+          navigate('/admin/eventos')
+        }
       }
-
-      navigate('/admin/eventos')
     } catch (error) {
       console.error('Erro ao salvar evento:', error)
       if (error.response?.data) {
@@ -493,6 +561,29 @@ function EventoForm() {
             <div className="flex items-start gap-3">
               <input
                 type="checkbox"
+                id="permite_inscricao_adolescente"
+                name="permite_inscricao_adolescente"
+                checked={formData.permite_inscricao_adolescente}
+                onChange={handleChange}
+                className="w-5 h-5 mt-0.5 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+              />
+              <div>
+                <label htmlFor="permite_inscricao_adolescente" className="text-sm font-medium text-gray-800">
+                  Permitir inscrição de adolescente (titular escolhe faixa)
+                </label>
+                <p className="text-xs text-gray-500 mt-1">
+                  Desmarcado por padrão: quem se inscreve é tratado como <strong>Adulto</strong> (comportamento atual).
+                  Marque para a pessoa informar se é <strong>Adulto</strong> ou <strong>Adolescente</strong>; o titular paga sempre o valor integral.
+                  Valores por faixa do grupo de categorias valem apenas para <strong>acompanhantes</strong>.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="border border-gray-200 rounded-lg p-4 bg-gray-50/60">
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
                 id="permite_acompanhantes"
                 name="permite_acompanhantes"
                 checked={formData.permite_acompanhantes}
@@ -507,6 +598,35 @@ function EventoForm() {
                   Desmarque para eventos de casais em que o ingresso já é para o casal (ex.: encontros de casados).
                   Nesse caso, a tela pública não exibirá a opção de adicionar acompanhantes.
                 </p>
+                {formData.permite_acompanhantes && (
+                  <div className="mt-4">
+                    <label htmlFor="grupo_categorias" className="block text-sm font-medium text-gray-700 mb-1">
+                      Grupo de categorias na inscrição
+                    </label>
+                    <select
+                      id="grupo_categorias"
+                      name="grupo_categorias"
+                      value={formData.grupo_categorias || ''}
+                      onChange={handleChange}
+                      className="input-field max-w-md"
+                    >
+                      <option value="">Padrão (Adulto, Adolescente, Criança)</option>
+                      {gruposCategorias.filter((g) => !g.padrao_sistema).map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.nome}
+                          {g.padrao_sistema ? ' — sistema' : ''}
+                          {!g.ativo ? ' (inativo)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Define as faixas de preço que titular e acompanhantes poderão escolher na inscrição.{' '}
+                      <Link to="/admin/categorias" className="text-primary-600 hover:underline">
+                        Gerenciar grupos
+                      </Link>
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -679,6 +799,7 @@ function EventoForm() {
           </div>
 
           {/* Destaque */}
+          {!formData.evento_particular && (
           <div className="border-t pt-6">
             <div className="flex items-center space-x-3">
               <input
@@ -692,6 +813,64 @@ function EventoForm() {
               <label htmlFor="destaque" className="text-sm font-medium text-gray-700">
                 Exibir este evento em destaque na página inicial
               </label>
+            </div>
+          </div>
+          )}
+
+          {/* Evento particular */}
+          <div className="border border-gray-200 rounded-lg p-4 bg-gray-50/60 mt-6">
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                id="evento_particular"
+                name="evento_particular"
+                checked={formData.evento_particular}
+                onChange={handleChange}
+                className="w-5 h-5 mt-0.5 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+              />
+              <div className="flex-1">
+                <label htmlFor="evento_particular" className="text-sm font-medium text-gray-800">
+                  Evento particular (não listar no site; acesso só por link)
+                </label>
+                <p className="text-xs text-gray-500 mt-1">
+                  O evento não aparece em <strong>/eventos</strong> nem na home. Compartilhe o link exclusivo abaixo com os convidados.
+                </p>
+                {formData.evento_particular && (
+                  <div className="mt-3">
+                    {linkInscricaoPublico ? (
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="text"
+                          readOnly
+                          value={linkInscricaoPublico}
+                          className="input-field flex-1 bg-white text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={copiarLinkInscricao}
+                          className="btn-outline inline-flex items-center justify-center whitespace-nowrap"
+                        >
+                          {copiadoLink ? (
+                            <>
+                              <Check className="h-4 w-4 mr-2" />
+                              Copiado
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-4 w-4 mr-2" />
+                              Copiar link
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                        Salve o evento para gerar o link de inscrição.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

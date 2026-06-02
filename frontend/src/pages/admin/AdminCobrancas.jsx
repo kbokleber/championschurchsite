@@ -56,7 +56,7 @@ function AdminCobrancas() {
       setLoading(true);
       
       // Carregar eventos para o filtro (apenas na primeira vez ou quando filtros mudam)
-      const eventosRes = await api.get('/eventos/');
+      const eventosRes = await api.get('/eventos/', { params: { incluir_particulares: 'true' } });
       setEventos(eventosRes.data.results || eventosRes.data);
       
       // Carregar cobranças com paginação (backend usa PAGE_SIZE=10)

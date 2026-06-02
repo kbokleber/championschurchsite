@@ -116,6 +116,13 @@ function App() {
             <Footer />
           </div>
         } />
+        <Route path="/inscricao/:linkAcesso" element={
+          <div className="flex flex-col min-h-screen">
+            <Navbar />
+            <main className="flex-grow"><EventoDetalhe /></main>
+            <Footer />
+          </div>
+        } />
         <Route path="/eventos/:id" element={
           <div className="flex flex-col min-h-screen">
             <Navbar />

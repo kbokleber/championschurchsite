@@ -17,7 +17,7 @@ function AdminEventos() {
 
   const fetchEventos = async () => {
     try {
-      const response = await api.get('/eventos/')
+      const response = await api.get('/eventos/', { params: { incluir_particulares: 'true' } })
       setEventos(response.data.results || response.data)
     } catch (error) {
       console.error('Erro ao carregar eventos:', error)
@@ -133,13 +133,21 @@ function AdminEventos() {
                       {evento.local}
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium ${
-                        evento.destaque
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {evento.destaque ? 'Destaque' : 'Normal'}
-                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {evento.evento_particular ? (
+                          <span className="inline-flex px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                            Particular
+                          </span>
+                        ) : (
+                          <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium ${
+                            evento.destaque
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {evento.destaque ? 'Destaque' : 'Normal'}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600">
                       {evento.vagas_disponiveis !== null
@@ -158,9 +166,13 @@ function AdminEventos() {
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end space-x-2">
                         <Link
-                          to={`/eventos/${evento.id}`}
+                          to={
+                            evento.evento_particular && evento.link_acesso
+                              ? `/inscricao/${evento.link_acesso}`
+                              : `/eventos/${evento.id}`
+                          }
                           className="p-2 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
-                          title="Ver no site"
+                          title={evento.evento_particular ? 'Abrir link de inscrição' : 'Ver no site'}
                         >
                           <Eye className="h-5 w-5" />
                         </Link>

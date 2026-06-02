@@ -37,6 +37,7 @@ from .models import (
     Membro, Evento, Inscricao, Contato, ConfiguracaoSite, 
     DestaqueHomeItem,
     CategoriaParticipante, Cobranca, CobrancaItem,
+    GrupoCategoria,
     PermissaoMenu, Grupo, WebhookEventLog,
     FormularioInscricao, CampoFormulario, RespostaCampoInscricao,
 )
@@ -65,7 +66,7 @@ from .serializers import (
     EventoSerializer, EventoListaSerializer,
     InscricaoSerializer, InscricaoAdminSerializer, ContatoSerializer,
     UserSerializer, ConfiguracaoSiteSerializer, ConfiguracaoSitePublicSerializer,
-    CategoriaParticipanteSerializer, CobrancaSerializer, CobrancaPublicaSerializer,
+    CategoriaParticipanteSerializer, GrupoCategoriaSerializer, CobrancaSerializer, CobrancaPublicaSerializer,
     PermissaoMenuSerializer, GrupoSerializer, UsuarioAdminSerializer,
     FormularioInscricaoSerializer, FormularioInscricaoResumoSerializer,
     RespostaCampoInscricaoAdminSerializer,
@@ -140,17 +141,8 @@ def _whatsapp_template_from_config(config, tipo_msg):
 
 
 def _get_categoria_adulto_padrao():
-    categoria, _ = CategoriaParticipante.objects.get_or_create(
-        nome='Adulto',
-        defaults={
-            'descricao': 'Categoria padrão para adultos',
-            'tipo_valor': 'porcentagem',
-            'valor': 100,
-            'ordem': 1,
-            'ativo': True,
-        }
-    )
-    return categoria
+    from .categorias_padrao import get_categoria_adulto_padrao
+    return get_categoria_adulto_padrao()
 
 
 def _whatsapp_status_pagamento_label(valor):
@@ -1497,8 +1489,16 @@ def participante_registro(request):
                 arquivo=upload,
             )
 
-    # Responsável é sempre adulto; acompanhantes usam a categoria informada.
-    categoria_adulto = _get_categoria_adulto_padrao()
+    # Responsável: Adulto fixo ou faixa escolhida (Adulto/Adolescente) conforme evento.
+    from .categorias_padrao import resolver_categoria_titular, calcular_valor_titular
+
+    categoria_id_titular = request.data.get('categoria_id')
+    categoria_titular = resolver_categoria_titular(evento, categoria_id_titular)
+    if categoria_titular is None:
+        return Response(
+            {'error': 'Selecione uma categoria válida (Adulto ou Adolescente).'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     
     # Primeiro, calcular o valor dos acompanhantes para somar ao total
     valor_acompanhantes = 0
@@ -1533,10 +1533,8 @@ def participante_registro(request):
                 'valor': valor_acomp
             })
     
-    # Calcular valor total (responsável paga tudo: seu valor + acompanhantes)
-    valor_responsavel = 0
-    if evento.evento_pago and evento.valor_inscricao:
-        valor_responsavel = float(evento.valor_inscricao)
+    # Calcular valor total (responsável + acompanhantes)
+    valor_responsavel = calcular_valor_titular(evento)
     
     valor_total = valor_responsavel + valor_acompanhantes
     
@@ -1557,7 +1555,7 @@ def participante_registro(request):
         inscricao.status = status_inscricao
         inscricao.status_pagamento = status_pagamento
         inscricao.valor_inscricao = valor_total
-        inscricao.categoria = categoria_adulto
+        inscricao.categoria = categoria_titular
         inscricao.save(update_fields=['status', 'status_pagamento', 'valor_inscricao', 'categoria'])
         # Gravar respostas do formulário (se houver)
         _salvar_respostas_formulario(inscricao)
@@ -1595,7 +1593,7 @@ def participante_registro(request):
             })
         cobranca = None
         if evento.evento_pago and valor_total > 0:
-            itens_desc = [f"{membro.nome} (Adulto)"]
+            itens_desc = [f"{membro.nome} ({categoria_titular.nome})"]
             for acomp in acompanhantes_para_criar:
                 cat_nome = acomp['categoria'].nome if acomp['categoria'] else 'Adulto'
                 itens_desc.append(f"{acomp['nome']} ({cat_nome})")
@@ -1610,7 +1608,7 @@ def participante_registro(request):
                 cobranca=cobranca,
                 inscricao=inscricao,
                 valor=valor_responsavel,
-                descricao=f"{membro.nome} - Adulto"
+                descricao=f"{membro.nome} - {categoria_titular.nome}"
             )
             for acomp_data in inscricoes_acompanhantes:
                 CobrancaItem.objects.create(
@@ -1645,7 +1643,7 @@ def participante_registro(request):
                 'id': inscricao.id,
                 'codigo': inscricao.codigo,
                 'qrcode': inscricao.qrcode.url if inscricao.qrcode else None,
-                'categoria': 'Adulto',
+                'categoria': categoria_titular.nome,
                 'valor': valor_responsavel,
                 'status_pagamento': status_pagamento,
             },
@@ -1677,7 +1675,7 @@ def participante_registro(request):
         evento=evento,
         status=status_inscricao,
         is_acompanhante=False,
-        categoria=categoria_adulto,  # Responsável é sempre Adulto
+        categoria=categoria_titular,
         valor_inscricao=valor_total,  # Valor total do grupo
         status_pagamento=status_pagamento
     )
@@ -1728,7 +1726,7 @@ def participante_registro(request):
     cobranca = None
     if evento.evento_pago and valor_total > 0:
         # Criar descrição dos itens
-        itens_desc = [f"{membro.nome} (Adulto)"]
+        itens_desc = [f"{membro.nome} ({categoria_titular.nome})"]
         for acomp in acompanhantes_para_criar:
             cat_nome = acomp['categoria'].nome if acomp['categoria'] else 'Adulto'
             itens_desc.append(f"{acomp['nome']} ({cat_nome})")
@@ -1746,7 +1744,7 @@ def participante_registro(request):
             cobranca=cobranca,
             inscricao=inscricao,
             valor=valor_responsavel,
-            descricao=f"{membro.nome} - Adulto"
+            descricao=f"{membro.nome} - {categoria_titular.nome}"
         )
         
         # Adicionar itens dos acompanhantes à cobrança
@@ -1791,7 +1789,7 @@ def participante_registro(request):
             'id': inscricao.id,
             'codigo': inscricao.codigo,
             'qrcode': inscricao.qrcode.url if inscricao.qrcode else None,
-            'categoria': 'Adulto',  # Responsável sempre é adulto
+            'categoria': categoria_titular.nome,
             'valor': valor_responsavel,
             'status_pagamento': status_pagamento,
         },
@@ -2079,6 +2077,21 @@ def _aplicar_imagem_padrao_evento(evento):
             evento.imagem.save(f'evento-{evento.id}{ext}', File(f), save=True)
 
 
+def _admin_eventos(request):
+    return usuario_tem_menu_ou_superuser(request.user, 'eventos')
+
+
+def _filtrar_eventos_publicos(queryset, request):
+    """
+    Oculta eventos particulares nas listagens públicas.
+    Admin vê todos apenas com ?incluir_particulares=true (painel admin).
+    """
+    incluir = (request.query_params.get('incluir_particulares') or '').lower() in ('1', 'true', 'yes')
+    if incluir and _admin_eventos(request):
+        return queryset
+    return queryset.filter(evento_particular=False)
+
+
 class EventoViewSet(viewsets.ModelViewSet):
     """ViewSet para operações CRUD de Eventos."""
     
@@ -2131,7 +2144,7 @@ class EventoViewSet(viewsets.ModelViewSet):
     
     def get_permissions(self):
         """Leitura pública de eventos; demais ações exigem menu eventos."""
-        if self.action in ('list', 'retrieve', 'proximos', 'destaques'):
+        if self.action in ('list', 'retrieve', 'proximos', 'destaques', 'por_link'):
             return [AllowAny()]
         return [IsAuthenticated(), HasMenuPermission('eventos')]
     
@@ -2180,11 +2193,42 @@ class EventoViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(
                     Q(data_fim__gte=agora) | Q(data_fim__isnull=True, data_inicio__gte=agora)
                 )
+
+            if self.action == 'list':
+                queryset = _filtrar_eventos_publicos(queryset, self.request)
             
             return queryset
         except Exception as e:
             logger.error(f"Erro ao filtrar eventos: {e}", exc_info=True)
             return Evento.objects.none()
+    
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.evento_particular and not _admin_eventos(request):
+            return Response({'detail': 'Não encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+        return super().retrieve(request, *args, **kwargs)
+
+    @action(detail=False, methods=['get'], url_path=r'por-link/(?P<link_acesso>[^/.]+)')
+    def por_link(self, request, link_acesso=None):
+        """Acesso público a evento particular via código do link."""
+        import uuid as uuid_lib
+
+        try:
+            link_uuid = uuid_lib.UUID(str(link_acesso))
+        except (ValueError, AttributeError, TypeError):
+            return Response(
+                {'detail': 'Link inválido ou evento indisponível.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        try:
+            evento = Evento.objects.get(link_acesso=link_uuid, evento_particular=True)
+        except Evento.DoesNotExist:
+            return Response(
+                {'detail': 'Link inválido ou evento indisponível.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = EventoSerializer(evento, context={'request': request})
+        return Response(serializer.data)
     
     @action(detail=False, methods=['get'])
     def proximos(self, request):
@@ -2199,7 +2243,8 @@ class EventoViewSet(viewsets.ModelViewSet):
             Q(data_fim__gte=agora) | Q(data_fim__isnull=True, data_inicio__gte=agora),
             status__in=['agendado', 'em_andamento']
         ).order_by('data_inicio')[:5]
-        serializer = EventoListaSerializer(eventos, many=True)
+        eventos = _filtrar_eventos_publicos(eventos, request)
+        serializer = EventoListaSerializer(eventos, many=True, context={'request': request})
         return Response(serializer.data)
     
     @action(detail=False, methods=['get'])
@@ -2215,7 +2260,8 @@ class EventoViewSet(viewsets.ModelViewSet):
                 destaque=True,
                 status__in=['agendado', 'em_andamento']
             ).order_by('data_inicio')
-            serializer = EventoListaSerializer(eventos, many=True)
+            eventos = _filtrar_eventos_publicos(eventos, request)
+            serializer = EventoListaSerializer(eventos, many=True, context={'request': request})
             return Response(serializer.data)
         except Exception as e:
             logger.error(f"Erro ao buscar eventos em destaque: {e}", exc_info=True)
@@ -2974,6 +3020,51 @@ class ContatoViewSet(viewsets.ModelViewSet):
 
 
 # ============================================
+# GRUPOS DE CATEGORIAS
+# ============================================
+
+class GrupoCategoriaViewSet(viewsets.ModelViewSet):
+    """CRUD de grupos de categorias (faixas usadas na inscrição por evento)."""
+
+    queryset = GrupoCategoria.objects.all()
+    serializer_class = GrupoCategoriaSerializer
+
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        return GrupoCategoria.objects.prefetch_related(
+            Prefetch(
+                'categorias',
+                queryset=CategoriaParticipante.objects.order_by('ordem', 'nome'),
+            )
+        ).order_by('-padrao_sistema', 'nome')
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.padrao_sistema:
+            return Response(
+                {'error': 'O grupo Padrão do sistema não pode ser excluído.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().destroy(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.padrao_sistema and 'nome' in request.data and request.data['nome'] != instance.nome:
+            return Response(
+                {'error': 'O nome do grupo Padrão não pode ser alterado.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        return self.update(request, *args, **kwargs)
+
+
+# ============================================
 # CATEGORIAS DE PARTICIPANTES
 # ============================================
 
@@ -2993,19 +3084,72 @@ class CategoriaParticipanteViewSet(viewsets.ModelViewSet):
         return [IsAuthenticated()]
     
     def get_queryset(self):
-        queryset = CategoriaParticipante.objects.all()
+        queryset = CategoriaParticipante.objects.select_related('grupo')
         
+        grupo_id = self.request.query_params.get('grupo')
+        if grupo_id:
+            queryset = queryset.filter(grupo_id=grupo_id)
+
         # Filtro por ativo
         ativo = self.request.query_params.get('ativo')
         if ativo is not None:
             queryset = queryset.filter(ativo=ativo.lower() == 'true')
         
         return queryset.order_by('ordem', 'nome')
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.padrao_sistema:
+            return Response(
+                {'error': f'A faixa "{instance.nome}" do grupo Padrão não pode ser excluída.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().destroy(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.padrao_sistema and 'nome' in request.data and request.data['nome'] != instance.nome:
+            return Response(
+                {'error': f'O nome da faixa padrão "{instance.nome}" não pode ser alterado.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        return self.update(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        grupo_id = self.request.data.get('grupo')
+        if not grupo_id:
+            from .categorias_padrao import get_grupo_padrao
+            serializer.save(grupo=get_grupo_padrao())
+        else:
+            serializer.save()
     
     @action(detail=False, methods=['get'])
     def ativas(self, request):
-        """Retorna apenas as categorias ativas (para uso no formulário)."""
-        categorias = CategoriaParticipante.objects.filter(ativo=True).order_by('ordem', 'nome')
+        """Retorna faixas ativas; filtra por grupo ou evento."""
+        from .categorias_padrao import categorias_do_evento, get_grupo_padrao
+
+        evento_id = request.query_params.get('evento_id')
+        grupo_id = request.query_params.get('grupo')
+
+        if evento_id:
+            try:
+                evento = Evento.objects.get(pk=evento_id)
+                categorias = categorias_do_evento(evento)
+            except Evento.DoesNotExist:
+                categorias = CategoriaParticipante.objects.none()
+        elif grupo_id:
+            categorias = CategoriaParticipante.objects.filter(
+                grupo_id=grupo_id, ativo=True
+            ).order_by('ordem', 'nome')
+        else:
+            grupo = get_grupo_padrao()
+            categorias = CategoriaParticipante.objects.filter(
+                grupo=grupo, ativo=True
+            ).order_by('ordem', 'nome')
+
         serializer = CategoriaParticipanteSerializer(categorias, many=True)
         return Response(serializer.data)
     

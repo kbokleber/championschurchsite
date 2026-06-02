@@ -1,118 +1,109 @@
 import { useState, useEffect } from 'react'
-import { Plus, Edit, Trash2, Check, X, Users, Percent, DollarSign } from 'lucide-react'
+import {
+  Plus, Edit, Trash2, Check, X, Users, Percent, DollarSign,
+  FolderOpen, ChevronDown, ChevronUp, Shield,
+} from 'lucide-react'
 import api from '../../services/api'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ConfirmModal from '../../components/ConfirmModal'
 
+const emptyCategoriaForm = {
+  nome: '',
+  descricao: '',
+  tipo_valor: 'porcentagem',
+  valor: 100,
+  idade_minima: '',
+  idade_maxima: '',
+  ordem: 0,
+  ativo: true,
+}
+
+const emptyGrupoForm = {
+  nome: '',
+  descricao: '',
+  ativo: true,
+}
+
+function FaixaEtaria({ categoria }) {
+  if (!categoria.idade_minima && !categoria.idade_maxima) {
+    return <span className="text-gray-400">Não definida</span>
+  }
+  return (
+    <>
+      {categoria.idade_minima && `${categoria.idade_minima} anos`}
+      {categoria.idade_minima && categoria.idade_maxima && ' - '}
+      {categoria.idade_maxima && `${categoria.idade_maxima} anos`}
+    </>
+  )
+}
+
 function AdminCategorias() {
-  const [categorias, setCategorias] = useState([])
+  const [grupos, setGrupos] = useState([])
   const [loading, setLoading] = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [editando, setEditando] = useState(null)
+  const [expandidos, setExpandidos] = useState({})
+
+  const [showModalCategoria, setShowModalCategoria] = useState(false)
+  const [showModalGrupo, setShowModalGrupo] = useState(false)
+  const [editandoCategoria, setEditandoCategoria] = useState(null)
+  const [editandoGrupo, setEditandoGrupo] = useState(null)
+  const [grupoAtivo, setGrupoAtivo] = useState(null)
   const [deletando, setDeletando] = useState(false)
-  
-  // Estado do modal de confirmação de exclusão
+
+  const [formCategoria, setFormCategoria] = useState(emptyCategoriaForm)
+  const [formGrupo, setFormGrupo] = useState(emptyGrupoForm)
+
   const [deleteModal, setDeleteModal] = useState({
     isOpen: false,
-    categoria: null,
-  })
-  
-  const [formData, setFormData] = useState({
-    nome: '',
-    descricao: '',
-    tipo_valor: 'porcentagem',
-    valor: 100,
-    idade_minima: '',
-    idade_maxima: '',
-    ordem: 0,
-    ativo: true
+    tipo: 'categoria',
+    item: null,
+    grupo: null,
   })
 
   useEffect(() => {
-    fetchCategorias()
+    fetchGrupos()
   }, [])
 
-  const fetchCategorias = async () => {
+  const fetchGrupos = async () => {
     try {
-      const response = await api.get('/categorias/')
-      setCategorias(response.data.results || response.data)
+      const response = await api.get('/grupos-categorias/')
+      const lista = response.data.results || response.data
+      setGrupos(lista)
+      const exp = {}
+      lista.forEach((g) => {
+        exp[g.id] = g.padrao_sistema ? true : exp[g.id]
+      })
+      setExpandidos((prev) => ({ ...exp, ...prev }))
     } catch (error) {
-      console.error('Erro ao carregar categorias:', error)
+      console.error('Erro ao carregar grupos:', error)
     } finally {
       setLoading(false)
     }
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    
-    try {
-      const dados = {
-        ...formData,
-        idade_minima: formData.idade_minima || null,
-        idade_maxima: formData.idade_maxima || null,
-        valor: parseFloat(formData.valor) || 0
-      }
+  const toggleExpandir = (grupoId) => {
+    setExpandidos((prev) => ({ ...prev, [grupoId]: !prev[grupoId] }))
+  }
 
-      if (editando) {
-        await api.put(`/categorias/${editando.id}/`, dados)
-      } else {
-        await api.post('/categorias/', dados)
-      }
-      
-      fetchCategorias()
-      fecharModal()
-    } catch (error) {
-      console.error('Erro ao salvar categoria:', error)
-      alert('Erro ao salvar categoria')
+  const abrirModalGrupo = (grupo = null) => {
+    if (grupo) {
+      setEditandoGrupo(grupo)
+      setFormGrupo({
+        nome: grupo.nome,
+        descricao: grupo.descricao || '',
+        ativo: grupo.ativo,
+      })
+    } else {
+      setEditandoGrupo(null)
+      setFormGrupo(emptyGrupoForm)
     }
+    setShowModalGrupo(true)
   }
 
-  // Abre o modal de confirmação de exclusão
-  const handleDelete = (categoria) => {
-    setDeleteModal({
-      isOpen: true,
-      categoria,
-    })
-  }
-  
-  // Fecha o modal de exclusão
-  const fecharDeleteModal = () => {
-    setDeleteModal({ isOpen: false, categoria: null })
-  }
-  
-  // Executa a exclusão
-  const executarDelete = async () => {
-    if (!deleteModal.categoria) return
-    
-    setDeletando(true)
-    try {
-      await api.delete(`/categorias/${deleteModal.categoria.id}/`)
-      setCategorias(categorias.filter(c => c.id !== deleteModal.categoria.id))
-      fecharDeleteModal()
-    } catch (error) {
-      console.error('Erro ao excluir categoria:', error)
-      alert('Erro ao excluir categoria')
-    } finally {
-      setDeletando(false)
-    }
-  }
-
-  const toggleAtivo = async (categoria) => {
-    try {
-      await api.patch(`/categorias/${categoria.id}/`, { ativo: !categoria.ativo })
-      setCategorias(categorias.map(c => 
-        c.id === categoria.id ? { ...c, ativo: !c.ativo } : c
-      ))
-    } catch (error) {
-      console.error('Erro ao atualizar categoria:', error)
-    }
-  }
-
-  const abrirModal = (categoria = null) => {
+  const abrirModalCategoria = (grupo, categoria = null) => {
+    setGrupoAtivo(grupo)
     if (categoria) {
-      setEditando(categoria)
-      setFormData({
+      setEditandoCategoria(categoria)
+      setFormCategoria({
         nome: categoria.nome,
         descricao: categoria.descricao || '',
         tipo_valor: categoria.tipo_valor,
@@ -120,391 +111,400 @@ function AdminCategorias() {
         idade_minima: categoria.idade_minima || '',
         idade_maxima: categoria.idade_maxima || '',
         ordem: categoria.ordem,
-        ativo: categoria.ativo
+        ativo: categoria.ativo,
       })
     } else {
-      setEditando(null)
-      setFormData({
-        nome: '',
-        descricao: '',
-        tipo_valor: 'porcentagem',
-        valor: 100,
-        idade_minima: '',
-        idade_maxima: '',
-        ordem: 0,
-        ativo: true
+      setEditandoCategoria(null)
+      setFormCategoria({
+        ...emptyCategoriaForm,
+        ordem: (grupo.categorias?.length || 0) + 1,
       })
     }
-    setShowModal(true)
+    setShowModalCategoria(true)
   }
 
-  const fecharModal = () => {
-    setShowModal(false)
-    setEditando(null)
+  const fecharModalCategoria = () => {
+    setShowModalCategoria(false)
+    setEditandoCategoria(null)
+    setGrupoAtivo(null)
   }
+
+  const fecharModalGrupo = () => {
+    setShowModalGrupo(false)
+    setEditandoGrupo(null)
+  }
+
+  const handleSubmitGrupo = async (e) => {
+    e.preventDefault()
+    try {
+      const dados = { ...formGrupo }
+      if (editandoGrupo) {
+        await api.put(`/grupos-categorias/${editandoGrupo.id}/`, dados)
+      } else {
+        await api.post('/grupos-categorias/', dados)
+      }
+      fetchGrupos()
+      fecharModalGrupo()
+    } catch (error) {
+      console.error('Erro ao salvar grupo:', error)
+      alert(error.response?.data?.error || 'Erro ao salvar grupo')
+    }
+  }
+
+  const handleSubmitCategoria = async (e) => {
+    e.preventDefault()
+    if (!grupoAtivo) return
+    try {
+      const dados = {
+        ...formCategoria,
+        grupo: grupoAtivo.id,
+        idade_minima: formCategoria.idade_minima || null,
+        idade_maxima: formCategoria.idade_maxima || null,
+        valor: parseFloat(formCategoria.valor) || 0,
+      }
+      if (editandoCategoria) {
+        await api.put(`/categorias/${editandoCategoria.id}/`, dados)
+      } else {
+        await api.post('/categorias/', dados)
+      }
+      fetchGrupos()
+      fecharModalCategoria()
+    } catch (error) {
+      console.error('Erro ao salvar categoria:', error)
+      alert(error.response?.data?.error || 'Erro ao salvar categoria')
+    }
+  }
+
+  const handleDelete = (tipo, item, grupo = null) => {
+    setDeleteModal({ isOpen: true, tipo, item, grupo })
+  }
+
+  const fecharDeleteModal = () => {
+    setDeleteModal({ isOpen: false, tipo: 'categoria', item: null, grupo: null })
+  }
+
+  const executarDelete = async () => {
+    if (!deleteModal.item) return
+    setDeletando(true)
+    try {
+      if (deleteModal.tipo === 'grupo') {
+        await api.delete(`/grupos-categorias/${deleteModal.item.id}/`)
+      } else {
+        await api.delete(`/categorias/${deleteModal.item.id}/`)
+      }
+      fetchGrupos()
+      fecharDeleteModal()
+    } catch (error) {
+      console.error('Erro ao excluir:', error)
+      alert(error.response?.data?.error || 'Erro ao excluir')
+    } finally {
+      setDeletando(false)
+    }
+  }
+
+  const toggleAtivoCategoria = async (categoria) => {
+    try {
+      await api.patch(`/categorias/${categoria.id}/`, { ativo: !categoria.ativo })
+      fetchGrupos()
+    } catch (error) {
+      console.error('Erro ao atualizar categoria:', error)
+    }
+  }
+
+  const renderLinhaCategoria = (categoria, grupo) => (
+    <tr key={categoria.id} className={!categoria.ativo ? 'bg-gray-50' : ''}>
+      <td className="px-6 py-4 whitespace-nowrap">
+        <div className="flex items-center">
+          <div className={`h-9 w-9 rounded-full flex items-center justify-center ${categoria.ativo ? 'bg-primary-100 text-primary-600' : 'bg-gray-100 text-gray-400'}`}>
+            <Users className="h-4 w-4" />
+          </div>
+          <div className="ml-3">
+            <div className="flex items-center gap-2">
+              <span className={`font-medium ${categoria.ativo ? 'text-gray-900' : 'text-gray-500'}`}>
+                {categoria.nome}
+              </span>
+              {categoria.padrao_sistema && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                  <Shield className="h-3 w-3" /> Padrão
+                </span>
+              )}
+            </div>
+            {categoria.descricao && <div className="text-sm text-gray-500">{categoria.descricao}</div>}
+          </div>
+        </div>
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap">
+        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${categoria.tipo_valor === 'fixo' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>
+          {categoria.tipo_valor === 'fixo' ? <><DollarSign className="h-3 w-3" /> Fixo</> : <><Percent className="h-3 w-3" /> %</>}
+        </span>
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">{categoria.valor_formatado}</td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><FaixaEtaria categoria={categoria} /></td>
+      <td className="px-6 py-4 whitespace-nowrap">
+        <button
+          type="button"
+          onClick={() => toggleAtivoCategoria(categoria)}
+          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${categoria.ativo ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}
+        >
+          {categoria.ativo ? <><Check className="h-3 w-3" /> Ativa</> : <><X className="h-3 w-3" /> Inativa</>}
+        </button>
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-right">
+        <div className="flex items-center justify-end gap-1">
+          <button type="button" onClick={() => abrirModalCategoria(grupo, categoria)} className="p-2 text-primary-600 hover:bg-primary-50 rounded-lg" title="Editar">
+            <Edit className="h-5 w-5" />
+          </button>
+          {!categoria.padrao_sistema && (
+            <button type="button" onClick={() => handleDelete('categoria', categoria, grupo)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Excluir">
+              <Trash2 className="h-5 w-5" />
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
+  )
 
   if (loading) return <LoadingSpinner />
 
   return (
     <div className="space-y-6">
-      {/* Header - responsivo */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Categorias de Participantes</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Grupos de Categorias</h1>
           <p className="text-gray-600 text-sm sm:text-base">
-            Gerencie as categorias para calcular valores diferenciados em eventos pagos
+            Cada grupo reúne faixas (Adulto, Criança, etc.) usadas na inscrição dos eventos
           </p>
         </div>
-        <button
-          onClick={() => abrirModal()}
-          className="btn-primary flex items-center justify-center gap-2 w-full sm:w-auto"
-        >
+        <button type="button" onClick={() => abrirModalGrupo()} className="btn-primary flex items-center justify-center gap-2 w-full sm:w-auto">
           <Plus className="h-5 w-5" />
-          Nova Categoria
+          Novo Grupo
         </button>
       </div>
 
-      {/* Info Box */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <h3 className="font-semibold text-blue-800 mb-2">Como funciona?</h3>
         <ul className="text-sm text-blue-700 space-y-1">
-          <li>• <strong>Valor Fixo:</strong> O participante paga um valor específico (ex: R$ 50,00)</li>
-          <li>• <strong>Porcentagem:</strong> O participante paga uma porcentagem do valor do evento (ex: 50% = metade do valor)</li>
-          <li>• As idades são opcionais e servem apenas como referência para o operador</li>
+          <li>• O grupo <strong>Padrão</strong> vem com Adulto (100%), Adolescente (50%) e Criança (0%) — usado automaticamente nos eventos.</li>
+          <li>• Crie outros grupos para tarifas diferentes e associe ao evento quando permitir acompanhantes.</li>
+          <li>• Dentro de cada grupo, use <strong>Nova faixa</strong> para adicionar categorias (valor fixo ou porcentagem).</li>
         </ul>
       </div>
 
-      {/* Lista vazia */}
-      {categorias.length === 0 && (
-        <div className="bg-white rounded-xl shadow-md p-8 sm:p-12 text-center">
-          <Users className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-          <p className="text-gray-500 mb-4">Nenhuma categoria cadastrada</p>
-          <button
-            onClick={() => abrirModal()}
-            className="btn-primary inline-flex items-center gap-2"
-          >
-            <Plus className="h-5 w-5" />
-            Criar primeira categoria
-          </button>
-        </div>
-      )}
-
-      {/* Desktop: Tabela (oculta em mobile) */}
-      {categorias.length > 0 && (
-        <div className="hidden md:block bg-white rounded-xl shadow-md overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoria</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo de Valor</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Valor</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Faixa Etária</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {categorias.map(categoria => (
-                  <tr key={categoria.id} className={!categoria.ativo ? 'bg-gray-50' : ''}>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className={`h-10 w-10 rounded-full flex items-center justify-center ${categoria.ativo ? 'bg-primary-100 text-primary-600' : 'bg-gray-100 text-gray-400'}`}>
-                          <Users className="h-5 w-5" />
-                        </div>
-                        <div className="ml-4">
-                          <div className={`font-medium ${categoria.ativo ? 'text-gray-900' : 'text-gray-500'}`}>{categoria.nome}</div>
-                          {categoria.descricao && <div className="text-sm text-gray-500">{categoria.descricao}</div>}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${categoria.tipo_valor === 'fixo' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>
-                        {categoria.tipo_valor === 'fixo' ? <><DollarSign className="h-3 w-3" /> Valor Fixo</> : <><Percent className="h-3 w-3" /> Porcentagem</>}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap"><span className="text-gray-900 font-medium">{categoria.valor_formatado}</span></td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {categoria.idade_minima || categoria.idade_maxima ? (
-                        <>{categoria.idade_minima && `${categoria.idade_minima} anos`}{categoria.idade_minima && categoria.idade_maxima && ' - '}{categoria.idade_maxima && `${categoria.idade_maxima} anos`}</>
-                      ) : (
-                        <span className="text-gray-400">Não definida</span>
+      <div className="space-y-4">
+        {grupos.map((grupo) => {
+          const aberto = expandidos[grupo.id]
+          const categorias = grupo.categorias || []
+          return (
+            <div key={grupo.id} className="bg-white rounded-xl shadow-md overflow-hidden border border-gray-100">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 sm:px-6 py-4 bg-gray-50 border-b border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => toggleExpandir(grupo.id)}
+                  className="flex items-center gap-3 text-left min-w-0 flex-1"
+                >
+                  <div className={`h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0 ${grupo.padrao_sistema ? 'bg-amber-100 text-amber-700' : 'bg-primary-100 text-primary-600'}`}>
+                    <FolderOpen className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-gray-900">{grupo.nome}</span>
+                      {grupo.padrao_sistema && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                          <Shield className="h-3 w-3" /> Grupo padrão
+                        </span>
                       )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <button onClick={() => toggleAtivo(categoria)} className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${categoria.ativo ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
-                        {categoria.ativo ? <><Check className="h-3 w-3" /> Ativa</> : <><X className="h-3 w-3" /> Inativa</>}
-                      </button>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => abrirModal(categoria)} className="p-2 text-primary-600 hover:bg-primary-50 rounded-lg" title="Editar"><Edit className="h-5 w-5" /></button>
-                        <button onClick={() => handleDelete(categoria)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Excluir"><Trash2 className="h-5 w-5" /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Mobile: Cards (visível só em telas pequenas) */}
-      {categorias.length > 0 && (
-        <div className="md:hidden space-y-4">
-          {categorias.map(categoria => (
-            <div
-              key={categoria.id}
-              className={`bg-white rounded-xl shadow-md overflow-hidden ${!categoria.ativo ? 'opacity-75' : ''}`}
-            >
-              <div className="p-4">
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="flex items-center min-w-0 flex-1">
-                    <div className={`h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 ${categoria.ativo ? 'bg-primary-100 text-primary-600' : 'bg-gray-100 text-gray-400'}`}>
-                      <Users className="h-5 w-5" />
+                      {!grupo.ativo && (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">Inativo</span>
+                      )}
                     </div>
-                    <div className="ml-3 min-w-0">
-                      <div className={`font-medium truncate ${categoria.ativo ? 'text-gray-900' : 'text-gray-500'}`}>{categoria.nome}</div>
-                      {categoria.descricao && <div className="text-sm text-gray-500 truncate">{categoria.descricao}</div>}
-                    </div>
+                    {grupo.descricao && <p className="text-sm text-gray-500 truncate">{grupo.descricao}</p>}
+                    <p className="text-xs text-gray-400 mt-0.5">{categorias.length} faixa(s)</p>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button onClick={() => abrirModal(categoria)} className="p-2 text-primary-600 hover:bg-primary-50 rounded-lg" title="Editar"><Edit className="h-5 w-5" /></button>
-                    <button onClick={() => handleDelete(categoria)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Excluir"><Trash2 className="h-5 w-5" /></button>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2 mb-3">
-                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${categoria.tipo_valor === 'fixo' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>
-                    {categoria.tipo_valor === 'fixo' ? <><DollarSign className="h-3 w-3" /> Valor Fixo</> : <><Percent className="h-3 w-3" /> Porcentagem</>}
-                  </span>
-                  <span className="text-sm font-medium text-gray-900">{categoria.valor_formatado}</span>
-                  <button onClick={() => toggleAtivo(categoria)} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${categoria.ativo ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
-                    {categoria.ativo ? <><Check className="h-3 w-3" /> Ativa</> : <><X className="h-3 w-3" /> Inativa</>}
+                  {aberto ? <ChevronUp className="h-5 w-5 text-gray-400 flex-shrink-0" /> : <ChevronDown className="h-5 w-5 text-gray-400 flex-shrink-0" />}
+                </button>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button type="button" onClick={() => abrirModalCategoria(grupo)} className="btn-secondary text-sm py-2 px-3 flex items-center gap-1">
+                    <Plus className="h-4 w-4" /> Nova faixa
                   </button>
-                </div>
-                <div className="text-sm text-gray-500">
-                  {categoria.idade_minima || categoria.idade_maxima ? (
-                    <span>Faixa: {categoria.idade_minima && `${categoria.idade_minima} anos`}{categoria.idade_minima && categoria.idade_maxima && ' - '}{categoria.idade_maxima && `${categoria.idade_maxima} anos`}</span>
-                  ) : (
-                    <span className="text-gray-400">Faixa etária não definida</span>
+                  {!grupo.padrao_sistema && (
+                    <>
+                      <button type="button" onClick={() => abrirModalGrupo(grupo)} className="p-2 text-primary-600 hover:bg-primary-50 rounded-lg" title="Editar grupo">
+                        <Edit className="h-5 w-5" />
+                      </button>
+                      <button type="button" onClick={() => handleDelete('grupo', grupo)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Excluir grupo">
+                        <Trash2 className="h-5 w-5" />
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
+
+              {aberto && (
+                <div className="overflow-x-auto">
+                  {categorias.length === 0 ? (
+                    <div className="p-8 text-center text-gray-500">
+                      <p className="mb-3">Nenhuma faixa neste grupo.</p>
+                      <button type="button" onClick={() => abrirModalCategoria(grupo)} className="btn-primary inline-flex items-center gap-2">
+                        <Plus className="h-4 w-4" /> Adicionar faixa
+                      </button>
+                    </div>
+                  ) : (
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-white">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Faixa</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Valor</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Faixa etária</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {categorias.map((cat) => renderLinhaCategoria(cat, grupo))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
             </div>
-          ))}
+          )
+        })}
+      </div>
+
+      {grupos.length === 0 && (
+        <div className="bg-white rounded-xl shadow-md p-8 text-center text-gray-500">
+          Nenhum grupo encontrado. Execute a migration ou recarregue a página.
         </div>
       )}
 
-      {/* Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      {/* Modal faixa / categoria */}
+      {showModalCategoria && grupoAtivo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <h2 className="text-xl font-bold mb-4">
-              {editando ? 'Editar Categoria' : 'Nova Categoria'}
+            <h2 className="text-xl font-bold mb-1">
+              {editandoCategoria ? 'Editar faixa' : 'Nova faixa'}
             </h2>
-            
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <p className="text-sm text-gray-500 mb-4">Grupo: <strong>{grupoAtivo.nome}</strong></p>
+            <form onSubmit={handleSubmitCategoria} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nome da Categoria *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nome *</label>
                 <input
                   type="text"
-                  value={formData.nome}
-                  onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
+                  value={formCategoria.nome}
+                  onChange={(e) => setFormCategoria({ ...formCategoria, nome: e.target.value })}
                   className="input-field"
-                  placeholder="Ex: Adulto, Criança, Adolescente"
+                  placeholder="Ex: Adulto, Idoso"
                   required
+                  disabled={editandoCategoria?.padrao_sistema}
                 />
+                {editandoCategoria?.padrao_sistema && (
+                  <p className="text-xs text-amber-600 mt-1">Faixas padrão do sistema não podem ser renomeadas.</p>
+                )}
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Descrição
-                </label>
-                <input
-                  type="text"
-                  value={formData.descricao}
-                  onChange={(e) => setFormData({ ...formData, descricao: e.target.value })}
-                  className="input-field"
-                  placeholder="Ex: Crianças menores de 12 anos"
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
+                <input type="text" value={formCategoria.descricao} onChange={(e) => setFormCategoria({ ...formCategoria, descricao: e.target.value })} className="input-field" />
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tipo de Valor *
-                </label>
-                <select
-                  value={formData.tipo_valor}
-                  onChange={(e) => setFormData({ ...formData, tipo_valor: e.target.value })}
-                  className="input-field"
-                >
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de valor *</label>
+                <select value={formCategoria.tipo_valor} onChange={(e) => setFormCategoria({ ...formCategoria, tipo_valor: e.target.value })} className="input-field">
                   <option value="porcentagem">Porcentagem do valor do evento</option>
-                  <option value="fixo">Valor Fixo</option>
+                  <option value="fixo">Valor fixo</option>
                 </select>
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {formData.tipo_valor === 'fixo' ? 'Valor (R$) *' : 'Porcentagem (%) *'}
+                  {formCategoria.tipo_valor === 'fixo' ? 'Valor (R$) *' : 'Porcentagem (%) *'}
                 </label>
                 <input
                   type="number"
-                  value={formData.valor}
-                  onChange={(e) => setFormData({ ...formData, valor: e.target.value })}
+                  value={formCategoria.valor}
+                  onChange={(e) => setFormCategoria({ ...formCategoria, valor: e.target.value })}
                   className="input-field"
-                  placeholder={formData.tipo_valor === 'fixo' ? 'Ex: 50.00' : 'Ex: 50'}
-                  step={formData.tipo_valor === 'fixo' ? '0.01' : '1'}
+                  step={formCategoria.tipo_valor === 'fixo' ? '0.01' : '1'}
                   min="0"
-                  max={formData.tipo_valor === 'porcentagem' ? '100' : undefined}
+                  max={formCategoria.tipo_valor === 'porcentagem' ? '100' : undefined}
                   required
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  {formData.tipo_valor === 'fixo' 
-                    ? 'Este valor será cobrado independente do valor do evento'
-                    : 'Porcentagem do valor do evento. Ex: 50 = metade, 0 = gratuito, 100 = valor integral'
-                  }
-                </p>
               </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Idade Mínima
-                  </label>
-                  <input
-                    type="number"
-                    value={formData.idade_minima}
-                    onChange={(e) => setFormData({ ...formData, idade_minima: e.target.value })}
-                    className="input-field"
-                    placeholder="Ex: 0"
-                    min="0"
-                  />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Idade mínima</label>
+                  <input type="number" value={formCategoria.idade_minima} onChange={(e) => setFormCategoria({ ...formCategoria, idade_minima: e.target.value })} className="input-field" min="0" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Idade Máxima
-                  </label>
-                  <input
-                    type="number"
-                    value={formData.idade_maxima}
-                    onChange={(e) => setFormData({ ...formData, idade_maxima: e.target.value })}
-                    className="input-field"
-                    placeholder="Ex: 12"
-                    min="0"
-                  />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Idade máxima</label>
+                  <input type="number" value={formCategoria.idade_maxima} onChange={(e) => setFormCategoria({ ...formCategoria, idade_maxima: e.target.value })} className="input-field" min="0" />
                 </div>
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Ordem de Exibição
-                </label>
-                <input
-                  type="number"
-                  value={formData.ordem}
-                  onChange={(e) => setFormData({ ...formData, ordem: e.target.value })}
-                  className="input-field"
-                  placeholder="0"
-                  min="0"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Menor número aparece primeiro na lista
-                </p>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Ordem</label>
+                <input type="number" value={formCategoria.ordem} onChange={(e) => setFormCategoria({ ...formCategoria, ordem: e.target.value })} className="input-field" min="0" />
               </div>
-
               <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="ativo"
-                  checked={formData.ativo}
-                  onChange={(e) => setFormData({ ...formData, ativo: e.target.checked })}
-                  className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                />
-                <label htmlFor="ativo" className="ml-2 text-sm text-gray-700">
-                  Categoria ativa
-                </label>
+                <input type="checkbox" id="ativo-cat" checked={formCategoria.ativo} onChange={(e) => setFormCategoria({ ...formCategoria, ativo: e.target.checked })} className="h-4 w-4 text-primary-600 rounded" />
+                <label htmlFor="ativo-cat" className="ml-2 text-sm text-gray-700">Faixa ativa</label>
               </div>
-
               <div className="flex justify-end gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={fecharModal}
-                  className="btn-secondary"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="btn-primary"
-                >
-                  {editando ? 'Salvar' : 'Criar'}
-                </button>
+                <button type="button" onClick={fecharModalCategoria} className="btn-secondary">Cancelar</button>
+                <button type="submit" className="btn-primary">{editandoCategoria ? 'Salvar' : 'Criar'}</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Modal de Confirmação de Exclusão */}
+      {/* Modal grupo */}
+      {showModalGrupo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h2 className="text-xl font-bold mb-4">{editandoGrupo ? 'Editar grupo' : 'Novo grupo'}</h2>
+            <form onSubmit={handleSubmitGrupo} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nome do grupo *</label>
+                <input
+                  type="text"
+                  value={formGrupo.nome}
+                  onChange={(e) => setFormGrupo({ ...formGrupo, nome: e.target.value })}
+                  className="input-field"
+                  placeholder="Ex: Retiro família"
+                  required
+                  disabled={editandoGrupo?.padrao_sistema}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
+                <input type="text" value={formGrupo.descricao} onChange={(e) => setFormGrupo({ ...formGrupo, descricao: e.target.value })} className="input-field" />
+              </div>
+              <div className="flex items-center">
+                <input type="checkbox" id="ativo-grupo" checked={formGrupo.ativo} onChange={(e) => setFormGrupo({ ...formGrupo, ativo: e.target.checked })} className="h-4 w-4 text-primary-600 rounded" />
+                <label htmlFor="ativo-grupo" className="ml-2 text-sm text-gray-700">Grupo ativo</label>
+              </div>
+              <div className="flex justify-end gap-3 pt-4">
+                <button type="button" onClick={fecharModalGrupo} className="btn-secondary">Cancelar</button>
+                <button type="submit" className="btn-primary">{editandoGrupo ? 'Salvar' : 'Criar'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       <ConfirmModal
         isOpen={deleteModal.isOpen}
         onClose={fecharDeleteModal}
         onConfirm={executarDelete}
-        title="Excluir Categoria"
-        message={`Tem certeza que deseja excluir a categoria "${deleteModal.categoria?.nome}"? Esta ação não pode ser desfeita.`}
+        title={deleteModal.tipo === 'grupo' ? 'Excluir grupo' : 'Excluir faixa'}
+        message={
+          deleteModal.tipo === 'grupo'
+            ? `Excluir o grupo "${deleteModal.item?.nome}" e todas as faixas dentro dele?`
+            : `Excluir a faixa "${deleteModal.item?.nome}"?`
+        }
         type="danger"
-        confirmText="Excluir Categoria"
+        confirmText="Excluir"
         cancelText="Cancelar"
         loading={deletando}
-      >
-        {/* Detalhes da categoria */}
-        {deleteModal.categoria && (
-          <div className="bg-gray-50 rounded-lg p-4 text-left">
-            <div className="flex items-center mb-3">
-              <div className={`h-10 w-10 rounded-full flex items-center justify-center mr-3 ${
-                deleteModal.categoria.ativo ? 'bg-primary-100 text-primary-600' : 'bg-gray-100 text-gray-400'
-              }`}>
-                <Users className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="font-semibold text-gray-800">{deleteModal.categoria.nome}</p>
-                {deleteModal.categoria.descricao && (
-                  <p className="text-sm text-gray-500">{deleteModal.categoria.descricao}</p>
-                )}
-              </div>
-            </div>
-            <div className="space-y-2 text-sm">
-              <p className="flex items-center">
-                <span className="text-gray-500 mr-2">Tipo:</span>
-                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                  deleteModal.categoria.tipo_valor === 'fixo' 
-                    ? 'bg-green-100 text-green-800' 
-                    : 'bg-blue-100 text-blue-800'
-                }`}>
-                  {deleteModal.categoria.tipo_valor === 'fixo' ? (
-                    <><DollarSign className="h-3 w-3" /> Valor Fixo</>
-                  ) : (
-                    <><Percent className="h-3 w-3" /> Porcentagem</>
-                  )}
-                </span>
-              </p>
-              <p>
-                <span className="text-gray-500">Valor:</span>{' '}
-                <span className="font-medium text-gray-800">{deleteModal.categoria.valor_formatado}</span>
-              </p>
-              <p>
-                <span className="text-gray-500">Status:</span>{' '}
-                <span className={`font-medium ${deleteModal.categoria.ativo ? 'text-green-600' : 'text-gray-500'}`}>
-                  {deleteModal.categoria.ativo ? 'Ativa' : 'Inativa'}
-                </span>
-              </p>
-            </div>
-          </div>
-        )}
-      </ConfirmModal>
+      />
     </div>
   )
 }

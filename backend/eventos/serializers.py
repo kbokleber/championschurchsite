@@ -6,10 +6,13 @@ from rest_framework import serializers
 from django.contrib.auth.models import User
 from django.db import transaction
 from django.utils import timezone
+import uuid
+from .permissions import usuario_tem_menu_ou_superuser
 from .models import (
     Membro, Evento, Inscricao, Contato, ConfiguracaoSite, 
     DestaqueHomeItem,
     CategoriaParticipante, Cobranca, CobrancaItem,
+    GrupoCategoria,
     PermissaoMenu, Grupo,
     FormularioInscricao, CampoFormulario, RespostaCampoInscricao
 )
@@ -412,6 +415,11 @@ class EventoSerializer(serializers.ModelSerializer):
     formulario_inscricao_detalhe = FormularioInscricaoPublicSerializer(
         source='formulario_inscricao', read_only=True
     )
+    grupo_categorias_nome = serializers.CharField(
+        source='grupo_categorias.nome', read_only=True, default=None,
+    )
+    link_acesso = serializers.UUIDField(read_only=True)
+    link_inscricao_publico = serializers.SerializerMethodField()
     
     class Meta:
         model = Evento
@@ -424,9 +432,55 @@ class EventoSerializer(serializers.ModelSerializer):
             'evento_pago', 'valor_inscricao', 'valor_inscricao_formatado',
             'imagem', 'status', 'status_display', 'destaque',
             'formulario_inscricao', 'formulario_inscricao_detalhe', 'permite_acompanhantes',
+            'permite_inscricao_adolescente', 'evento_particular', 'link_acesso', 'link_inscricao_publico',
+            'grupo_categorias', 'grupo_categorias_nome',
             'criado_em', 'atualizado_em', 'criado_em_formatado'
         ]
-        read_only_fields = ['id', 'criado_em', 'atualizado_em']
+        read_only_fields = ['id', 'criado_em', 'atualizado_em', 'link_acesso']
+    
+    def validate(self, attrs):
+        permite = attrs.get(
+            'permite_acompanhantes',
+            getattr(self.instance, 'permite_acompanhantes', True) if self.instance else True,
+        )
+        if not permite:
+            attrs['grupo_categorias'] = None
+
+        evento_particular = attrs.get(
+            'evento_particular',
+            getattr(self.instance, 'evento_particular', False) if self.instance else False,
+        )
+        if evento_particular:
+            attrs['destaque'] = False
+
+        return attrs
+
+    def _garantir_link_acesso(self, validated_data, instance=None):
+        evento_particular = validated_data.get(
+            'evento_particular',
+            getattr(instance, 'evento_particular', False) if instance else False,
+        )
+        if evento_particular and not validated_data.get('link_acesso'):
+            if instance and instance.link_acesso:
+                validated_data.setdefault('link_acesso', instance.link_acesso)
+            else:
+                validated_data['link_acesso'] = uuid.uuid4()
+        return validated_data
+
+    def create(self, validated_data):
+        validated_data = self._garantir_link_acesso(validated_data)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data = self._garantir_link_acesso(validated_data, instance)
+        return super().update(instance, validated_data)
+
+    def get_link_inscricao_publico(self, obj):
+        if not obj.evento_particular or not obj.link_acesso:
+            return None
+        from .frontend_links import build_inscricao_evento_url
+        request = self.context.get('request')
+        return build_inscricao_evento_url(request, obj.link_acesso)
     
     def to_internal_value(self, data):
         """Converte strings vazias em None para campos que podem ser nulos."""
@@ -434,7 +488,7 @@ class EventoSerializer(serializers.ModelSerializer):
         nullable_fields = [
             'data_fim', 'inscricao_inicio', 'inscricao_fim', 
             'vagas', 'valor_inscricao', 'endereco', 'imagem',
-            'formulario_inscricao',
+            'formulario_inscricao', 'grupo_categorias',
         ]
         
         # Criar cópia mutável dos dados
@@ -493,6 +547,8 @@ class EventoListaSerializer(serializers.ModelSerializer):
     tipo_display = serializers.CharField(source='get_tipo_display', read_only=True)
     data_inicio_formatada = serializers.SerializerMethodField()
     valor_inscricao_formatado = serializers.SerializerMethodField()
+    evento_particular = serializers.BooleanField(read_only=True)
+    link_acesso = serializers.SerializerMethodField()
     
     class Meta:
         model = Evento
@@ -501,8 +557,15 @@ class EventoListaSerializer(serializers.ModelSerializer):
             'local', 'vagas_disponiveis', 'imagem', 'destaque',
             'inscricoes_abertas', 'status_inscricao',
             'inscricao_inicio', 'inscricao_fim',
-            'evento_pago', 'valor_inscricao', 'valor_inscricao_formatado'
+            'evento_pago', 'valor_inscricao', 'valor_inscricao_formatado',
+            'evento_particular', 'link_acesso',
         ]
+
+    def get_link_acesso(self, obj):
+        request = self.context.get('request')
+        if not request or not usuario_tem_menu_ou_superuser(request.user, 'eventos'):
+            return None
+        return str(obj.link_acesso) if obj.link_acesso else None
     
     def get_data_inicio_formatada(self, obj):
         if obj.data_inicio is None:
@@ -836,25 +899,57 @@ class ContatoSerializer(serializers.ModelSerializer):
 
 
 class CategoriaParticipanteSerializer(serializers.ModelSerializer):
-    """Serializer para o modelo CategoriaParticipante."""
+    """Serializer para faixas de um grupo de categorias."""
     
     tipo_valor_display = serializers.CharField(source='get_tipo_valor_display', read_only=True)
     valor_formatado = serializers.SerializerMethodField()
+    grupo_nome = serializers.CharField(source='grupo.nome', read_only=True)
     
     class Meta:
         model = CategoriaParticipante
         fields = [
             'id', 'nome', 'descricao', 'tipo_valor', 'tipo_valor_display',
             'valor', 'valor_formatado', 'idade_minima', 'idade_maxima',
-            'ordem', 'ativo', 'criado_em'
+            'ordem', 'ativo', 'grupo', 'grupo_nome', 'padrao_sistema', 'criado_em',
         ]
-        read_only_fields = ['id', 'criado_em']
+        read_only_fields = ['id', 'criado_em', 'padrao_sistema']
     
     def get_valor_formatado(self, obj):
         """Formata o valor de acordo com o tipo."""
         if obj.tipo_valor == 'fixo':
             return f'R$ {obj.valor:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
         return f'{obj.valor:.0f}%'
+
+
+class GrupoCategoriaSerializer(serializers.ModelSerializer):
+    """Serializer para grupos de categorias (conjuntos de faixas por evento)."""
+
+    categorias = CategoriaParticipanteSerializer(many=True, read_only=True)
+    categorias_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = GrupoCategoria
+        fields = [
+            'id', 'nome', 'descricao', 'padrao_sistema', 'ativo',
+            'criado_em', 'categorias', 'categorias_count',
+        ]
+        read_only_fields = ['id', 'criado_em', 'padrao_sistema']
+
+    def get_categorias_count(self, obj):
+        return obj.categorias.count()
+
+
+class GrupoCategoriaResumoSerializer(serializers.ModelSerializer):
+    """Serializer resumido sem nested categorias."""
+
+    categorias_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = GrupoCategoria
+        fields = ['id', 'nome', 'descricao', 'padrao_sistema', 'ativo', 'categorias_count']
+
+    def get_categorias_count(self, obj):
+        return obj.categorias.count()
 
 
 class ConfiguracaoSitePublicSerializer(serializers.ModelSerializer):

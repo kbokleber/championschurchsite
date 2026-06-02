@@ -243,6 +243,24 @@ class Evento(models.Model):
         verbose_name='Permite acompanhantes',
         help_text='Desative para eventos em que o ingresso já contempla o casal/grupo (sem cadastro extra de acompanhantes).'
     )
+    permite_inscricao_adolescente = models.BooleanField(
+        default=False,
+        verbose_name='Permite inscrição de adolescente',
+        help_text='Quando ativo, quem se inscreve informa se é Adulto ou Adolescente (valor integral). Faixas do grupo valem só para acompanhantes.'
+    )
+    evento_particular = models.BooleanField(
+        default=False,
+        verbose_name='Evento particular',
+        help_text='Não listar no site; acesso à inscrição somente via link exclusivo (/inscricao/{codigo}).',
+    )
+    link_acesso = models.UUIDField(
+        null=True,
+        blank=True,
+        unique=True,
+        db_index=True,
+        verbose_name='Link de acesso',
+        help_text='Código único gerado automaticamente para eventos particulares.',
+    )
     criado_em = models.DateTimeField(auto_now_add=True, verbose_name='Criado em')
     atualizado_em = models.DateTimeField(auto_now=True, verbose_name='Atualizado em')
     
@@ -317,9 +335,48 @@ class Evento(models.Model):
         
         return 'aberto'
 
+    grupo_categorias = models.ForeignKey(
+        'GrupoCategoria',
+        on_delete=models.SET_NULL,
+        related_name='eventos',
+        verbose_name='Grupo de categorias',
+        null=True,
+        blank=True,
+        help_text='Faixas usadas na inscrição. Se vazio, usa o grupo Padrão.',
+    )
+
+    def get_grupo_categorias(self):
+        """Retorna o grupo de categorias do evento ou o grupo Padrão do sistema."""
+        if self.grupo_categorias_id:
+            return self.grupo_categorias
+        from .categorias_padrao import get_grupo_padrao
+        return get_grupo_padrao()
+
+
+class GrupoCategoria(models.Model):
+    """Conjunto de faixas (Adulto, Criança, etc.) associado a eventos."""
+
+    nome = models.CharField(max_length=100, verbose_name='Nome do grupo')
+    descricao = models.CharField(max_length=300, blank=True, verbose_name='Descrição')
+    padrao_sistema = models.BooleanField(
+        default=False,
+        verbose_name='Grupo padrão do sistema',
+        help_text='O grupo Padrão não pode ser excluído.',
+    )
+    ativo = models.BooleanField(default=True, verbose_name='Ativo')
+    criado_em = models.DateTimeField(auto_now_add=True, verbose_name='Criado em')
+
+    class Meta:
+        verbose_name = 'Grupo de Categorias'
+        verbose_name_plural = 'Grupos de Categorias'
+        ordering = ['padrao_sistema', 'nome']
+
+    def __str__(self):
+        return self.nome
+
 
 class CategoriaParticipante(models.Model):
-    """Modelo para categorias de participantes (ex: Adulto, Criança, Adolescente)."""
+    """Faixa dentro de um grupo (ex: Adulto, Criança, Adolescente)."""
     
     TIPO_VALOR_CHOICES = [
         ('fixo', 'Valor Fixo'),
@@ -372,6 +429,19 @@ class CategoriaParticipante(models.Model):
         default=True,
         verbose_name='Ativo',
         help_text='Categorias inativas não aparecem no formulário de inscrição'
+    )
+    grupo = models.ForeignKey(
+        GrupoCategoria,
+        on_delete=models.CASCADE,
+        related_name='categorias',
+        verbose_name='Grupo',
+        null=True,
+        blank=True,
+    )
+    padrao_sistema = models.BooleanField(
+        default=False,
+        verbose_name='Faixa padrão do sistema',
+        help_text='Faixas do grupo Padrão (Adulto, Adolescente, Criança) não podem ser excluídas.',
     )
     criado_em = models.DateTimeField(auto_now_add=True, verbose_name='Criado em')
     

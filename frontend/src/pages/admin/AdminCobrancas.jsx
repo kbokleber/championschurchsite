@@ -31,7 +31,13 @@ function AdminCobrancas() {
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [expandido, setExpandido] = useState({});
-  const [totais, setTotais] = useState({ pendente: 0, pago: 0, isento: 0, cancelado: 0, total: 0 });
+  const [totais, setTotais] = useState({
+    pendente_valor: 0,
+    pago_valor: 0,
+    isento_qtd: 0,
+    cancelado_qtd: 0,
+    total_valor: 0,
+  });
   const [processando, setProcessando] = useState(null);
   const [processandoItem, setProcessandoItem] = useState(null); // 'cobrancaId-itemId'
 
@@ -65,31 +71,25 @@ function AdminCobrancas() {
       if (filtroEvento) params.evento = filtroEvento;
       if (filtroStatus) params.status = filtroStatus;
       
-      const cobrancasRes = await api.get('/cobrancas/', { params });
+      const resumoParams = {};
+      if (filtroEvento) resumoParams.evento = filtroEvento;
+
+      const [cobrancasRes, resumoRes] = await Promise.all([
+        api.get('/cobrancas/', { params }),
+        api.get('/cobrancas/resumo/', { params: resumoParams }),
+      ]);
       const data = cobrancasRes.data;
       const lista = data.results ?? data;
       setCobrancas(Array.isArray(lista) ? lista : []);
       setTotalCount(typeof data.count === 'number' ? data.count : lista.length);
-      
-      // Calcular totais por status (da página atual)
-      let pendente = 0, pago = 0, isento = 0, cancelado = 0;
-      for (const c of (lista || [])) {
-        const itens = c.itens || [];
-        for (const item of itens) {
-          const valor = parseFloat(item.valor) || 0;
-          const status = (item.status_inscricao || 'pendente').toLowerCase();
-          if (status === 'pendente') pendente += valor;
-          else if (status === 'pago') pago += valor;
-          else if (status === 'isento') isento += valor;
-          else if (status === 'cancelado') cancelado += valor;
-        }
-      }
+
+      const resumo = resumoRes.data || {};
       setTotais({
-        pendente,
-        pago,
-        isento,
-        cancelado,
-        total: pendente + pago + isento
+        pendente_valor: resumo.pendente_valor ?? 0,
+        pago_valor: resumo.pago_valor ?? 0,
+        isento_qtd: resumo.isento_qtd ?? 0,
+        cancelado_qtd: resumo.cancelado_qtd ?? 0,
+        total_valor: resumo.total_valor ?? 0,
       });
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
@@ -242,6 +242,11 @@ function AdminCobrancas() {
     return `R$ ${parseFloat(valor).toFixed(2).replace('.', ',')}`;
   };
 
+  const formatarQuantidade = (qtd) => {
+    const n = Number(qtd) || 0;
+    return n.toLocaleString('pt-BR');
+  };
+
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const startItem = totalCount === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const endItem = Math.min(page * PAGE_SIZE, totalCount);
@@ -277,7 +282,7 @@ function AdminCobrancas() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-yellow-600 text-sm font-medium">Pendente</p>
-              <p className="text-2xl font-bold text-yellow-800">{formatarValor(totais.pendente)}</p>
+              <p className="text-2xl font-bold text-yellow-800">{formatarValor(totais.pendente_valor)}</p>
             </div>
             <Clock className="w-10 h-10 text-yellow-500" />
           </div>
@@ -286,7 +291,7 @@ function AdminCobrancas() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-green-600 text-sm font-medium">Pago</p>
-              <p className="text-2xl font-bold text-green-800">{formatarValor(totais.pago)}</p>
+              <p className="text-2xl font-bold text-green-800">{formatarValor(totais.pago_valor)}</p>
             </div>
             <Check className="w-10 h-10 text-green-500" />
           </div>
@@ -295,7 +300,8 @@ function AdminCobrancas() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-blue-600 text-sm font-medium">Isento</p>
-              <p className="text-2xl font-bold text-blue-800">{formatarValor(totais.isento)}</p>
+              <p className="text-2xl font-bold text-blue-800">{formatarQuantidade(totais.isento_qtd)}</p>
+              <p className="text-xs text-blue-600/80 mt-0.5">inscrições</p>
             </div>
             <Gift className="w-10 h-10 text-blue-500" />
           </div>
@@ -304,7 +310,8 @@ function AdminCobrancas() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-red-600 text-sm font-medium">Cancelado</p>
-              <p className="text-2xl font-bold text-red-800">{formatarValor(totais.cancelado)}</p>
+              <p className="text-2xl font-bold text-red-800">{formatarQuantidade(totais.cancelado_qtd)}</p>
+              <p className="text-xs text-red-600/80 mt-0.5">inscrições</p>
             </div>
             <X className="w-10 h-10 text-red-500" />
           </div>
@@ -313,7 +320,7 @@ function AdminCobrancas() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-gray-600 text-sm font-medium">Total</p>
-              <p className="text-2xl font-bold text-gray-800">{formatarValor(totais.total)}</p>
+              <p className="text-2xl font-bold text-gray-800">{formatarValor(totais.total_valor)}</p>
             </div>
             <DollarSign className="w-10 h-10 text-gray-500" />
           </div>
@@ -357,6 +364,11 @@ function AdminCobrancas() {
           <div className="p-8 text-center">
             <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <p className="text-gray-500">Nenhuma cobrança encontrada</p>
+            {(totais.isento_qtd > 0 || totais.cancelado_qtd > 0) && (
+              <p className="text-sm text-gray-400 mt-2 max-w-md mx-auto">
+                Isenções e cancelamentos cadastrados diretamente no evento entram nos totais acima; esta lista mostra apenas cobranças de pagamento.
+              </p>
+            )}
           </div>
         ) : (
           <>

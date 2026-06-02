@@ -4017,6 +4017,36 @@ class CobrancaViewSet(viewsets.ModelViewSet):
         })
     
     @action(detail=False, methods=['get'])
+    def resumo(self, request):
+        """Totais financeiros (pendente/pago) e quantidades (isento/cancelado) para o painel admin."""
+        from decimal import Decimal
+
+        evento_id = request.query_params.get('evento')
+        items = CobrancaItem.objects.select_related('inscricao', 'cobranca')
+        inscricoes = Inscricao.objects.filter(is_acompanhante=False)
+        if evento_id:
+            items = items.filter(cobranca__evento_id=evento_id)
+            inscricoes = inscricoes.filter(evento_id=evento_id)
+
+        pendente = Decimal('0')
+        pago = Decimal('0')
+        for item in items.iterator():
+            sp = item.inscricao.status_pagamento
+            valor = item.valor or Decimal('0')
+            if sp == 'pendente':
+                pendente += valor
+            elif sp == 'pago':
+                pago += valor
+
+        return Response({
+            'pendente_valor': float(pendente),
+            'pago_valor': float(pago),
+            'isento_qtd': inscricoes.filter(status_pagamento='isento').count(),
+            'cancelado_qtd': inscricoes.filter(status_pagamento='cancelado').count(),
+            'total_valor': float(pendente + pago),
+        })
+
+    @action(detail=False, methods=['get'])
     def pendentes(self, request):
         """Retorna cobranças pendentes."""
         queryset = self.get_queryset().filter(status='pendente')

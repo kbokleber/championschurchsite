@@ -13,9 +13,9 @@ import {
   eventoTemQuestionarioInscricao,
 } from '../utils/formularioInscricao'
 
-function AvisoReservaPagamento({ cobranca, minutosFallback = 30 }) {
+function AvisoReservaPagamento({ cobranca, minutosReserva }) {
   if (!cobranca) return null
-  const minutos = cobranca.reserva_minutos ?? minutosFallback
+  const minutos = cobranca.reserva_minutos ?? minutosReserva
   const prazo = cobranca.reserva_expira_em
     ? new Date(cobranca.reserva_expira_em).toLocaleString('pt-BR', {
         day: '2-digit',
@@ -42,6 +42,7 @@ function EventoDetalhe() {
   const navigate = useNavigate()
   const { configuracao } = useConfiguracao()
   const { registrar, isLoggedIn, participante } = useParticipante()
+  const minutosReserva = configuracao?.reserva_pagamento_minutos ?? 30
   const corHeaderPagina = configuracao?.cor_header_pagina && /^#[0-9A-Fa-f]{6}$/.test(configuracao.cor_header_pagina) ? configuracao.cor_header_pagina : '#1a365d'
   const [evento, setEvento] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -871,7 +872,7 @@ function EventoDetalhe() {
                             <p className="text-sm text-amber-700 mb-3">
                               Valor: {formatarValor(inscricaoData?.valor_total || cobranca.valor)}
                             </p>
-                            <AvisoReservaPagamento cobranca={cobranca} />
+                            <AvisoReservaPagamento cobranca={cobranca} minutosReserva={minutosReserva} />
                             <button
                               onClick={() => navigate(`/pagamento/${cobranca.codigo}?auto=true`)}
                               className="w-full btn-primary py-2 mb-2 flex items-center justify-center gap-2"
@@ -939,10 +940,10 @@ function EventoDetalhe() {
                           Inscrição Realizada!
                         </h3>
                         <p className="text-gray-600 mb-4">
-                          Conclua o pagamento em até {cobranca?.reserva_minutos ?? 30} minutos para manter sua vaga. Os ingressos serão liberados após a confirmação.
+                          Conclua o pagamento em até {cobranca?.reserva_minutos ?? minutosReserva} minutos para manter sua vaga. Os ingressos serão liberados após a confirmação.
                         </p>
                         
-                        <AvisoReservaPagamento cobranca={cobranca} />
+                        <AvisoReservaPagamento cobranca={cobranca} minutosReserva={minutosReserva} />
                         
                         {/* Resumo do valor */}
                         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 text-left">

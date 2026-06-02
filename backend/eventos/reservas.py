@@ -29,6 +29,23 @@ def get_reserva_pagamento_minutos() -> int:
     return max(1, min(val, RESERVA_PAGAMENTO_MINUTOS_MAX))
 
 
+def serializar_cobranca_reserva(cobranca: Cobranca | None) -> dict | None:
+    """Resumo público da cobrança com prazo de reserva (para telas de inscrição/pagamento)."""
+    if cobranca is None:
+        return None
+    return {
+        'id': cobranca.id,
+        'codigo': cobranca.codigo,
+        'valor': float(cobranca.valor),
+        'status': cobranca.status,
+        'descricao': cobranca.descricao or '',
+        'reserva_expira_em': (
+            cobranca.reserva_expira_em.isoformat() if cobranca.reserva_expira_em else None
+        ),
+        'reserva_minutos': get_reserva_pagamento_minutos(),
+    }
+
+
 def reserva_expira_em_para_agora():
     return timezone.now() + timedelta(minutes=get_reserva_pagamento_minutos())
 

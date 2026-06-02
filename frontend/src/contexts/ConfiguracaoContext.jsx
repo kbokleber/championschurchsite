@@ -29,6 +29,7 @@ export function ConfiguracaoProvider({ children }) {
         endereco: '',
         cidade: '',
         estado: '',
+        reserva_pagamento_minutos: 30,
         facebook: '',
         instagram: '',
         youtube: ''

@@ -64,6 +64,7 @@ from .mp_cobranca_sync import (
 )
 from .reservas import (
     get_reserva_pagamento_minutos,
+    serializar_cobranca_reserva,
     aplicar_reserva_expira_cobranca,
     cobranca_reserva_valida,
     expirar_reservas_cobranca,
@@ -874,12 +875,7 @@ def buscar_participante_por_telefone(request):
                         }
                         response_data['acompanhantes'] = acompanhantes_lista
                         if cobranca_pendente:
-                            response_data['cobranca'] = {
-                                'id': cobranca_pendente.id,
-                                'codigo': cobranca_pendente.codigo,
-                                'valor': float(cobranca_pendente.valor),
-                                'status': cobranca_pendente.status,
-                            }
+                            response_data['cobranca'] = serializar_cobranca_reserva(cobranca_pendente)
                 except (Evento.DoesNotExist, ValueError):
                     pass
             
@@ -1433,13 +1429,7 @@ def participante_registro(request):
             ],
             'valor_total': novo_valor_total,
             'pagamento_pendente': cobranca is not None and cobranca.status == 'pendente',
-            'cobranca': {
-                'id': cobranca.id,
-                'codigo': cobranca.codigo,
-                'valor': float(cobranca.valor),
-                'status': cobranca.status,
-                'descricao': cobranca.descricao,
-            } if cobranca else None,
+            'cobranca': serializar_cobranca_reserva(cobranca),
         }
         
         if membro.senha_texto:
@@ -1808,10 +1798,7 @@ def participante_registro(request):
             },
             'valor_total': valor_total,
             'pagamento_pendente': evento.evento_pago,
-            'cobranca': {
-                'id': cobranca.id, 'codigo': cobranca.codigo, 'valor': float(cobranca.valor),
-                'status': cobranca.status, 'descricao': cobranca.descricao,
-            } if cobranca else None,
+            'cobranca': serializar_cobranca_reserva(cobranca),
         }
         if novo_cadastro and senha_gerada:
             response_data['senha_gerada'] = senha_gerada
@@ -1958,15 +1945,7 @@ def participante_registro(request):
         },
         'valor_total': valor_total,
         'pagamento_pendente': evento.evento_pago,
-        'cobranca': {
-            'id': cobranca.id,
-            'codigo': cobranca.codigo,
-            'valor': float(cobranca.valor),
-            'status': cobranca.status,
-            'descricao': cobranca.descricao,
-            'reserva_expira_em': cobranca.reserva_expira_em.isoformat() if cobranca.reserva_expira_em else None,
-            'reserva_minutos': get_reserva_pagamento_minutos(),
-        } if cobranca else None,
+        'cobranca': serializar_cobranca_reserva(cobranca),
         'reserva_minutos': get_reserva_pagamento_minutos() if cobranca else None,
     }
     

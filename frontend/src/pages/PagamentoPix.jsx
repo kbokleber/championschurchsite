@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import { useParticipante } from '../contexts/ParticipanteContext';
+import { useConfiguracao } from '../contexts/ConfiguracaoContext';
 import { MercadoPagoCheckout } from '../components/mercadopago/MercadoPagoCheckout';
 import { ResumoCobrancaPagamento } from '../components/mercadopago/ResumoCobrancaPagamento';
 import {
@@ -22,6 +23,8 @@ function PagamentoPix() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { atualizarIngressos } = useParticipante();
+  const { configuracao } = useConfiguracao();
+  const minutosReserva = configuracao?.reserva_pagamento_minutos ?? 30;
   
   const [loading, setLoading] = useState(true);
   const [cobranca, setCobranca] = useState(null);
@@ -202,7 +205,7 @@ function PagamentoPix() {
               <div className="mb-4 bg-orange-50 border border-orange-200 rounded-lg p-3 text-sm text-orange-900">
                 <p className="font-semibold flex items-center gap-2">
                   <Clock className="w-4 h-4 shrink-0" />
-                  Vaga reservada por {cobranca.reserva_minutos ?? 30} minutos
+                  Vaga reservada por {cobranca.reserva_minutos ?? minutosReserva} minutos
                 </p>
                 <p className="mt-1">
                   {cobranca.reserva_expira_em

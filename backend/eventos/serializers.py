@@ -1016,6 +1016,7 @@ class ConfiguracaoSitePublicSerializer(serializers.ModelSerializer):
             'facebook', 'instagram', 'youtube', 'tiktok', 'twitter',
             'horarios', 'google_maps_embed',
             'destaques_home',
+            'reserva_pagamento_minutos',
             'atualizado_em'
         ]
         read_only_fields = fields  # Todos são somente leitura no público

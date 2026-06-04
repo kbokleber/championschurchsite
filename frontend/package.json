@@ -13,6 +13,7 @@
   "dependencies": {
     "@mercadopago/sdk-js": "^0.0.3",
     "axios": "^1.6.7",
+    "canvas-confetti": "^1.9.4",
     "date-fns": "^4.1.0",
     "html5-qrcode": "^2.3.8",
     "lucide-react": "^0.312.0",

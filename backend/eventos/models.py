@@ -261,6 +261,15 @@ class Evento(models.Model):
         verbose_name='Link de acesso',
         help_text='Código único gerado automaticamente para eventos particulares.',
     )
+    checkin_abre_em = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Abertura do check-in',
+        help_text=(
+            'Opcional. Horário em que o check-in fica disponível (ex.: equipe de organização). '
+            'Se vazio, o check-in abre no início do evento.'
+        ),
+    )
     criado_em = models.DateTimeField(auto_now_add=True, verbose_name='Criado em')
     atualizado_em = models.DateTimeField(auto_now=True, verbose_name='Atualizado em')
     
@@ -271,6 +280,26 @@ class Evento(models.Model):
     
     def __str__(self):
         return f"{self.titulo} - {self.data_inicio.strftime('%d/%m/%Y')}"
+
+    def momento_abertura_checkin(self):
+        """Retorna quando o check-in passa a ser permitido."""
+        return self.checkin_abre_em or self.data_inicio
+
+    def checkin_esta_aberto(self, agora=None):
+        """Verifica se o período de check-in está ativo (abertura até data_fim)."""
+        from django.utils import timezone
+        agora = agora or timezone.now()
+        inicio = self.momento_abertura_checkin()
+        if timezone.is_naive(inicio):
+            inicio = timezone.make_aware(inicio)
+        fim = self.data_fim
+        if fim is not None and timezone.is_naive(fim):
+            fim = timezone.make_aware(fim)
+        if agora < inicio:
+            return False
+        if fim is not None and agora > fim:
+            return False
+        return True
     
     def delete(self, *args, **kwargs):
         """Remove a imagem do evento do storage ao excluir."""
@@ -1465,6 +1494,153 @@ class RespostaCampoInscricao(models.Model):
         super().delete(*args, **kwargs)
 
 
+class Sorteio(models.Model):
+    """Sessão de sorteio vinculada a um evento."""
+
+    STATUS_CHOICES = [
+        ('rascunho', 'Rascunho'),
+        ('em_andamento', 'Em andamento'),
+        ('encerrado', 'Encerrado'),
+    ]
+
+    evento = models.ForeignKey(
+        Evento,
+        on_delete=models.CASCADE,
+        related_name='sorteios',
+        verbose_name='Evento',
+    )
+    titulo = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name='Título',
+        help_text='Nome opcional da sessão (ex.: Brindes do culto)',
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='rascunho',
+        verbose_name='Status',
+    )
+    criado_por = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sorteios_criados',
+        verbose_name='Criado por',
+    )
+    criado_em = models.DateTimeField(auto_now_add=True, verbose_name='Criado em')
+    encerrado_em = models.DateTimeField(null=True, blank=True, verbose_name='Encerrado em')
+
+    class Meta:
+        verbose_name = 'Sorteio'
+        verbose_name_plural = 'Sorteios'
+        ordering = ['-criado_em']
+
+    def __str__(self):
+        return f'Sorteio #{self.pk} — {self.evento.titulo}'
+
+
+class SorteioElegivel(models.Model):
+    """Participante elegível (curadoria manual antes do sorteio)."""
+
+    sorteio = models.ForeignKey(
+        Sorteio,
+        on_delete=models.CASCADE,
+        related_name='elegiveis',
+        verbose_name='Sorteio',
+    )
+    inscricao = models.ForeignKey(
+        Inscricao,
+        on_delete=models.CASCADE,
+        related_name='sorteios_elegiveis',
+        verbose_name='Inscrição',
+    )
+    participa = models.BooleanField(
+        default=True,
+        verbose_name='Participa do sorteio',
+    )
+    observacao = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name='Observação',
+        help_text='Ex.: Equipe mídia, pastor',
+    )
+
+    class Meta:
+        verbose_name = 'Elegível do sorteio'
+        verbose_name_plural = 'Elegíveis do sorteio'
+        unique_together = [('sorteio', 'inscricao')]
+        ordering = ['inscricao__membro__nome']
+
+    def __str__(self):
+        return f'{self.inscricao.membro.nome} ({self.sorteio_id})'
+
+
+class SorteioGanhador(models.Model):
+    """Registro de ganhador por rodada."""
+
+    STATUS_CHOICES = [
+        ('confirmado', 'Confirmado'),
+        ('ausente', 'Ausente'),
+    ]
+
+    sorteio = models.ForeignKey(
+        Sorteio,
+        on_delete=models.CASCADE,
+        related_name='ganhadores',
+        verbose_name='Sorteio',
+    )
+    inscricao = models.ForeignKey(
+        Inscricao,
+        on_delete=models.CASCADE,
+        related_name='sorteios_ganhos',
+        verbose_name='Inscrição',
+    )
+    rodada = models.PositiveIntegerField(verbose_name='Rodada')
+    premio = models.CharField(max_length=200, blank=True, verbose_name='Prêmio')
+    sorteado_em = models.DateTimeField(auto_now_add=True, verbose_name='Sorteado em')
+    sorteado_por = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sorteios_realizados',
+        verbose_name='Sorteado por',
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='confirmado',
+        verbose_name='Status do prêmio',
+        help_text='Ausente: não compareceu para retirar o prêmio (permanece fora do pool deste prêmio).',
+    )
+    marcado_ausente_em = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Marcado ausente em',
+    )
+    marcado_ausente_por = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sorteios_ganhador_ausente',
+        verbose_name='Marcado ausente por',
+    )
+
+    class Meta:
+        verbose_name = 'Ganhador do sorteio'
+        verbose_name_plural = 'Ganhadores do sorteio'
+        ordering = ['rodada']
+        constraints = [
+            models.UniqueConstraint(fields=['sorteio', 'rodada'], name='unique_sorteio_rodada'),
+        ]
+
+    def __str__(self):
+        return f'Rodada {self.rodada}: {self.inscricao.membro.nome}'
+
+
 class PermissaoMenu(models.Model):
     """Modelo para definir permissões de acesso a menus do sistema administrativo."""
     
@@ -1477,15 +1653,16 @@ class PermissaoMenu(models.Model):
         {'codigo': 'inscricoes', 'nome': 'Inscrições', 'ordem': 4, 'descricao': 'Visualizar e gerenciar inscrições'},
         {'codigo': 'cobrancas', 'nome': 'Cobranças', 'ordem': 5, 'descricao': 'Gerenciar cobranças e pagamentos'},
         {'codigo': 'checkin', 'nome': 'Check-in', 'ordem': 6, 'descricao': 'Realizar check-in de participantes'},
-        {'codigo': 'contatos', 'nome': 'Contatos', 'ordem': 7, 'descricao': 'Visualizar mensagens de contato'},
-        {'codigo': 'categorias', 'nome': 'Categorias', 'ordem': 8, 'descricao': 'Gerenciar categorias de participantes'},
-        {'codigo': 'formularios_inscricao', 'nome': 'Formulários de Inscrição', 'ordem': 9, 'descricao': 'Gerenciar formulários reaproveitáveis e ver respostas'},
-        {'codigo': 'configuracoes', 'nome': 'Configurações', 'ordem': 10, 'descricao': 'Configurações gerais do sistema'},
-        {'codigo': 'usuarios', 'nome': 'Usuários', 'ordem': 11, 'descricao': 'Gerenciar usuários administrativos'},
-        {'codigo': 'grupos', 'nome': 'Grupos', 'ordem': 12, 'descricao': 'Gerenciar grupos e permissões'},
+        {'codigo': 'sorteio', 'nome': 'Sorteio', 'ordem': 7, 'descricao': 'Sorteio ao vivo de participantes por evento'},
+        {'codigo': 'contatos', 'nome': 'Contatos', 'ordem': 8, 'descricao': 'Visualizar mensagens de contato'},
+        {'codigo': 'categorias', 'nome': 'Categorias', 'ordem': 9, 'descricao': 'Gerenciar categorias de participantes'},
+        {'codigo': 'formularios_inscricao', 'nome': 'Formulários de Inscrição', 'ordem': 10, 'descricao': 'Gerenciar formulários reaproveitáveis e ver respostas'},
+        {'codigo': 'configuracoes', 'nome': 'Configurações', 'ordem': 11, 'descricao': 'Configurações gerais do sistema'},
+        {'codigo': 'usuarios', 'nome': 'Usuários', 'ordem': 12, 'descricao': 'Gerenciar usuários administrativos'},
+        {'codigo': 'grupos', 'nome': 'Grupos', 'ordem': 13, 'descricao': 'Gerenciar grupos e permissões'},
         # Loja / cantina (apenas painel admin; rotas /admin/loja/*) — atribua ao grupo no ecrã Grupos
-        {'codigo': 'loja', 'nome': 'Loja / Cantina', 'ordem': 13, 'descricao': 'Produtos, PDV e vendas (interno)'},
-        {'codigo': 'backup_import', 'nome': 'Backup e Restore', 'ordem': 14, 'descricao': 'Exportar e restaurar banco e mídia (local ou Google Drive)'},
+        {'codigo': 'loja', 'nome': 'Loja / Cantina', 'ordem': 14, 'descricao': 'Produtos, PDV e vendas (interno)'},
+        {'codigo': 'backup_import', 'nome': 'Backup e Restore', 'ordem': 15, 'descricao': 'Exportar e restaurar banco e mídia (local ou Google Drive)'},
     ]
     
     codigo = models.CharField(

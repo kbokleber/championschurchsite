@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Save, X } from 'lucide-react'
 import api from '../../services/api'
 
-function GrupoForm({ grupo, permissoes, onSalvar, onCancelar }) {
+function GrupoForm({ grupo, permissoes, carregandoPermissoes = false, onSalvar, onCancelar }) {
   const [formData, setFormData] = useState({
     nome: '',
     descricao: '',
@@ -164,7 +164,9 @@ function GrupoForm({ grupo, permissoes, onSalvar, onCancelar }) {
             Permissões de Menu <span className="text-red-500">*</span>
           </label>
           <div className="border border-gray-200 rounded-lg p-4 max-h-96 overflow-y-auto">
-            {permissoes.length === 0 ? (
+            {carregandoPermissoes ? (
+              <p className="text-sm text-gray-500">Carregando permissões...</p>
+            ) : permissoes.length === 0 ? (
               <p className="text-sm text-gray-500">
                 Nenhuma permissão disponível. Execute o comando para popular permissões primeiro.
               </p>

@@ -21,15 +21,16 @@ from urllib.parse import urlsplit, urlunsplit
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes, authentication_classes, throttle_classes
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly, AllowAny
+from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly, AllowAny, BasePermission
 from rest_framework.exceptions import ValidationError, PermissionDenied, NotFound
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from django.db import transaction, connections
-from django.db.models import Q, Prefetch
+from django.db.models import Q, Prefetch, Count
 from django.http import HttpResponse
 from django.contrib.auth.models import User
 from django.conf import settings
@@ -41,6 +42,7 @@ from .models import (
     GrupoCategoria,
     PermissaoMenu, Grupo, WebhookEventLog,
     FormularioInscricao, CampoFormulario, RespostaCampoInscricao,
+    Sorteio, SorteioElegivel, SorteioGanhador,
 )
 from .utils_imagem import substituir_fundo_logo_por_navy
 from .permissions import HasMenuPermission, usuario_tem_menu_ou_superuser
@@ -80,6 +82,7 @@ from .isencoes_import import (
     parse_linhas_isencao_xlsx,
     preview_importacao_isencoes,
 )
+from . import sorteio as sorteio_service
 from .evolution_go import enviar_texto_evolution_go, diagnosticar_conexao_evolution_go
 from .serializers import (
     MembroSerializer, MembroResumoSerializer,
@@ -91,6 +94,7 @@ from .serializers import (
     FormularioInscricaoSerializer, FormularioInscricaoResumoSerializer,
     RespostaCampoInscricaoAdminSerializer,
     validar_respostas_formulario,
+    SorteioSerializer, SorteioCreateSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -681,6 +685,39 @@ def alterar_minha_senha(request):
 
 # Status de evento considerados "ativos" para exibir em Meus Ingressos e permitir check-in
 EVENTO_STATUS_ATIVOS = ['agendado', 'em_andamento']
+
+
+def _aware_datetime(dt):
+    if dt is not None and timezone.is_naive(dt):
+        return timezone.make_aware(dt)
+    return dt
+
+
+def _validar_periodo_checkin_evento(evento, agora=None):
+    """
+    Valida se o check-in está permitido para o evento.
+    Retorna (ok: bool, erro: str|None, extra: dict).
+    """
+    agora = agora or timezone.now()
+    if evento.status not in EVENTO_STATUS_ATIVOS:
+        return False, 'Evento inativo ou encerrado.', {'evento_inativo': True}
+    inicio = _aware_datetime(evento.momento_abertura_checkin())
+    fim = _aware_datetime(evento.data_fim)
+    if agora < inicio:
+        msg = (
+            'O check-in ainda não está aberto. '
+            f'Abertura prevista para {timezone.localtime(inicio).strftime("%d/%m/%Y %H:%M")}.'
+        )
+        return False, msg, {
+            'evento_nao_iniciado': True,
+            'checkin_abre_em': timezone.localtime(inicio).strftime('%d/%m/%Y %H:%M'),
+        }
+    if fim is not None and agora > fim:
+        return False, 'O evento já encerrou. Não é mais possível fazer check-in.', {
+            'evento_encerrado': True,
+            'data_fim_evento': timezone.localtime(evento.data_fim).strftime('%d/%m/%Y %H:%M'),
+        }
+    return True, None, {}
 
 
 def _serializar_ingressos(membro):
@@ -2218,13 +2255,34 @@ def _admin_eventos(request):
     return usuario_tem_menu_ou_superuser(request.user, 'eventos')
 
 
+def _admin_eventos_checkin_sorteio(request):
+    """Admin de eventos, check-in ou sorteio (listagens internas)."""
+    if not request.user or not request.user.is_authenticated:
+        return False
+    if request.user.is_superuser:
+        return True
+    for codigo in ('eventos', 'checkin', 'sorteio'):
+        if usuario_tem_menu_ou_superuser(request.user, codigo):
+            return True
+    return False
+
+
+class _EmAndamentoPermission(BasePermission):
+    """Check-in, sorteio ou eventos podem listar eventos em andamento."""
+
+    message = 'Sem permissão para acessar este recurso.'
+
+    def has_permission(self, request, view):
+        return _admin_eventos_checkin_sorteio(request)
+
+
 def _filtrar_eventos_publicos(queryset, request):
     """
     Oculta eventos particulares nas listagens públicas.
     Admin vê todos apenas com ?incluir_particulares=true (painel admin).
     """
     incluir = (request.query_params.get('incluir_particulares') or '').lower() in ('1', 'true', 'yes')
-    if incluir and _admin_eventos(request):
+    if incluir and _admin_eventos_checkin_sorteio(request):
         return queryset
     return queryset.filter(evento_particular=False)
 
@@ -2283,6 +2341,8 @@ class EventoViewSet(viewsets.ModelViewSet):
         """Leitura pública de eventos; demais ações exigem menu eventos."""
         if self.action in ('list', 'retrieve', 'proximos', 'destaques', 'por_link'):
             return [AllowAny()]
+        if self.action == 'em_andamento':
+            return [IsAuthenticated(), _EmAndamentoPermission()]
         return [IsAuthenticated(), HasMenuPermission('eventos')]
     
     def get_serializer_class(self):
@@ -2333,6 +2393,14 @@ class EventoViewSet(viewsets.ModelViewSet):
 
             if self.action == 'list':
                 queryset = _filtrar_eventos_publicos(queryset, self.request)
+                if (
+                    self.request.query_params.get('periodo')
+                    or self.request.query_params.get('data_inicio')
+                    or self.request.query_params.get('data_fim')
+                ):
+                    queryset = sorteio_service.aplicar_filtro_periodo(
+                        queryset, self.request, 'data_inicio'
+                    )
             
             return queryset
         except Exception as e:
@@ -2409,15 +2477,19 @@ class EventoViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def em_andamento(self, request):
-        """Retorna eventos que estão ocorrendo agora (para check-in manual).
-        Período: data_inicio <= agora <= data_fim (ou sem data_fim, desde que já começou).
+        """Retorna eventos disponíveis para check-in manual.
+        Período: momento_abertura_checkin <= agora <= data_fim (ou sem data_fim).
         """
         from django.db.models import Q
+        from django.db.models.functions import Coalesce
+
         agora = timezone.now()
-        # Já começou e ainda não terminou (ou não tem data_fim)
         eventos = Evento.objects.filter(
             status__in=EVENTO_STATUS_ATIVOS,
-            data_inicio__lte=agora,
+        ).annotate(
+            checkin_inicio=Coalesce('checkin_abre_em', 'data_inicio'),
+        ).filter(
+            checkin_inicio__lte=agora,
         ).filter(
             Q(data_fim__isnull=True) | Q(data_fim__gte=agora)
         ).order_by('data_inicio')
@@ -2928,31 +3000,21 @@ class InscricaoViewSet(viewsets.ModelViewSet):
                 'inscricao': InscricaoSerializer(inscricao).data
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Só permitir check-in no período do evento (entre data_inicio e data_fim)
+        # Só permitir check-in no período do evento (abertura do check-in até data_fim)
         evento = inscricao.evento
-        agora = timezone.now()
-        inicio = evento.data_inicio
-        fim = evento.data_fim
-        if timezone.is_naive(inicio):
-            inicio = timezone.make_aware(inicio)
-        if fim is not None and timezone.is_naive(fim):
-            fim = timezone.make_aware(fim)
-        if agora < inicio:
-            return Response({
-                'error': 'O evento ainda não começou. O check-in só pode ser feito durante a realização do evento.',
+        ok, erro_msg, extra = _validar_periodo_checkin_evento(evento)
+        if not ok:
+            payload = {
+                'error': erro_msg,
                 'valido': False,
-                'evento_nao_iniciado': True,
                 'inscricao': InscricaoSerializer(inscricao).data,
-                'data_inicio_evento': timezone.localtime(evento.data_inicio).strftime('%d/%m/%Y %H:%M'),
-            }, status=status.HTTP_400_BAD_REQUEST)
-        if fim is not None and agora > fim:
-            return Response({
-                'error': 'O evento já encerrou. Não é mais possível fazer check-in.',
-                'valido': False,
-                'evento_encerrado': True,
-                'inscricao': InscricaoSerializer(inscricao).data,
-                'data_fim_evento': timezone.localtime(evento.data_fim).strftime('%d/%m/%Y %H:%M'),
-            }, status=status.HTTP_400_BAD_REQUEST)
+                **extra,
+            }
+            if extra.get('evento_nao_iniciado'):
+                payload['data_inicio_evento'] = timezone.localtime(
+                    evento.data_inicio
+                ).strftime('%d/%m/%Y %H:%M')
+            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
         
         # Verificar se já fez check-in
         if inscricao.presente:
@@ -3069,29 +3131,10 @@ class InscricaoViewSet(viewsets.ModelViewSet):
                 {'error': 'Evento não encontrado'},
                 status=status.HTTP_404_NOT_FOUND
             )
-        # Só permitir se o evento está em andamento
-        agora = timezone.now()
-        if evento.status not in EVENTO_STATUS_ATIVOS:
-            return Response(
-                {'error': 'Este evento não está disponível para check-in no momento.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        inicio = evento.data_inicio
-        fim = evento.data_fim
-        if timezone.is_naive(inicio):
-            inicio = timezone.make_aware(inicio)
-        if fim is not None and timezone.is_naive(fim):
-            fim = timezone.make_aware(fim)
-        if agora < inicio:
-            return Response(
-                {'error': 'O evento ainda não começou.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        if fim is not None and agora > fim:
-            return Response(
-                {'error': 'O evento já encerrou.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # Só permitir se o check-in está aberto para o evento
+        ok, erro_msg, _extra = _validar_periodo_checkin_evento(evento)
+        if not ok:
+            return Response({'error': erro_msg}, status=status.HTTP_400_BAD_REQUEST)
         # Inscrições confirmadas; excluir pendência de pagamento (salvo evento gratuito)
         queryset = Inscricao.objects.filter(
             evento=evento,
@@ -3207,20 +3250,10 @@ class InscricaoViewSet(viewsets.ModelViewSet):
                 'ja_checkin': True,
                 'data_checkin': timezone.localtime(inscricao.data_checkin).strftime('%d/%m/%Y %H:%M:%S') if inscricao.data_checkin else None
             }, status=status.HTTP_400_BAD_REQUEST)
-        # Evento em andamento
-        agora = timezone.now()
-        inicio = evento.data_inicio
-        fim = evento.data_fim
-        if timezone.is_naive(inicio):
-            inicio = timezone.make_aware(inicio)
-        if fim is not None and timezone.is_naive(fim):
-            fim = timezone.make_aware(fim)
-        if agora < inicio:
-            return Response({'error': 'O evento ainda não começou.'}, status=status.HTTP_400_BAD_REQUEST)
-        if fim is not None and agora > fim:
-            return Response({'error': 'O evento já encerrou.'}, status=status.HTTP_400_BAD_REQUEST)
-        if evento.status not in EVENTO_STATUS_ATIVOS:
-            return Response({'error': 'Evento inativo ou encerrado.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Período de check-in aberto
+        ok, erro_msg, _extra = _validar_periodo_checkin_evento(evento)
+        if not ok:
+            return Response({'error': erro_msg}, status=status.HTTP_400_BAD_REQUEST)
         inscricao.presente = True
         inscricao.data_checkin = timezone.now()
         inscricao.save()
@@ -3232,6 +3265,251 @@ class InscricaoViewSet(viewsets.ModelViewSet):
             'evento': {'titulo': evento.titulo},
             'data_checkin': timezone.localtime(inscricao.data_checkin).strftime('%d/%m/%Y %H:%M:%S')
         })
+
+
+class SorteioPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class SorteioViewSet(viewsets.ModelViewSet):
+    """ViewSet para sorteios ao vivo por evento."""
+
+    queryset = Sorteio.objects.select_related('evento', 'criado_por').prefetch_related(
+        Prefetch(
+            'ganhadores',
+            queryset=SorteioGanhador.objects.select_related(
+                'inscricao__membro', 'inscricao__categoria', 'inscricao__responsavel',
+                'sorteado_por', 'marcado_ausente_por',
+            ).order_by('rodada'),
+        )
+    )
+    serializer_class = SorteioSerializer
+    pagination_class = SorteioPagination
+    http_method_names = ['get', 'post', 'patch', 'delete', 'head']
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasMenuPermission('sorteio')]
+
+    def get_queryset(self):
+        qs = super().get_queryset().order_by('-criado_em')
+        evento_id = self.request.query_params.get('evento_id')
+        if evento_id:
+            qs = qs.filter(evento_id=evento_id)
+        status_param = self.request.query_params.get('status')
+        if status_param:
+            qs = qs.filter(status=status_param)
+        com_ganhadores = self.request.query_params.get('com_ganhadores')
+        if com_ganhadores and com_ganhadores.lower() in ('true', '1', 'yes'):
+            qs = qs.annotate(_total_ganhadores=Count('ganhadores'))
+            incluir_ativos = self.request.query_params.get('incluir_ativos', '').lower() in (
+                'true', '1', 'yes',
+            )
+            if incluir_ativos:
+                qs = qs.filter(
+                    Q(_total_ganhadores__gt=0) | Q(status__in=('rascunho', 'em_andamento'))
+                )
+            else:
+                qs = qs.filter(_total_ganhadores__gt=0)
+        if (
+            self.request.query_params.get('periodo')
+            or self.request.query_params.get('data_inicio')
+            or self.request.query_params.get('data_fim')
+        ):
+            qs = sorteio_service.aplicar_filtro_periodo(qs, self.request, 'evento__data_inicio')
+        return qs
+
+    def destroy(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            return Response(
+                {'error': 'Somente super administradores podem excluir registros de sorteio.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().destroy(request, *args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        serializer = SorteioCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        evento_id = serializer.validated_data['evento_id']
+        titulo = (serializer.validated_data.get('titulo') or '').strip()
+        evento = get_object_or_404(Evento, pk=evento_id)
+
+        sorteio = (
+            Sorteio.objects.filter(
+                evento=evento,
+                status__in=('rascunho', 'em_andamento'),
+            )
+            .order_by('-criado_em')
+            .first()
+        )
+        if not sorteio:
+            sorteio = Sorteio.objects.create(
+                evento=evento,
+                titulo=titulo,
+                status='rascunho',
+                criado_por=request.user,
+            )
+        elif titulo and not sorteio.titulo:
+            sorteio.titulo = titulo
+            sorteio.save(update_fields=['titulo'])
+
+        sorteio_service.popular_elegiveis(sorteio)
+        sorteio.refresh_from_db()
+        return Response(SorteioSerializer(sorteio).data, status=status.HTTP_201_CREATED)
+
+    def retrieve(self, request, *args, **kwargs):
+        sorteio = self.get_object()
+        sorteio_service.popular_elegiveis(sorteio)
+        sorteio.refresh_from_db()
+        return Response(SorteioSerializer(sorteio).data)
+
+    @action(detail=True, methods=['get'])
+    def elegiveis(self, request, pk=None):
+        sorteio = self.get_object()
+        sorteio_service.popular_elegiveis(sorteio)
+
+        participa_param = request.query_params.get('participa')
+        presente_param = request.query_params.get('presente')
+        q = request.query_params.get('q', '')
+        premio_raw = request.query_params.get('premio')
+        premio = (premio_raw or '').strip() if premio_raw is not None else None
+
+        participa = None
+        if participa_param is not None:
+            participa = participa_param.lower() in ('true', '1', 'yes')
+
+        presente = None
+        if presente_param is not None:
+            presente = presente_param.lower() in ('true', '1', 'yes')
+
+        acompanhante_param = request.query_params.get('acompanhante')
+        acompanhante = None
+        if acompanhante_param is not None:
+            acompanhante = acompanhante_param.lower() in ('true', '1', 'yes')
+
+        lista = sorteio_service.listar_elegiveis(
+            sorteio,
+            participa=participa,
+            presente=presente,
+            acompanhante=acompanhante,
+            q=q,
+            premio=premio,
+        )
+        return Response({
+            'elegiveis': lista,
+            'total': len(lista),
+            'total_participa': sorteio_service.contar_elegiveis(sorteio),
+            'total_pool': (
+                sorteio_service.contar_pool_sorteio(sorteio, premio=premio)
+                if premio
+                else None
+            ),
+            'premio': premio or '',
+        })
+
+    @action(detail=True, methods=['patch'], url_path='elegiveis/atualizar')
+    def atualizar_elegiveis(self, request, pk=None):
+        sorteio = self.get_object()
+        if sorteio.status == 'encerrado':
+            return Response({'error': 'Sorteio encerrado.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        acao = (request.data.get('acao') or '').strip()
+        if acao == 'marcar_todos':
+            SorteioElegivel.objects.filter(sorteio=sorteio).update(participa=True)
+        elif acao == 'desmarcar_todos':
+            SorteioElegivel.objects.filter(sorteio=sorteio).update(participa=False)
+        elif acao == 'marcar_presentes':
+            SorteioElegivel.objects.filter(sorteio=sorteio).update(participa=False)
+            SorteioElegivel.objects.filter(sorteio=sorteio, inscricao__presente=True).update(participa=True)
+        elif acao == 'marcar_acompanhantes':
+            SorteioElegivel.objects.filter(
+                sorteio=sorteio, inscricao__is_acompanhante=True
+            ).update(participa=True)
+        elif acao == 'desmarcar_acompanhantes':
+            SorteioElegivel.objects.filter(
+                sorteio=sorteio, inscricao__is_acompanhante=True
+            ).update(participa=False)
+        elif acao == 'somente_titulares':
+            SorteioElegivel.objects.filter(sorteio=sorteio).update(participa=False)
+            SorteioElegivel.objects.filter(
+                sorteio=sorteio, inscricao__is_acompanhante=False
+            ).update(participa=True)
+        else:
+            atualizacoes = request.data.get('atualizacoes') or []
+            if not isinstance(atualizacoes, list):
+                return Response({'error': 'atualizacoes deve ser uma lista.'}, status=status.HTTP_400_BAD_REQUEST)
+            for item in atualizacoes:
+                inscricao_id = item.get('inscricao_id')
+                if not inscricao_id:
+                    continue
+                updates = {}
+                if 'participa' in item:
+                    updates['participa'] = bool(item['participa'])
+                if 'observacao' in item:
+                    updates['observacao'] = (item.get('observacao') or '')[:255]
+                if updates:
+                    SorteioElegivel.objects.filter(sorteio=sorteio, inscricao_id=inscricao_id).update(**updates)
+
+        premio = (request.data.get('premio') or '').strip() or None
+        lista = sorteio_service.listar_elegiveis(sorteio, premio=premio)
+        return Response({
+            'elegiveis': lista,
+            'total_participa': sorteio_service.contar_elegiveis(sorteio),
+            'total_pool': (
+                sorteio_service.contar_pool_sorteio(sorteio, premio=premio)
+                if premio
+                else None
+            ),
+            'premio': premio or '',
+        })
+
+    @action(detail=True, methods=['post'])
+    def executar(self, request, pk=None):
+        sorteio = self.get_object()
+        premio = (request.data.get('premio') or '').strip()
+        try:
+            ganhador = sorteio_service.executar_sorteio(sorteio, request.user, premio=premio)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        sorteio.refresh_from_db()
+        return Response({
+            'ganhador': sorteio_service.serializar_ganhador(ganhador),
+            'sorteio': SorteioSerializer(sorteio, context={'premio': premio}).data,
+        })
+
+    @action(detail=True, methods=['post'], url_path=r'ganhadores/(?P<ganhador_id>[^/.]+)/ausencia')
+    def atualizar_ausencia_ganhador(self, request, pk=None, ganhador_id=None):
+        sorteio = self.get_object()
+        if sorteio.status == 'encerrado':
+            return Response({'error': 'Sorteio encerrado.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        ganhador = get_object_or_404(SorteioGanhador, pk=ganhador_id, sorteio=sorteio)
+        ausente_param = request.data.get('ausente', True)
+        if isinstance(ausente_param, str):
+            ausente = ausente_param.lower() in ('true', '1', 'yes')
+        else:
+            ausente = bool(ausente_param)
+
+        ganhador = sorteio_service.atualizar_ausencia_ganhador(
+            ganhador, request.user, ausente=ausente,
+        )
+        sorteio.refresh_from_db()
+        premio = (request.data.get('premio') or ganhador.premio or '').strip()
+        return Response({
+            'ganhador': sorteio_service.serializar_ganhador(ganhador),
+            'sorteio': SorteioSerializer(sorteio, context={'premio': premio or None}).data,
+        })
+
+    @action(detail=True, methods=['post'])
+    def encerrar(self, request, pk=None):
+        sorteio = self.get_object()
+        if sorteio.status == 'encerrado':
+            return Response(SorteioSerializer(sorteio).data)
+        sorteio_service.encerrar_sorteio(sorteio)
+        sorteio.refresh_from_db()
+        return Response(SorteioSerializer(sorteio).data)
 
 
 class ContatoViewSet(viewsets.ModelViewSet):

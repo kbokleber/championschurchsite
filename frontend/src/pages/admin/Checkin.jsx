@@ -203,11 +203,11 @@ function Checkin() {
     if (ins.is_acompanhante) {
       const responsavel = ins.responsavel_nome ? `acompanhante de ${ins.responsavel_nome}` : 'acompanhante'
       const telefoneResponsavel = ins.responsavel_telefone_formatado || ins.responsavel_telefone
-      return telefoneResponsavel ? `${responsavel} (${telefoneResponsavel})` : responsavel
+      return telefoneResponsavel ? `${responsavel} ${telefoneResponsavel}` : responsavel
     }
 
     const telefone = ins.membro_telefone_formatado || ins.membro_telefone
-    return telefone ? `(${telefone})` : ''
+    return telefone || ''
   }
 
   const renderResultadoQR = () => {
@@ -414,7 +414,7 @@ function Checkin() {
           <div>
             <div className="space-y-4">
               <div>
-                <label className="label">Evento em andamento</label>
+                <label className="label">Evento com check-in aberto</label>
                 <select
                   value={eventoSelecionado}
                   onChange={(e) => { setEventoSelecionado(e.target.value); setMensagemManual(null) }}
@@ -423,12 +423,19 @@ function Checkin() {
                   <option value="">Selecione o evento</option>
                   {eventosAndamento.map((ev) => (
                     <option key={ev.id} value={ev.id}>
-                      {ev.titulo} {ev.data_inicio_formatada ? `— ${ev.data_inicio_formatada}` : ''}
+                      {ev.titulo}
+                      {ev.checkin_abre_em_formatada && ev.data_inicio_formatada
+                        ? ` — check-in desde ${ev.checkin_abre_em_formatada.slice(0, 16)} · início ${ev.data_inicio_formatada.slice(0, 16)}`
+                        : ev.data_inicio_formatada
+                          ? ` — ${ev.data_inicio_formatada.slice(0, 16)}`
+                          : ''}
                     </option>
                   ))}
                 </select>
                 {eventosAndamento.length === 0 && (
-                  <p className="text-sm text-amber-600 mt-1">Nenhum evento em andamento no momento.</p>
+                  <p className="text-sm text-amber-600 mt-1">
+                    Nenhum evento com check-in aberto no momento. Configure &quot;Abertura do check-in&quot; no cadastro do evento.
+                  </p>
                 )}
               </div>
               <div>
@@ -510,7 +517,7 @@ function Checkin() {
             </>
           ) : (
             <>
-              <li>1. Selecione o evento que está ocorrendo agora</li>
+              <li>1. Selecione o evento com check-in já aberto (pode ser antes do horário de início)</li>
               <li>2. Digite o nome para filtrar (a lista atualiza sozinha). Deixe em branco para listar todos</li>
               <li>3. Clique em &quot;Dar entrada&quot; na pessoa correta</li>
             </>

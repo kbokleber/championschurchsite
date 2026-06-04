@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { 
   Church, LayoutDashboard, Calendar, Users, 
   FileText, Mail, LogOut, Menu, X, ChevronDown,
-  Home, QrCode, Settings, Tags, DollarSign, Shield, Store, DatabaseBackup, KeyRound, Map
+  Home, QrCode, Settings, Tags, DollarSign, Shield, Store, DatabaseBackup, KeyRound, Map, Gift
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useConfiguracao } from '../contexts/ConfiguracaoContext'
@@ -18,6 +18,7 @@ const MENU_MAPPING = {
   'inscricoes': { path: '/admin/inscricoes', label: 'Inscrições', icon: FileText },
   'cobrancas': { path: '/admin/cobrancas', label: 'Cobranças', icon: DollarSign },
   'checkin': { path: '/admin/checkin', label: 'Check-in', icon: QrCode },
+  'sorteio': { path: '/admin/sorteio', label: 'Sorteio', icon: Gift },
   'contatos': { path: '/admin/contatos', label: 'Contatos', icon: Mail },
   'categorias': { path: '/admin/categorias', label: 'Categorias', icon: Tags },
   'configuracoes': { path: '/admin/configuracoes', label: 'Configurações', icon: Settings },

@@ -9,7 +9,7 @@ from .views import (
     MembroViewSet, EventoViewSet, InscricaoViewSet, ContatoViewSet,
     CategoriaParticipanteViewSet, GrupoCategoriaViewSet, CobrancaViewSet,
     PermissaoMenuViewSet, GrupoViewSet, UsuarioAdminViewSet,
-    FormularioInscricaoViewSet,
+    FormularioInscricaoViewSet, SorteioViewSet,
     admin_respostas_inscricao, admin_arquivo_resposta, admin_inscricao_detalhe,
     admin_exportar_inscricoes_xlsx,
     get_current_user, alterar_minha_senha, dashboard_stats, meus_ingressos,
@@ -81,6 +81,7 @@ router.register(r'permissoes-menu', PermissaoMenuViewSet, basename='permissaomen
 router.register(r'grupos', GrupoViewSet, basename='grupo')
 router.register(r'usuarios', UsuarioAdminViewSet, basename='usuario')
 router.register(r'formularios', FormularioInscricaoViewSet, basename='formulario')
+router.register(r'sorteios', SorteioViewSet, basename='sorteio')
 router.register(r'loja/produtos', LojaProdutoViewSet, basename='loja-produto')
 router.register(r'loja/vendas', LojaVendaViewSet, basename='loja-venda')
 router.register(r'loja/cobrancas', CobrancaLojaViewSet, basename='loja-cobranca')

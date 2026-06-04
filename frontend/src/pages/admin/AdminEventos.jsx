@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Search, Edit, Trash2, Eye, Calendar } from 'lucide-react'
+import { Plus, Search, Edit, Trash2, Eye, Calendar, Gift } from 'lucide-react'
 import api from '../../services/api'
 import { formatDateTimeBR } from '../../services/utils'
 import LoadingSpinner from '../../components/LoadingSpinner'
@@ -175,6 +175,13 @@ function AdminEventos() {
                           title={evento.evento_particular ? 'Abrir link de inscrição' : 'Ver no site'}
                         >
                           <Eye className="h-5 w-5" />
+                        </Link>
+                        <Link
+                          to={`/admin/sorteio?evento_id=${evento.id}`}
+                          className="p-2 text-gray-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                          title="Sorteio"
+                        >
+                          <Gift className="h-5 w-5" />
                         </Link>
                         <Link
                           to={`/admin/eventos/${evento.id}`}

@@ -16,7 +16,8 @@ from .models import (
     CategoriaParticipante, Cobranca, CobrancaItem,
     GrupoCategoria,
     PermissaoMenu, Grupo,
-    FormularioInscricao, CampoFormulario, RespostaCampoInscricao
+    FormularioInscricao, CampoFormulario, RespostaCampoInscricao,
+    Sorteio, SorteioElegivel, SorteioGanhador,
 )
 
 
@@ -406,6 +407,7 @@ class EventoSerializer(serializers.ModelSerializer):
     # Campos formatados em português
     data_inicio_formatada = serializers.SerializerMethodField()
     data_fim_formatada = serializers.SerializerMethodField()
+    checkin_abre_em_formatada = serializers.SerializerMethodField()
     inscricao_inicio_formatada = serializers.SerializerMethodField()
     inscricao_fim_formatada = serializers.SerializerMethodField()
     criado_em_formatado = serializers.SerializerMethodField()
@@ -429,6 +431,7 @@ class EventoSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'titulo', 'descricao', 'tipo', 'tipo_display',
             'data_inicio', 'data_fim', 'data_inicio_formatada', 'data_fim_formatada',
+            'checkin_abre_em', 'checkin_abre_em_formatada',
             'local', 'endereco', 'vagas', 'vagas_disponiveis', 'esta_lotado',
             'inscricao_inicio', 'inscricao_fim', 'inscricao_inicio_formatada', 'inscricao_fim_formatada',
             'inscricoes_abertas', 'status_inscricao',
@@ -481,6 +484,27 @@ class EventoSerializer(serializers.ModelSerializer):
         )
         if evento_particular:
             attrs['destaque'] = False
+
+        checkin_abre = attrs.get(
+            'checkin_abre_em',
+            getattr(self.instance, 'checkin_abre_em', None) if self.instance else None,
+        )
+        data_inicio = attrs.get(
+            'data_inicio',
+            getattr(self.instance, 'data_inicio', None) if self.instance else None,
+        )
+        data_fim = attrs.get(
+            'data_fim',
+            getattr(self.instance, 'data_fim', None) if self.instance else None,
+        )
+        if checkin_abre and data_fim and checkin_abre > data_fim:
+            raise serializers.ValidationError({
+                'checkin_abre_em': 'A abertura do check-in não pode ser depois do término do evento.',
+            })
+        if checkin_abre and data_inicio and checkin_abre > data_inicio:
+            raise serializers.ValidationError({
+                'checkin_abre_em': 'A abertura do check-in não pode ser depois do início do evento.',
+            })
 
         if self.instance and 'valor_inscricao' in attrs:
             antigo = self.instance.valor_inscricao
@@ -535,7 +559,7 @@ class EventoSerializer(serializers.ModelSerializer):
         """Converte strings vazias em None para campos que podem ser nulos."""
         # Campos que podem ser nulos e devem aceitar string vazia como null
         nullable_fields = [
-            'data_fim', 'inscricao_inicio', 'inscricao_fim', 
+            'data_fim', 'checkin_abre_em', 'inscricao_inicio', 'inscricao_fim', 
             'vagas', 'valor_inscricao', 'endereco', 'imagem',
             'formulario_inscricao', 'grupo_categorias',
         ]
@@ -563,6 +587,9 @@ class EventoSerializer(serializers.ModelSerializer):
     
     def get_data_fim_formatada(self, obj):
         return self._formatar_data(obj.data_fim)
+
+    def get_checkin_abre_em_formatada(self, obj):
+        return self._formatar_data(obj.checkin_abre_em)
     
     def get_inscricao_inicio_formatada(self, obj):
         return self._formatar_data(obj.inscricao_inicio)
@@ -595,6 +622,7 @@ class EventoListaSerializer(serializers.ModelSerializer):
     status_inscricao = serializers.ReadOnlyField()
     tipo_display = serializers.CharField(source='get_tipo_display', read_only=True)
     data_inicio_formatada = serializers.SerializerMethodField()
+    checkin_abre_em_formatada = serializers.SerializerMethodField()
     valor_inscricao_formatado = serializers.SerializerMethodField()
     evento_particular = serializers.BooleanField(read_only=True)
     link_acesso = serializers.SerializerMethodField()
@@ -603,7 +631,8 @@ class EventoListaSerializer(serializers.ModelSerializer):
         model = Evento
         fields = [
             'id', 'titulo', 'tipo', 'tipo_display', 'data_inicio', 'data_inicio_formatada',
-            'local', 'vagas_disponiveis', 'imagem', 'destaque',
+            'checkin_abre_em', 'checkin_abre_em_formatada',
+            'local', 'vagas_disponiveis', 'imagem', 'destaque', 'status',
             'inscricoes_abertas', 'status_inscricao',
             'inscricao_inicio', 'inscricao_fim',
             'evento_pago', 'valor_inscricao', 'valor_inscricao_formatado',
@@ -620,6 +649,11 @@ class EventoListaSerializer(serializers.ModelSerializer):
         if obj.data_inicio is None:
             return None
         return timezone.localtime(obj.data_inicio).strftime('%d/%m/%Y %H:%M:%S')
+
+    def get_checkin_abre_em_formatada(self, obj):
+        if obj.checkin_abre_em is None:
+            return None
+        return timezone.localtime(obj.checkin_abre_em).strftime('%d/%m/%Y %H:%M:%S')
     
     def get_valor_inscricao_formatado(self, obj):
         """Formata valor no padrão brasileiro R$ X.XXX,XX"""
@@ -1225,3 +1259,86 @@ class CobrancaPublicaSerializer(serializers.ModelSerializer):
             from django.utils import timezone
             return timezone.localtime(obj.evento.data_inicio).strftime('%d/%m/%Y %H:%M')
         return None
+
+
+class SorteioSerializer(serializers.ModelSerializer):
+    """Serializer de sessão de sorteio."""
+
+    evento_titulo = serializers.CharField(source='evento.titulo', read_only=True)
+    evento_data_inicio_formatada = serializers.SerializerMethodField()
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    criado_por_nome = serializers.SerializerMethodField()
+    criado_em_formatado = serializers.SerializerMethodField()
+    encerrado_em_formatado = serializers.SerializerMethodField()
+    total_elegiveis = serializers.SerializerMethodField()
+    total_pool = serializers.SerializerMethodField()
+    total_ganhadores = serializers.SerializerMethodField()
+    total_rodadas = serializers.SerializerMethodField()
+    ganhadores = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Sorteio
+        fields = [
+            'id', 'evento', 'evento_titulo', 'evento_data_inicio_formatada', 'titulo',
+            'status', 'status_display', 'criado_por', 'criado_por_nome',
+            'criado_em', 'criado_em_formatado', 'encerrado_em', 'encerrado_em_formatado',
+            'total_elegiveis', 'total_pool', 'total_ganhadores', 'total_rodadas', 'ganhadores',
+        ]
+        read_only_fields = [
+            'id', 'status', 'criado_por', 'criado_em', 'encerrado_em',
+            'evento_titulo', 'status_display', 'criado_por_nome',
+            'total_elegiveis', 'total_pool', 'ganhadores',
+        ]
+
+    def get_criado_por_nome(self, obj):
+        if obj.criado_por:
+            return obj.criado_por.get_full_name() or obj.criado_por.username
+        return ''
+
+    def _formatar_data(self, data):
+        if not data:
+            return ''
+        from django.utils import timezone
+        return timezone.localtime(data).strftime('%d/%m/%Y %H:%M')
+
+    def get_evento_data_inicio_formatada(self, obj):
+        return self._formatar_data(obj.evento.data_inicio if obj.evento_id else None)
+
+    def get_criado_em_formatado(self, obj):
+        return self._formatar_data(obj.criado_em)
+
+    def get_encerrado_em_formatado(self, obj):
+        return self._formatar_data(obj.encerrado_em)
+
+    def get_total_ganhadores(self, obj):
+        from .sorteio import contar_ganhadores_confirmados
+        if hasattr(obj, '_prefetched_objects_cache') and 'ganhadores' in obj._prefetched_objects_cache:
+            return sum(1 for g in obj.ganhadores.all() if g.status == 'confirmado')
+        return contar_ganhadores_confirmados(obj)
+
+    def get_total_rodadas(self, obj):
+        from .sorteio import contar_rodadas_sorteio
+        if hasattr(obj, '_prefetched_objects_cache') and 'ganhadores' in obj._prefetched_objects_cache:
+            return len(obj.ganhadores.all())
+        return contar_rodadas_sorteio(obj)
+
+    def get_total_elegiveis(self, obj):
+        from .sorteio import contar_elegiveis
+        return contar_elegiveis(obj)
+
+    def get_total_pool(self, obj):
+        from .sorteio import contar_pool_sorteio
+        premio = self.context.get('premio', '')
+        return contar_pool_sorteio(obj, premio=premio)
+
+    def get_ganhadores(self, obj):
+        from .sorteio import serializar_ganhador
+        ganhadores = obj.ganhadores.select_related(
+            'inscricao__membro', 'inscricao__categoria', 'inscricao__responsavel'
+        ).order_by('rodada')
+        return [serializar_ganhador(g) for g in ganhadores]
+
+
+class SorteioCreateSerializer(serializers.Serializer):
+    evento_id = serializers.IntegerField()
+    titulo = serializers.CharField(required=False, allow_blank=True, max_length=200)

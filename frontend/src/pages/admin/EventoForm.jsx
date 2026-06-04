@@ -65,6 +65,7 @@ function EventoForm() {
   // Estados para as datas (objetos Date)
   const [dataInicio, setDataInicio] = useState(null)
   const [dataFim, setDataFim] = useState(null)
+  const [checkinAbreEm, setCheckinAbreEm] = useState(null)
   const [inscricaoInicio, setInscricaoInicio] = useState(null)
   const [inscricaoFim, setInscricaoFim] = useState(null)
   
@@ -350,6 +351,7 @@ function EventoForm() {
       
       setDataInicio(parsedDataInicio)
       setDataFim(parseDate(evento.data_fim))
+      setCheckinAbreEm(parseDate(evento.checkin_abre_em))
       setInscricaoInicio(parseDate(evento.inscricao_inicio))
       setInscricaoFim(parseDate(evento.inscricao_fim))
 
@@ -527,6 +529,12 @@ function EventoForm() {
         data.append('data_fim', formatDateForAPI(dataFim))
       } else if (isEditing) {
         data.append('data_fim', '')
+      }
+
+      if (checkinAbreEm) {
+        data.append('checkin_abre_em', formatDateForAPI(checkinAbreEm))
+      } else if (isEditing) {
+        data.append('checkin_abre_em', '')
       }
       
       if (formData.endereco) {
@@ -873,6 +881,20 @@ function EventoForm() {
                   minDate={dataInicio}
                 />
               </div>
+            </div>
+            <div className="mt-6">
+              <label className="label">
+                Abertura do check-in (opcional)
+              </label>
+              <DatePickerBR
+                selected={checkinAbreEm}
+                onChange={(date) => setCheckinAbreEm(date)}
+                placeholder="DD/MM/AAAA HH:MM"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Use para liberar o check-in antes do início do evento (ex.: equipe de organização às 18h para evento às 20h).
+                Deixe em branco para abrir o check-in somente no horário de início.
+              </p>
             </div>
           </div>
 

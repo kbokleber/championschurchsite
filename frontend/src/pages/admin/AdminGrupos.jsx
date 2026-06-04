@@ -1,14 +1,51 @@
-import { useState, useEffect } from 'react'
-import { Plus, Search, Edit, Trash2, Users, Shield } from 'lucide-react'
-import api from '../../services/api'
+import { useState, useEffect, useCallback } from 'react'
+import { useLocation } from 'react-router-dom'
+import { Plus, Search, Edit, Trash2, Users, RefreshCw } from 'lucide-react'
+import api, { formatApiError } from '../../services/api'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ConfirmModal from '../../components/ConfirmModal'
 import GrupoForm from './GrupoForm'
 
+function normalizarPathPaginacao(url) {
+  if (!url) return null
+  if (url.startsWith('http') && typeof window !== 'undefined') {
+    try {
+      const parsed = new URL(url)
+      return `${parsed.pathname}${parsed.search}`
+    } catch {
+      return url.replace(window.location.origin, '')
+    }
+  }
+  return url
+}
+
+async function buscarTodasPaginas(urlInicial, config = {}) {
+  let url = urlInicial
+  const itens = []
+
+  while (url) {
+    const response = await api.get(url, config)
+    const data = response.data
+
+    if (Array.isArray(data)) {
+      itens.push(...data)
+      break
+    }
+
+    itens.push(...(data.results || []))
+    url = normalizarPathPaginacao(data.next)
+  }
+
+  return itens
+}
+
 function AdminGrupos() {
+  const location = useLocation()
   const [grupos, setGrupos] = useState([])
   const [permissoes, setPermissoes] = useState([])
+  const [loadingPermissoes, setLoadingPermissoes] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [erroCarregamento, setErroCarregamento] = useState('')
   const [busca, setBusca] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [grupoEditando, setGrupoEditando] = useState(null)
@@ -17,50 +54,47 @@ function AdminGrupos() {
     grupo: null,
   })
 
-  useEffect(() => {
-    fetchGrupos()
-    fetchPermissoes()
-  }, [])
-
-  const fetchGrupos = async () => {
+  const fetchGrupos = useCallback(async (signal) => {
+    setLoading(true)
+    setErroCarregamento('')
     try {
-      const response = await api.get('/grupos/?incluir_inativos=true')
-      setGrupos(response.data.results || response.data)
+      const lista = await buscarTodasPaginas(
+        '/grupos/?incluir_inativos=true&page_size=200',
+        signal ? { signal } : {},
+      )
+      setGrupos(lista)
     } catch (error) {
+      if (error.code === 'ERR_CANCELED' || error.name === 'CanceledError') return
       console.error('Erro ao carregar grupos:', error)
+      setGrupos([])
+      setErroCarregamento(formatApiError(error, 'Não foi possível carregar os grupos.'))
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchGrupos(controller.signal)
+    return () => controller.abort()
+  }, [location.pathname, fetchGrupos])
 
   const fetchPermissoes = async () => {
+    setLoadingPermissoes(true)
     try {
-      // Busca todas as páginas para não perder permissões no fim da lista
-      // (ex.: "Loja / Cantina" quando a API está paginada).
-      let url = '/permissoes-menu/?incluir_inativos=true'
-      const todasPermissoes = []
-
-      while (url) {
-        const response = await api.get(url)
-        const data = response.data
-
-        if (Array.isArray(data)) {
-          todasPermissoes.push(...data)
-          url = null
-        } else {
-          todasPermissoes.push(...(data.results || []))
-          url = data.next
-          if (url?.includes(window.location.origin)) {
-            url = url.replace(window.location.origin, '')
-          }
-        }
-      }
-
+      const todasPermissoes = await buscarTodasPaginas('/permissoes-menu/?incluir_inativos=true&page_size=200')
       setPermissoes(todasPermissoes)
     } catch (error) {
       console.error('Erro ao carregar permissões:', error)
+    } finally {
+      setLoadingPermissoes(false)
     }
   }
+
+  useEffect(() => {
+    if (!showForm) return
+    fetchPermissoes()
+  }, [showForm])
 
   const handleNovo = () => {
     setGrupoEditando(null)
@@ -99,7 +133,7 @@ function AdminGrupos() {
   const handleSalvar = () => {
     setShowForm(false)
     setGrupoEditando(null)
-    fetchGrupos()
+    fetchGrupos(undefined)
   }
 
   const handleCancelar = () => {
@@ -123,6 +157,7 @@ function AdminGrupos() {
       <GrupoForm
         grupo={grupoEditando}
         permissoes={permissoes}
+        carregandoPermissoes={loadingPermissoes}
         onSalvar={handleSalvar}
         onCancelar={handleCancelar}
       />
@@ -145,6 +180,20 @@ function AdminGrupos() {
           Novo Grupo
         </button>
       </div>
+
+      {erroCarregamento && (
+        <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <p className="text-sm text-red-700">{erroCarregamento}</p>
+          <button
+            type="button"
+            onClick={() => fetchGrupos(undefined)}
+            className="btn-outline inline-flex items-center text-sm shrink-0"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Tentar novamente
+          </button>
+        </div>
+      )}
 
       {/* Search */}
       <div className="bg-white rounded-xl shadow-md p-4 mb-6">
@@ -190,7 +239,11 @@ function AdminGrupos() {
               {gruposFiltrados.length === 0 ? (
                 <tr>
                   <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
-                    Nenhum grupo encontrado
+                    {erroCarregamento
+                      ? 'Não foi possível carregar os grupos.'
+                      : busca.trim()
+                        ? 'Nenhum grupo encontrado para esta busca.'
+                        : 'Nenhum grupo encontrado'}
                   </td>
                 </tr>
               ) : (

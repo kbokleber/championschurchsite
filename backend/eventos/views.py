@@ -3420,16 +3420,27 @@ class SorteioViewSet(viewsets.ModelViewSet):
         elif acao == 'desmarcar_todos':
             SorteioElegivel.objects.filter(sorteio=sorteio).update(participa=False)
         elif acao == 'marcar_presentes':
-            SorteioElegivel.objects.filter(sorteio=sorteio).update(participa=False)
-            SorteioElegivel.objects.filter(sorteio=sorteio, inscricao__presente=True).update(participa=True)
-        elif acao == 'marcar_acompanhantes':
             SorteioElegivel.objects.filter(
-                sorteio=sorteio, inscricao__is_acompanhante=True
+                sorteio=sorteio,
+                inscricao__presente=False,
+            ).filter(
+                ~sorteio_service.q_inscricao_e_acompanhante('inscricao')
+            ).update(participa=False)
+            SorteioElegivel.objects.filter(sorteio=sorteio).filter(
+                sorteio_service.q_inscricao_titular_presente()
+            ).update(participa=True)
+        elif acao == 'marcar_acompanhantes':
+            SorteioElegivel.objects.filter(sorteio=sorteio).filter(
+                sorteio_service.q_inscricao_e_acompanhante()
             ).update(participa=True)
         elif acao == 'desmarcar_acompanhantes':
-            SorteioElegivel.objects.filter(
-                sorteio=sorteio, inscricao__is_acompanhante=True
+            SorteioElegivel.objects.filter(sorteio=sorteio).filter(
+                sorteio_service.q_inscricao_e_acompanhante()
             ).update(participa=False)
+        elif acao == 'aplicar_filtros':
+            presentes = bool(request.data.get('presentes'))
+            acompanhantes = bool(request.data.get('acompanhantes'))
+            sorteio_service.aplicar_filtros_curadoria(sorteio, presentes, acompanhantes)
         elif acao == 'somente_titulares':
             SorteioElegivel.objects.filter(sorteio=sorteio).update(participa=False)
             SorteioElegivel.objects.filter(

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Gift, Shuffle, Users, Search, Check, X, Trophy, RefreshCw, UserCheck, AlertCircle,
@@ -27,6 +27,20 @@ function premioDaSessao(sorteioData) {
   if (!ganhadores.length) return ''
   const comPremio = ganhadores.find((g) => (g.premio || '').trim())
   return (comPremio?.premio || ganhadores[0]?.premio || '').trim()
+}
+
+function ehAcompanhanteElegivel(item) {
+  return Boolean(item.is_acompanhante || item.responsavel_nome)
+}
+
+function itemVisivelCuradoria(item, filtroPresentes, filtroAcompanhantes) {
+  if (!filtroPresentes && !filtroAcompanhantes) return true
+  const acomp = ehAcompanhanteElegivel(item)
+  const titularPresente = item.presente && !acomp
+  if (filtroPresentes && filtroAcompanhantes) return titularPresente || acomp
+  if (filtroPresentes) return titularPresente
+  if (filtroAcompanhantes) return acomp
+  return true
 }
 
 function linhaDetalheGanhador(ganhador) {
@@ -256,6 +270,8 @@ function AdminSorteio() {
   const [excluindoSorteio, setExcluindoSorteio] = useState(false)
   const [abrindoSorteioId, setAbrindoSorteioId] = useState(null)
   const [marcandoAusenteId, setMarcandoAusenteId] = useState(null)
+  const [filtroPresentes, setFiltroPresentes] = useState(false)
+  const [filtroAcompanhantes, setFiltroAcompanhantes] = useState(false)
   const animacaoRef = useRef(null)
   const apresentacaoRef = useRef(null)
 
@@ -416,6 +432,8 @@ function AdminSorteio() {
     setErro('')
     setUltimoGanhador(null)
     setPremio('')
+    setFiltroPresentes(false)
+    setFiltroAcompanhantes(false)
     try {
       const { data } = await api.post('/sorteios/', { evento_id: Number(eventoSelecionado) })
       setSorteio(data)
@@ -440,6 +458,8 @@ function AdminSorteio() {
       setEventoSelecionado(String(data.evento))
       setConfigRecolhida(false)
       setModoApresentacao(false)
+      setFiltroPresentes(false)
+      setFiltroAcompanhantes(false)
       const ganhadores = data.ganhadores || []
       setUltimoGanhador(ganhadores.length ? ganhadores[ganhadores.length - 1] : null)
       setPremio(premioDaSessao(data))
@@ -491,12 +511,58 @@ function AdminSorteio() {
     }
   }
 
+  const aplicarFiltrosCuradoria = async (presentes, acompanhantes) => {
+    if (!sorteio || sorteio.status === 'encerrado') return null
+    const { data } = await api.patch(`/sorteios/${sorteio.id}/elegiveis/atualizar/`, {
+      acao: 'aplicar_filtros',
+      presentes,
+      acompanhantes,
+    })
+    setElegiveis(data.elegiveis || [])
+    setSorteio((prev) => (
+      prev && String(prev.id) === String(sorteio.id)
+        ? {
+            ...prev,
+            total_elegiveis: data.total_participa,
+            total_pool: data.total_pool ?? prev.total_pool,
+          }
+        : prev
+    ))
+    return data
+  }
+
+  const alternarFiltroPresentes = async () => {
+    const proximo = !filtroPresentes
+    setFiltroPresentes(proximo)
+    try {
+      await aplicarFiltrosCuradoria(proximo, filtroAcompanhantes)
+    } catch (err) {
+      setFiltroPresentes(!proximo)
+      setErro(err.response?.data?.error || 'Erro ao aplicar filtros.')
+    }
+  }
+
+  const alternarFiltroAcompanhantes = async () => {
+    const proximo = !filtroAcompanhantes
+    setFiltroAcompanhantes(proximo)
+    try {
+      await aplicarFiltrosCuradoria(filtroPresentes, proximo)
+    } catch (err) {
+      setFiltroAcompanhantes(!proximo)
+      setErro(err.response?.data?.error || 'Erro ao aplicar filtros.')
+    }
+  }
+
   const acaoEmLote = async (acao) => {
     if (!sorteio || sorteio.status === 'encerrado') return
     try {
       await api.patch(`/sorteios/${sorteio.id}/elegiveis/atualizar/`, {
         acao,
       })
+      if (acao === 'marcar_todos' || acao === 'desmarcar_todos') {
+        setFiltroPresentes(false)
+        setFiltroAcompanhantes(false)
+      }
       await recarregarElegiveisAposPatch()
     } catch (err) {
       setErro(err.response?.data?.error || 'Erro na ação em lote.')
@@ -541,7 +607,7 @@ function AdminSorteio() {
     if (!sorteio || sorteio.status === 'encerrado') return
     const premioNome = premio.trim()
     if (!premioNome) {
-      setErro('Informe o nome do prêmio antes de sortear.')
+      setErro('Informe o sorteio antes de sortear.')
       return
     }
     setSorteando(true)
@@ -622,6 +688,8 @@ function AdminSorteio() {
         setUltimoGanhador(null)
         setPremio('')
         setConfigRecolhida(false)
+        setFiltroPresentes(false)
+        setFiltroAcompanhantes(false)
       }
       if (historicoExpandidoId === confirmExcluirSorteio.id) {
         setHistoricoExpandidoId(null)
@@ -682,35 +750,39 @@ function AdminSorteio() {
     : 0
   const premioAtualLabel = premioPreenchido ? premio.trim() : 'informe o prêmio'
   const encerrado = sorteio?.status === 'encerrado'
+  const elegiveisCuradoria = useMemo(
+    () => elegiveis.filter((item) => itemVisivelCuradoria(item, filtroPresentes, filtroAcompanhantes)),
+    [elegiveis, filtroPresentes, filtroAcompanhantes],
+  )
 
   const painelAoVivo = (grande = false) => (
     <>
       {!encerrado && (
         <>
           <label className={`block font-medium text-gray-700 mb-1 ${grande ? 'text-lg' : 'text-sm'}`}>
-            Nome do prêmio <span className="text-red-600">*</span>
+            Sorteio de: <span className="text-red-600">*</span>
           </label>
           <input
             type="text"
             required
             readOnly={premioTravado}
-            className={`input-field mb-1 ${grande ? 'text-xl py-3' : ''} ${premioTravado ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-            placeholder="Ex.: Kit casal, Voucher jantar..."
+            className={`input-field ${grande ? 'text-xl py-3 mb-4' : 'mb-1'} ${premioTravado ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+            placeholder="Ex.: Voucher, Kit casal..."
             value={premio}
             onChange={(e) => setPremio(e.target.value)}
           />
-          {premioTravado && (
-            <p className={`text-gray-500 mb-1 ${grande ? 'text-sm' : 'text-xs'}`}>
+          {!grande && premioTravado && (
+            <p className="text-gray-500 mb-1 text-xs">
               Prêmio fixo desta sessão. Para sortear outro prêmio, inicie uma nova sessão.
             </p>
           )}
-          {!premioPreenchido && (
-            <p className={`text-amber-700 mb-4 ${grande ? 'text-base' : 'text-sm'}`}>
-              O nome do prêmio é obrigatório para sortear.
+          {!grande && !premioPreenchido && (
+            <p className="text-amber-700 mb-4 text-sm">
+              Informe o sorteio antes de continuar.
             </p>
           )}
-          {premioPreenchido && (
-            <p className={`text-gray-500 mb-4 ${grande ? 'text-sm' : 'text-xs'}`}>
+          {!grande && premioPreenchido && (
+            <p className="text-gray-500 mb-4 text-xs">
               {totalPool} participante{totalPool !== 1 ? 's' : ''} no pool · quem já ganhou este prêmio no evento não entra.
             </p>
           )}
@@ -734,8 +806,8 @@ function AdminSorteio() {
               </>
             )}
           </button>
-          {premioPreenchido && totalPool < 1 && (
-            <p className={`text-amber-700 mt-2 ${grande ? 'text-base' : 'text-sm'}`}>
+          {!grande && premioPreenchido && totalPool < 1 && (
+            <p className="text-amber-700 mt-2 text-sm">
               Nenhum participante disponível para o prêmio &quot;{premioAtualLabel}&quot;.
               Quem já ganhou o mesmo prêmio neste evento não entra no sorteio.
             </p>
@@ -760,7 +832,9 @@ function AdminSorteio() {
             return (
             <>
               <p className={`uppercase tracking-wide opacity-90 mb-2 ${grande ? 'text-xl' : 'text-sm'}`}>
-                {ultimoGanhador.premio ? `Prêmio: ${ultimoGanhador.premio}` : `Rodada ${ultimoGanhador.rodada}`}
+                {ultimoGanhador.premio
+                  ? `${grande ? 'Sorteio de' : 'Prêmio'}: ${ultimoGanhador.premio}`
+                  : `Rodada ${ultimoGanhador.rodada}`}
               </p>
               {!confirmado && (
                 <p className={`uppercase tracking-wide text-amber-200 mb-2 ${grande ? 'text-lg' : 'text-xs'}`}>
@@ -847,6 +921,8 @@ function AdminSorteio() {
                 setUltimoGanhador(null)
                 setPremio('')
                 setConfigRecolhida(false)
+                setFiltroPresentes(false)
+                setFiltroAcompanhantes(false)
               }}
               disabled={!!sorteio && !encerrado}
             >
@@ -901,15 +977,28 @@ function AdminSorteio() {
                 <button type="button" onClick={() => acaoEmLote('desmarcar_todos')} className="btn-outline text-sm py-1.5">
                   Desmarcar todos
                 </button>
-                <button type="button" onClick={() => acaoEmLote('marcar_presentes')} className="btn-outline text-sm py-1.5 flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={alternarFiltroPresentes}
+                  className={`text-sm py-1.5 flex items-center gap-1 border rounded-lg px-3 transition-colors ${
+                    filtroPresentes
+                      ? 'bg-primary-600 text-white border-primary-600'
+                      : 'btn-outline'
+                  }`}
+                >
                   <UserCheck className="h-4 w-4" />
-                  Só presentes
+                  Presentes
                 </button>
-                <button type="button" onClick={() => acaoEmLote('marcar_acompanhantes')} className="btn-outline text-sm py-1.5">
-                  Marcar acompanhantes
-                </button>
-                <button type="button" onClick={() => acaoEmLote('desmarcar_acompanhantes')} className="btn-outline text-sm py-1.5">
-                  Desmarcar acompanhantes
+                <button
+                  type="button"
+                  onClick={alternarFiltroAcompanhantes}
+                  className={`text-sm py-1.5 border rounded-lg px-3 transition-colors ${
+                    filtroAcompanhantes
+                      ? 'bg-primary-600 text-white border-primary-600'
+                      : 'btn-outline'
+                  }`}
+                >
+                  Acompanhantes
                 </button>
               </div>
             )}
@@ -928,8 +1017,12 @@ function AdminSorteio() {
 
           {loadingElegiveis ? (
             <LoadingSpinner />
-          ) : elegiveis.length === 0 ? (
-            <p className="text-gray-500 text-center py-8">Nenhum inscrito confirmado encontrado.</p>
+          ) : elegiveisCuradoria.length === 0 ? (
+            <p className="text-gray-500 text-center py-8">
+              {filtroPresentes || filtroAcompanhantes
+                ? 'Nenhum participante corresponde aos filtros ativos.'
+                : 'Nenhum inscrito confirmado encontrado.'}
+            </p>
           ) : (
             <div className="overflow-x-auto max-h-[420px] overflow-y-auto border rounded-lg">
               <table className="min-w-full divide-y divide-gray-200">
@@ -943,7 +1036,7 @@ function AdminSorteio() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 bg-white">
-                  {elegiveis.map((item) => {
+                  {elegiveisCuradoria.map((item) => {
                     const bloqueadoPremio = item.ja_ganhou_premio_evento
                     return (
                     <tr
@@ -1021,11 +1114,9 @@ function AdminSorteio() {
               <h1 className="text-lg sm:text-xl font-bold text-church-navy truncate">
                 {sorteio.evento_titulo || eventoAtual?.titulo || 'Evento'}
               </h1>
-              <p className="text-sm text-gray-600">
-                {premioPreenchido
-                  ? `${totalPool} no pool (${premio.trim()})`
-                  : `${totalParticipa} marcados na curadoria · informe o prêmio`}
-              </p>
+              {premioPreenchido && (
+                <p className="text-sm text-gray-600">Sorteio de: {premio.trim()}</p>
+              )}
             </div>
             <button
               type="button"
@@ -1133,7 +1224,7 @@ function AdminSorteio() {
               </h2>
               <p className="text-sm text-gray-500 mt-1">
                 {sorteio.evento_titulo || eventoAtual?.titulo}
-                {premioPreenchido ? ` · ${totalPool} no pool (${premio.trim()})` : ` · ${totalParticipa} marcados na curadoria`}
+                {premioPreenchido ? ` · Sorteio de: ${premio.trim()}` : ''}
               </p>
             </div>
             <button

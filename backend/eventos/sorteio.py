@@ -221,6 +221,33 @@ def contar_elegiveis(sorteio):
     return SorteioElegivel.objects.filter(sorteio=sorteio, participa=True).count()
 
 
+def q_inscricao_e_acompanhante(prefix='inscricao'):
+    """Inscrição de acompanhante (campo da inscrição, membro ou responsável)."""
+    return (
+        Q(**{f'{prefix}__is_acompanhante': True})
+        | Q(**{f'{prefix}__membro__is_acompanhante': True})
+        | Q(**{f'{prefix}__responsavel_id__isnull': False})
+    )
+
+
+def q_inscricao_titular_presente(prefix='inscricao'):
+    """Titular (não acompanhante) com check-in confirmado."""
+    return Q(**{f'{prefix}__presente': True}) & ~q_inscricao_e_acompanhante(prefix=prefix)
+
+
+def aplicar_filtros_curadoria(sorteio, presentes=False, acompanhantes=False):
+    """Marca participa conforme filtros combináveis de curadoria."""
+    SorteioElegivel.objects.filter(sorteio=sorteio).update(participa=False)
+    if not presentes and not acompanhantes:
+        return
+    filtro = Q()
+    if presentes:
+        filtro |= q_inscricao_titular_presente()
+    if acompanhantes:
+        filtro |= q_inscricao_e_acompanhante()
+    SorteioElegivel.objects.filter(sorteio=sorteio).filter(filtro).update(participa=True)
+
+
 def contar_pool_sorteio(sorteio, premio=None):
     """Participantes que ainda podem ser sorteados para o prêmio informado."""
     return queryset_pool_sorteio(sorteio, premio=premio).count()

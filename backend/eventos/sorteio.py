@@ -236,16 +236,19 @@ def q_inscricao_titular_presente(prefix='inscricao'):
 
 
 def aplicar_filtros_curadoria(sorteio, presentes=False, acompanhantes=False):
-    """Marca participa conforme filtros combináveis de curadoria."""
+    """Marca participa conforme filtros cumulativos (AND) de curadoria."""
     SorteioElegivel.objects.filter(sorteio=sorteio).update(participa=False)
     if not presentes and not acompanhantes:
         return
-    filtro = Q()
+
+    qs = SorteioElegivel.objects.filter(sorteio=sorteio)
     if presentes:
-        filtro |= q_inscricao_titular_presente()
+        qs = qs.filter(inscricao__presente=True)
     if acompanhantes:
-        filtro |= q_inscricao_e_acompanhante()
-    SorteioElegivel.objects.filter(sorteio=sorteio).filter(filtro).update(participa=True)
+        qs = qs.filter(q_inscricao_e_acompanhante())
+    elif presentes:
+        qs = qs.filter(~q_inscricao_e_acompanhante())
+    qs.update(participa=True)
 
 
 def contar_pool_sorteio(sorteio, premio=None):

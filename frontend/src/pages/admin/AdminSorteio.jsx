@@ -38,7 +38,6 @@ function itemVisivelCuradoria(item, filtroPresentes, filtroAcompanhantes) {
   const acomp = ehAcompanhanteElegivel(item)
   if (filtroPresentes && !item.presente) return false
   if (filtroAcompanhantes && !acomp) return false
-  if (filtroPresentes && !filtroAcompanhantes && acomp) return false
   return true
 }
 

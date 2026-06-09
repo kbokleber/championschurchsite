@@ -246,8 +246,6 @@ def aplicar_filtros_curadoria(sorteio, presentes=False, acompanhantes=False):
         qs = qs.filter(inscricao__presente=True)
     if acompanhantes:
         qs = qs.filter(q_inscricao_e_acompanhante())
-    elif presentes:
-        qs = qs.filter(~q_inscricao_e_acompanhante())
     qs.update(participa=True)
 
 

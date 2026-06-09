@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, Search, Edit, Trash2, Users, Phone, Eye, EyeOff, Key, ChevronLeft, ChevronRight } from 'lucide-react'
 import api from '../../services/api'
@@ -9,7 +9,9 @@ const PAGE_SIZE = 10
 
 function AdminMembros() {
   const [membros, setMembros] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [primeiraCarga, setPrimeiraCarga] = useState(true)
+  const [carregando, setCarregando] = useState(true)
+  const [buscaInput, setBuscaInput] = useState('')
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('todos')
   const [somenteComContato, setSomenteComContato] = useState(true)
@@ -32,8 +34,8 @@ function AdminMembros() {
     }))
   }
 
-  const fetchMembros = async () => {
-    setLoading(true)
+  const fetchMembros = useCallback(async () => {
+    setCarregando(true)
     try {
       const params = { page }
       if (busca.trim()) params.nome = busca.trim()
@@ -48,9 +50,16 @@ function AdminMembros() {
       setMembros([])
       setTotalCount(0)
     } finally {
-      setLoading(false)
+      setCarregando(false)
+      setPrimeiraCarga(false)
     }
-  }
+  }, [page, busca, filtroStatus, somenteComContato])
+
+  useEffect(() => {
+    const delay = buscaInput.trim() ? 400 : 0
+    const t = setTimeout(() => setBusca(buscaInput.trim()), delay)
+    return () => clearTimeout(t)
+  }, [buscaInput])
 
   // Ao mudar busca ou status, volta para página 1
   useEffect(() => {
@@ -60,7 +69,7 @@ function AdminMembros() {
   // Carrega membros quando página, busca ou status mudam
   useEffect(() => {
     fetchMembros()
-  }, [page, busca, filtroStatus, somenteComContato])
+  }, [fetchMembros])
 
   // Abre o modal de confirmação
   const handleDelete = (membro) => {
@@ -112,7 +121,7 @@ function AdminMembros() {
   const startItem = totalCount === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
   const endItem = Math.min(page * PAGE_SIZE, totalCount)
 
-  if (loading) {
+  if (primeiraCarga && carregando) {
     return <LoadingSpinner text="Carregando membros..." />
   }
 
@@ -144,8 +153,8 @@ function AdminMembros() {
             <input
               type="text"
               placeholder="Buscar por nome..."
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
+              value={buscaInput}
+              onChange={(e) => setBuscaInput(e.target.value)}
               className="input-field pl-10"
             />
           </div>
@@ -177,7 +186,12 @@ function AdminMembros() {
       </div>
 
       {/* Members Table */}
-      <div className="bg-white rounded-xl shadow-md overflow-hidden">
+      <div className="bg-white rounded-xl shadow-md overflow-hidden relative">
+        {carregando && !primeiraCarga && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60">
+            <LoadingSpinner text="Atualizando..." />
+          </div>
+        )}
         {membros.length > 0 ? (
           <>
           <div className="overflow-x-auto">

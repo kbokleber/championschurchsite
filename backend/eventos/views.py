@@ -3423,11 +3423,10 @@ class SorteioViewSet(viewsets.ModelViewSet):
             SorteioElegivel.objects.filter(
                 sorteio=sorteio,
                 inscricao__presente=False,
-            ).filter(
-                ~sorteio_service.q_inscricao_e_acompanhante('inscricao')
             ).update(participa=False)
-            SorteioElegivel.objects.filter(sorteio=sorteio).filter(
-                sorteio_service.q_inscricao_titular_presente()
+            SorteioElegivel.objects.filter(
+                sorteio=sorteio,
+                inscricao__presente=True,
             ).update(participa=True)
         elif acao == 'marcar_acompanhantes':
             SorteioElegivel.objects.filter(sorteio=sorteio).filter(

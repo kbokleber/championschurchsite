@@ -344,6 +344,53 @@ def enviar_recibo_whatsapp(request, codigo: str):
     template = (getattr(config, 'wa_msg_recibo_loja', '') or '').strip()
     mensagem = _build_msg_whatsapp(template, contexto)
 
+    try:
+        from eventos.whatsapp_queue import enfileirar_mensagem
+        job_id = enfileirar_mensagem(
+            tipo_msg='recibo_loja',
+            telefone=telefone,
+            mensagem_direta=mensagem,
+            instancia_override=instancia_loja,
+            api_key_override=api_key_loja or None,
+            referencia_tipo='cobranca_loja',
+            referencia_id=str(cobranca.id),
+        )
+        return Response({
+            'success': True,
+            'enfileirado': True,
+            'job_id': job_id,
+            'telefone': telefone,
+            'instancia': instancia_loja,
+            'link_recibo': contexto['link_recibo'],
+        })
+    except Exception as exc_fila:  # noqa: BLE001
+        logger.warning('Fila indisponivel para recibo loja, envio sincrono: %s', exc_fila)
+
+    # Pre-validacao da instancia da LOJA antes do envio sincrono.
+    from eventos.evolution_go import validar_instancia_evolution_go
+    validacao = validar_instancia_evolution_go(
+        config,
+        instancia_override=instancia_loja,
+        api_key_override=api_key_loja or None,
+    )
+    if not validacao.get('valido'):
+        logger.warning(
+            'Recibo loja (sync): instancia invalida (%s) instance=%s erro=%s',
+            validacao.get('motivo'), validacao.get('instance'),
+            (validacao.get('erro') or '')[:200],
+        )
+        detalhe = (validacao.get('erro') or '')[:300]
+        return Response(
+            {
+                'success': False,
+                'motivo': f"pre_validacao_{validacao.get('motivo')}",
+                'instancia': instancia_loja,
+                'url_usada': validacao.get('url_usada'),
+                'detalhe': detalhe,
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
     resultado = enviar_texto_evolution_go(
         config,
         telefone,
@@ -487,6 +534,53 @@ def enviar_lembrete_reserva_whatsapp(request, reserva_id: int):
     mensagem = template
     for chave, valor in contexto.items():
         mensagem = mensagem.replace('{' + chave + '}', str(valor))
+
+    try:
+        from eventos.whatsapp_queue import enfileirar_mensagem
+        job_id = enfileirar_mensagem(
+            tipo_msg='lembrete_reserva_loja',
+            telefone=telefone,
+            mensagem_direta=mensagem.strip(),
+            instancia_override=instancia_loja,
+            api_key_override=api_key_loja or None,
+            referencia_tipo='reserva_loja',
+            referencia_id=str(reserva.id),
+        )
+        return Response({
+            'success': True,
+            'enfileirado': True,
+            'job_id': job_id,
+            'telefone': telefone,
+            'instancia': instancia_loja,
+            'itens_enviados': itens_resumo,
+        })
+    except Exception as exc_fila:  # noqa: BLE001
+        logger.warning('Fila indisponivel para lembrete reserva, envio sincrono: %s', exc_fila)
+
+    # Pre-validacao da instancia da LOJA antes do envio sincrono.
+    from eventos.evolution_go import validar_instancia_evolution_go
+    validacao = validar_instancia_evolution_go(
+        config,
+        instancia_override=instancia_loja,
+        api_key_override=api_key_loja or None,
+    )
+    if not validacao.get('valido'):
+        logger.warning(
+            'Lembrete reserva loja (sync): instancia invalida (%s) instance=%s erro=%s',
+            validacao.get('motivo'), validacao.get('instance'),
+            (validacao.get('erro') or '')[:200],
+        )
+        detalhe = (validacao.get('erro') or '')[:300]
+        return Response(
+            {
+                'success': False,
+                'motivo': f"pre_validacao_{validacao.get('motivo')}",
+                'instancia': instancia_loja,
+                'url_usada': validacao.get('url_usada'),
+                'detalhe': detalhe,
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
 
     resultado = enviar_texto_evolution_go(
         config,

@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { 
   Church, LayoutDashboard, Calendar, Users, 
   FileText, Mail, LogOut, Menu, X, ChevronDown,
-  Home, QrCode, Settings, Tags, DollarSign, Shield, Store, DatabaseBackup, KeyRound, Map, Gift
+  Home, QrCode, Settings, Tags, DollarSign, Shield,   Store, DatabaseBackup, KeyRound, Map, Gift, ListChecks
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useConfiguracao } from '../contexts/ConfiguracaoContext'
@@ -27,6 +27,7 @@ const MENU_MAPPING = {
   'formularios_inscricao': { path: '/admin/formularios', label: 'Formulários', icon: FileText },
   'loja': { path: '/admin/loja', label: 'Loja / Cantina', icon: Store },
   'backup_import': { path: '/admin/backup-import', label: 'Backup e Restore', icon: DatabaseBackup },
+  'fila': { path: '/admin/fila', label: 'Fila de Integracoes', icon: ListChecks },
 }
 
 function AdminLayout({ children }) {

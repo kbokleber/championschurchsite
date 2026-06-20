@@ -88,6 +88,10 @@ router.register(r'loja/cobrancas', CobrancaLojaViewSet, basename='loja-cobranca'
 router.register(r'loja/reservas', ReservaLojaViewSet, basename='loja-reserva')
 router.register(r'loja/auditoria', LojaAuditoriaViewSet, basename='loja-auditoria')
 
+from .fila_views import JobFilaAdminViewSet  # noqa: E402
+
+router.register(r'fila/jobs', JobFilaAdminViewSet, basename='fila-jobs')
+
 urlpatterns = [
     # Autenticação JWT
     path('auth/login/', TokenObtainPairThrottledView.as_view(), name='token_obtain_pair'),

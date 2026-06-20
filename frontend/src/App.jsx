@@ -36,6 +36,7 @@ import AdminCategorias from './pages/admin/AdminCategorias'
 import AdminCobrancas from './pages/admin/AdminCobrancas'
 import Checkin from './pages/admin/Checkin'
 import AdminSorteio from './pages/admin/AdminSorteio'
+import AdminFila from './pages/admin/AdminFila'
 import AdminUsuarios from './pages/admin/AdminUsuarios'
 import AdminGrupos from './pages/admin/AdminGrupos'
 import AdminFormularios from './pages/admin/AdminFormularios'
@@ -60,6 +61,7 @@ const MENU_HOME_PATH = {
   cobrancas: '/admin/cobrancas',
   checkin: '/admin/checkin',
   sorteio: '/admin/sorteio',
+  fila: '/admin/fila',
   contatos: '/admin/contatos',
   categorias: '/admin/categorias',
   configuracoes: '/admin/configuracoes',
@@ -213,6 +215,11 @@ function App() {
         <Route path="/admin/sorteio" element={
           <ProtectedRoute>
             <AdminLayout><AdminSorteio /></AdminLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/fila" element={
+          <ProtectedRoute>
+            <AdminLayout><AdminFila /></AdminLayout>
           </ProtectedRoute>
         } />
         <Route path="/admin/configuracoes" element={

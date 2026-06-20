@@ -378,6 +378,19 @@ def enviar_whatsapp_inscricao_isenta_admin(membro, inscricao, evento, *, request
     try:
         config = ConfiguracaoSite.get_config()
         config.refresh_from_db()
+        # Pre-validacao: garante que a instancia configurada existe/esta conectada
+        # antes de tentar enviar. Sem cache — sempre pega a config fresca.
+        from .evolution_go import validar_instancia_evolution_go
+        validacao = validar_instancia_evolution_go(config)
+        if not validacao.get('valido'):
+            logger.warning(
+                'WhatsApp isencao_admin: instancia invalida (%s) instance=%s url=%s erro=%s',
+                validacao.get('motivo'),
+                validacao.get('instance'),
+                validacao.get('url_usada'),
+                (validacao.get('erro') or '')[:200],
+            )
+            return {'entregue': False, 'motivo': f"pre_validacao_{validacao.get('motivo')}", 'url_usada': validacao.get('url_usada')}
         variaveis = _montar_variaveis_whatsapp_isencao_admin(
             membro, inscricao, evento, config, request=request
         )
@@ -409,6 +422,30 @@ def enviar_whatsapp_inscricao_isenta_admin(membro, inscricao, evento, *, request
 
 
 def _disparar_whatsapp_isencao_admin_background(membro, inscricao, evento, request=None):
+    """Enfileira o envio de WhatsApp de inscricao isenta (admin).
+
+    Tenta usar a fila persistente. Se o Redis/worker nao estiverem
+    disponiveis (ex.: dev local sem infra de fila), cai para thread
+    daemon, preservando o comportamento anterior.
+    """
+    try:
+        from .whatsapp_queue import enfileirar_mensagem
+        config = ConfiguracaoSite.get_config()
+        config.refresh_from_db()
+        variaveis = _montar_variaveis_whatsapp_isencao_admin(
+            membro, inscricao, evento, config, request=request,
+        )
+        enfileirar_mensagem(
+            tipo_msg='inscricao_isenta_admin',
+            telefone=membro.telefone or '',
+            variaveis=variaveis,
+            referencia_tipo='inscricao',
+            referencia_id=str(inscricao.id),
+        )
+        return
+    except Exception as exc:  # noqa: BLE001
+        logger.warning('Fila indisponivel para isencao_admin, usando thread: %s', exc)
+
     thread = threading.Thread(
         target=enviar_whatsapp_inscricao_isenta_admin,
         kwargs={'membro': membro, 'inscricao': inscricao, 'evento': evento, 'request': request},
@@ -418,8 +455,10 @@ def _disparar_whatsapp_isencao_admin_background(membro, inscricao, evento, reque
 
 
 def enviar_webhook_inscricao(dados_webhook, *, timeout=30, max_endpoints=None):
-    """
-    Envia mensagem WhatsApp de inscrição via Evolution Go.
+    """Envia mensagem WhatsApp de inscricao via Evolution Go.
+
+    Caminho principal: enfileira na fila persistente.
+    Fallback: envia de forma sincrona (se Redis/worker indisponivel).
     """
     try:
         config = ConfiguracaoSite.get_config()
@@ -447,8 +486,48 @@ def enviar_webhook_inscricao(dados_webhook, *, timeout=30, max_endpoints=None):
             'email': dados_webhook.get('email') or '',
             'igreja_nome': config.nome_igreja or '',
         }
-        msg_payload = _build_whatsapp_message_payload(config, tipo_msg, variaveis_msg)
         telefone_destino = (dados_webhook.get('telefone') or '').strip()
+        inscricao_id = dados_webhook.get('inscricao_id') or dados_webhook.get('codigo') or ''
+
+        try:
+            from .whatsapp_queue import enfileirar_mensagem
+            job_id = enfileirar_mensagem(
+                tipo_msg=tipo_msg,
+                telefone=telefone_destino,
+                variaveis=variaveis_msg,
+                referencia_tipo='inscricao',
+                referencia_id=str(inscricao_id),
+            )
+            logger.info(
+                'WhatsApp inscricao enfileirado (tipo=%s, telefone=%s, job=%s)',
+                tipo_msg, telefone_destino, job_id,
+            )
+            return {
+                'entregue': True,
+                'motivo': 'enfileirado',
+                'telefone': telefone_destino,
+                'job_id': job_id,
+            }
+        except Exception as exc_fila:  # noqa: BLE001
+            logger.warning('Fila indisponivel para inscricao, envio sincrono: %s', exc_fila)
+
+        # Pre-validacao da instancia antes do envio sincrono (fallback).
+        from .evolution_go import validar_instancia_evolution_go
+        validacao = validar_instancia_evolution_go(config)
+        if not validacao.get('valido'):
+            logger.warning(
+                'WhatsApp inscricao (sync): instancia invalida (%s) instance=%s erro=%s',
+                validacao.get('motivo'), validacao.get('instance'),
+                (validacao.get('erro') or '')[:200],
+            )
+            return {
+                'entregue': False,
+                'motivo': f"pre_validacao_{validacao.get('motivo')}",
+                'telefone': telefone_destino,
+                'url_usada': validacao.get('url_usada'),
+            }
+
+        msg_payload = _build_whatsapp_message_payload(config, tipo_msg, variaveis_msg)
         resultado = enviar_texto_evolution_go(
             config,
             telefone_destino,
@@ -458,7 +537,7 @@ def enviar_webhook_inscricao(dados_webhook, *, timeout=30, max_endpoints=None):
         )
         if not resultado.get('entregue'):
             logger.error(
-                'WhatsApp inscrição falhou (tipo=%s, telefone=%s, motivo=%s, status=%s, erro=%s)',
+                'WhatsApp inscricao falhou (tipo=%s, telefone=%s, motivo=%s, status=%s, erro=%s)',
                 tipo_msg,
                 resultado.get('telefone') or telefone_destino,
                 resultado.get('motivo'),
@@ -467,14 +546,14 @@ def enviar_webhook_inscricao(dados_webhook, *, timeout=30, max_endpoints=None):
             )
         else:
             logger.info(
-                'WhatsApp inscrição enviado (tipo=%s, telefone=%s, url=%s)',
+                'WhatsApp inscricao enviado (tipo=%s, telefone=%s, url=%s)',
                 tipo_msg,
                 resultado.get('telefone'),
                 resultado.get('url_usada'),
             )
         return resultado
     except Exception as e:
-        logger.error(f'Erro ao enviar WhatsApp de inscrição: {str(e)}')
+        logger.error(f'Erro ao enviar WhatsApp de inscricao: {str(e)}')
         return {'entregue': False, 'motivo': 'requisicao_erro', 'erro': str(e)}
 
 
@@ -526,13 +605,9 @@ def _resposta_2xx_item_dict_indica_falha(d: dict) -> bool:
 
 
 def enviar_webhook_reset_senha(dados_webhook):
-    """
-    Envia mensagem de "esqueci minha senha" (síncrono) via Evolution Go.
+    """Envia mensagem de reset de senha via Evolution Go.
 
-    Retorno:
-        entregue (bool): True se o envio for aceito pela Evolution Go
-        motivo (str): configuracao_incompleta | telefone_invalido | corpo_indica_falha | http_erro | requisicao_erro | ok
-        detalhe (str|None): resumo para log (e opcional envio_ao_cliente, sem vazar se não cadastrado)
+    Tenta usar a fila persistente. Fallback: envio sincrono (sem fila).
     """
     resultado = {'entregue': False, 'motivo': 'requisicao_erro', 'http_status': None, 'url_usada': None, 'erro': None}
     try:
@@ -546,6 +621,38 @@ def enviar_webhook_reset_senha(dados_webhook):
             'igreja_nome': config.nome_igreja or '',
             'link_reset': dados_webhook.get('link_reset') or '',
         }
+        try:
+            from .whatsapp_queue import enfileirar_mensagem
+            job_id = enfileirar_mensagem(
+                tipo_msg='reset_senha',
+                telefone=(dados_webhook.get('telefone') or '').strip(),
+                variaveis=variaveis_msg,
+                referencia_tipo='membro',
+                referencia_id=str(dados_webhook.get('membro_id') or ''),
+            )
+            logger.info(
+                'WhatsApp reset_senha enfileirado (telefone=%s, job=%s)',
+                dados_webhook.get('telefone'), job_id,
+            )
+            return {'entregue': True, 'motivo': 'enfileirado', 'job_id': job_id}
+        except Exception as exc_fila:  # noqa: BLE001
+            logger.warning('Fila indisponivel para reset_senha, envio sincrono: %s', exc_fila)
+
+        # Pre-validacao da instancia antes do envio sincrono (fallback).
+        from .evolution_go import validar_instancia_evolution_go
+        validacao = validar_instancia_evolution_go(config)
+        if not validacao.get('valido'):
+            logger.warning(
+                'WhatsApp reset_senha (sync): instancia invalida (%s) instance=%s erro=%s',
+                validacao.get('motivo'), validacao.get('instance'),
+                (validacao.get('erro') or '')[:200],
+            )
+            return {
+                'entregue': False,
+                'motivo': f"pre_validacao_{validacao.get('motivo')}",
+                'url_usada': validacao.get('url_usada'),
+            }
+
         msg_payload = _build_whatsapp_message_payload(config, 'reset_senha', variaveis_msg)
         resultado = enviar_texto_evolution_go(
             config,
@@ -2276,6 +2383,17 @@ class _EmAndamentoPermission(BasePermission):
         return _admin_eventos_checkin_sorteio(request)
 
 
+def _enfileirar_ou_thread_webhook_evento(evento, acao):
+    """Dispara webhook_evento em thread daemon.
+
+    Este caminho NAO usa a fila persistente — o webhook de evento e um
+    fire-and-forget de notificacao externa. Para manter o escopo da
+    fila apenas em mensagens WhatsApp e vendas (Mercado Pago / loja),
+    este caminho volta a ser thread direta.
+    """
+    threading.Thread(target=enviar_webhook_evento, args=(evento, acao)).start()
+
+
 def _filtrar_eventos_publicos(queryset, request):
     """
     Oculta eventos particulares nas listagens públicas.
@@ -2297,14 +2415,12 @@ class EventoViewSet(viewsets.ModelViewSet):
         serializer.save()
         evento = serializer.instance
         _aplicar_imagem_padrao_evento(evento)
-        thread = threading.Thread(target=enviar_webhook_evento, args=(evento, 'criado'))
-        thread.start()
-    
+        _enfileirar_ou_thread_webhook_evento(evento, 'criado')
+
     def perform_update(self, serializer):
         serializer.save()
-        thread = threading.Thread(target=enviar_webhook_evento, args=(serializer.instance, 'atualizado'))
-        thread.start()
-    
+        _enfileirar_ou_thread_webhook_evento(serializer.instance, 'atualizado')
+
     def perform_destroy(self, instance):
         snapshot = {
             'id': instance.id,
@@ -2323,8 +2439,7 @@ class EventoViewSet(viewsets.ModelViewSet):
             'destaque': instance.destaque,
         }
         instance.delete()
-        thread = threading.Thread(target=enviar_webhook_evento, args=(snapshot, 'excluido'))
-        thread.start()
+        _enfileirar_ou_thread_webhook_evento(snapshot, 'excluido')
     
     def create(self, request, *args, **kwargs):
         """Override create para capturar e logar erros 500 (ex.: permissão em /media)."""
@@ -2751,12 +2866,10 @@ class InscricaoViewSet(viewsets.ModelViewSet):
             'acompanhantes': acompanhantes_lista,
             'total_inscritos': 1 + len(acompanhantes_lista),
         }
-        
-        # Dispara webhook em background
-        thread = threading.Thread(target=enviar_webhook_inscricao, args=(dados_webhook,))
-        thread.daemon = True
-        thread.start()
-    
+
+        # O envio enfileira internamente (com fallback para envio sincrono)
+        enviar_webhook_inscricao(dados_webhook)
+
     @action(detail=True, methods=['post'])
     def confirmar_pagamento(self, request, pk=None):
         """Confirma o pagamento de uma inscrição e libera o ingresso (gera QR code).
@@ -2947,12 +3060,10 @@ class InscricaoViewSet(viewsets.ModelViewSet):
             'acompanhantes': acompanhantes_lista,
             'total_inscritos': 1 + len(acompanhantes_lista),
         }
-        
-        # Dispara webhook em background
-        thread = threading.Thread(target=enviar_webhook_inscricao, args=(dados_webhook,))
-        thread.daemon = True
-        thread.start()
-        
+
+        # O envio enfileira internamente (com fallback para envio sincrono)
+        enviar_webhook_inscricao(dados_webhook)
+
         return Response({
             'success': True,
             'message': f'Pagamento confirmado para {1 + len(acompanhantes_lista)} pessoa(s)!',
@@ -4833,6 +4944,22 @@ def mercadopago_webhook(request):
 
     idempotency_key = f"mp:{topic}:{resource_id}"
 
+    if WebhookEventLog.objects.filter(request_id=idempotency_key).exists():
+        return Response({'status': 'already_processed'})
+
+    # Caminho principal: enfileira. Fallback: thread daemon.
+    try:
+        from .fila import enfileirar
+        job_id = enfileirar(
+            'mp_processar_pagamento_webhook',
+            {'resource_id': resource_id, 'topic': topic, 'idempotency_key': idempotency_key},
+            referencia_tipo='mp_webhook',
+            referencia_id=resource_id,
+        )
+        return Response({'status': 'accepted', 'job_id': job_id})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning('Fila indisponivel para webhook MP, thread: %s', exc)
+
     def _run_webhook():
         if WebhookEventLog.objects.filter(request_id=idempotency_key).exists():
             return
@@ -4955,14 +5082,43 @@ def _disparar_webhook_cobranca_confirmada(cobranca, tipo='pagamento_confirmado',
         'status_pagamento': _whatsapp_status_pagamento_label('confirmado'),
         'valor_total': str(float(cobranca.valor)),
         'codigo_inscricao': (inscricoes_lista[0].get('codigo') if inscricoes_lista else '') or '',
+        'codigo_cobranca': cobranca.codigo or f'#{cobranca.id}',
         'telefone': telefone_formatado or membro.telefone or '',
         'email': membro.email or '',
         'igreja_nome': config.nome_igreja or '',
     }
     msg_payload = _build_whatsapp_message_payload(config, 'inscricao_paga_confirmada', variaveis_msg)
-    
+
+    try:
+        from .whatsapp_queue import enfileirar_mensagem
+        job_id = enfileirar_mensagem(
+            tipo_msg='cobranca_confirmada',
+            telefone=(membro.telefone or '').strip(),
+            variaveis=variaveis_msg,
+            referencia_tipo='cobranca',
+            referencia_id=str(cobranca.id),
+        )
+        logger.info(
+            'WhatsApp cobranca_confirmada enfileirado (tipo=%s, job=%s)',
+            tipo, job_id,
+        )
+        return
+    except Exception as exc_fila:  # noqa: BLE001
+        logger.warning('Fila indisponivel para cobranca_confirmada, thread: %s', exc_fila)
+
     def enviar():
         try:
+            # Pre-validacao: garante que a instancia configurada existe/esta
+            # conectada antes de tentar enviar (sempre pega config fresca).
+            from .evolution_go import validar_instancia_evolution_go
+            validacao = validar_instancia_evolution_go(config)
+            if not validacao.get('valido'):
+                logger.warning(
+                    'WhatsApp cobranca_confirmada (sync): instancia invalida (%s) instance=%s erro=%s',
+                    validacao.get('motivo'), validacao.get('instance'),
+                    (validacao.get('erro') or '')[:200],
+                )
+                return
             resultado = enviar_texto_evolution_go(
                 config,
                 membro.telefone or '',
@@ -4985,7 +5141,7 @@ def _disparar_webhook_cobranca_confirmada(cobranca, tipo='pagamento_confirmado',
                 )
         except Exception as e:
             print(f'[WHATSAPP] Erro: {str(e)}')
-    
+
     thread = threading.Thread(target=enviar)
     thread.daemon = True
     thread.start()

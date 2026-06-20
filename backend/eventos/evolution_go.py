@@ -160,6 +160,215 @@ def _response_json_indica_falha(response: requests.Response) -> bool:
     return False
 
 
+def validar_instancia_evolution_go(
+    config,
+    instancia_override: Optional[str] = None,
+    api_key_override: Optional[str] = None,
+    timeout: int = 15,
+) -> Dict[str, Any]:
+    """Valida a instancia configurada contra a Evolution Go (sempre, sem cache).
+
+    Tenta primeiro o formato "classico" (/instance/status/<instancia>). Se a
+    rota nao existir (404 literal "page not found" = versao Evolution Go v2
+    da API), faz fallback para validar via /instance/status (token) +
+    /instance/all (global_api_key) para conferir o nome da instancia.
+
+    Devolve:
+
+        {
+          valido: bool,
+          motivo: str,
+          http_status: int|None,
+          url_usada: str|None,
+          erro: str|None,
+          instance: str|None,
+        }
+
+    Motivos possiveis: 'ok' | 'instancia_inexistente' | 'nao_conectada' |
+    'configuracao_incompleta' | 'requisicao_erro' | 'global_api_key_invalida'
+    | 'instancia_nao_encontrada' | 'token_instancia_incompativel'.
+    """
+    resultado = {
+        "valido": False,
+        "motivo": "requisicao_erro",
+        "http_status": None,
+        "url_usada": None,
+        "erro": None,
+        "instance": None,
+    }
+
+    api_url = (getattr(config, "evolution_api_url", "") or "").strip().rstrip("/")
+    if api_key_override is not None and (api_key_override or "").strip():
+        api_key = (api_key_override or "").strip()
+    else:
+        api_key = (getattr(config, "evolution_api_key", "") or "").strip()
+    global_api_key = (
+        getattr(config, "evolution_global_api_key", "") or ""
+    ).strip()
+    if instancia_override is not None:
+        instance = (instancia_override or "").strip()
+    else:
+        instance = (getattr(config, "evolution_api_instance", "") or "").strip()
+
+    resultado["instance"] = instance or None
+
+    if not api_url or not api_key:
+        resultado["motivo"] = "configuracao_incompleta"
+        resultado["erro"] = "URL base ou API key nao configurados"
+        return resultado
+
+    if not instance:
+        resultado["motivo"] = "configuracao_incompleta"
+        resultado["erro"] = "Nome da instancia nao configurado"
+        return resultado
+
+    headers = _build_headers(api_key)
+    base_urls = _build_base_urls(api_url)
+    urls_classicas = []
+    for base in base_urls:
+        urls_classicas.extend([
+            f"{base}/instance/status/{instance}",
+            f"{base}/api/instance/status/{instance}",
+        ])
+    urls_classicas = list(dict.fromkeys(urls_classicas))
+
+    fallback_evolution_go_v2 = False
+
+    for url in urls_classicas:
+        resultado["url_usada"] = url
+        try:
+            response = requests.get(url, headers=headers, timeout=timeout)
+            resultado["http_status"] = response.status_code
+
+            # 404 literal = a rota com /{nome}/ nao existe nesta versao
+            # da Evolution (estilo v2). Marca fallback para tentar
+            # /instance/status + catalogo via global_api_key.
+            if _resposta_e_404_rota_inexistente(response):
+                fallback_evolution_go_v2 = True
+                break
+
+            if 200 <= response.status_code < 300:
+                try:
+                    data = response.json()
+                except (TypeError, ValueError):
+                    data = {}
+                # A Evolution pode devolver {"instance":{"state":"open"}}
+                # ou {"state":"open"} direto.
+                state = None
+                if isinstance(data, dict):
+                    if isinstance(data.get("instance"), dict):
+                        state = data["instance"].get("state")
+                    state = state or data.get("state")
+                if state and str(state).lower() in ("open", "connected", "online"):
+                    resultado["valido"] = True
+                    resultado["motivo"] = "ok"
+                    resultado["erro"] = None
+                    return resultado
+                # 200 mas nao conectado
+                resultado["motivo"] = "nao_conectada"
+                resultado["erro"] = f"Instancia '{instance}' retornou state={state!r}"
+                return resultado
+
+            # 4xx "real" (nao 404 literal) = nome de instancia invalido
+            # nesta API classica. Nao tenta fallback.
+            if response.status_code == 404:
+                body_preview = (response.text or "")[:300]
+                resultado["motivo"] = "instancia_inexistente"
+                resultado["erro"] = body_preview or f"Instancia '{instance}' nao encontrada"
+                return resultado
+
+            # Outros 4xx/5xx: falha transitoria, deixa o retry da fila lidar.
+            body_preview = (response.text or "")[:300]
+            resultado["motivo"] = "requisicao_erro"
+            resultado["erro"] = body_preview or f"HTTP {response.status_code}"
+            if response.status_code in (401, 403):
+                return resultado
+        except Exception as exc:
+            resultado["motivo"] = "requisicao_erro"
+            resultado["erro"] = str(exc)
+
+    if fallback_evolution_go_v2:
+        # Estilo Evolution Go v2: valida via /instance/status (token) +
+        # /instance/all (global_api_key) para conferir nome.
+        if not global_api_key:
+            resultado["motivo"] = "global_api_key_necessaria"
+            resultado["erro"] = (
+                "A API do Evolution Go (v2) exige a GLOBAL_API_KEY para "
+                "validar o nome da instancia. Informe-a em Configuracoes > "
+                "WhatsApp > Credenciais."
+            )
+            return resultado
+
+        for base in base_urls:
+            url_status = f"{base}/instance/status"
+            resultado["url_usada"] = url_status
+            try:
+                r = requests.get(url_status, headers=headers, timeout=timeout)
+                resultado["http_status"] = r.status_code
+                if r.status_code in (401, 403):
+                    resultado["motivo"] = "nao_autorizado"
+                    resultado["erro"] = "Token da instancia recusado pelo servidor Evolution Go."
+                    return resultado
+                if not (200 <= r.status_code < 300):
+                    resultado["motivo"] = "requisicao_erro"
+                    resultado["erro"] = (r.text or "")[:300]
+                    continue
+
+                conectado, _logado = _connection_flags(_json_response(r) or {})
+                if conectado is False:
+                    resultado["motivo"] = "nao_conectada"
+                    resultado["erro"] = (
+                        f'Token da instancia "{instance}" valido, mas WhatsApp '
+                        'nao esta conectado.'
+                    )
+                    return resultado
+
+                instancias, erro_listagem, http_listagem = _buscar_instancias_evolution_go(
+                    base, global_api_key,
+                )
+                if erro_listagem == "global_api_key_invalida":
+                    resultado["motivo"] = "global_api_key_invalida"
+                    resultado["erro"] = "A GLOBAL_API_KEY do Evolution Go foi recusada."
+                    return resultado
+                if erro_listagem and not instancias:
+                    resultado["motivo"] = "requisicao_erro"
+                    resultado["erro"] = (
+                        f"Falha ao consultar catalogo de instancias (HTTP {http_listagem}): "
+                        f"{erro_listagem[:200]}"
+                    )
+                    return resultado
+
+                ok_nome, motivo_nome, detalhe_nome = _validar_instancia_no_catalogo(
+                    instancias, instance, api_key,
+                )
+                if ok_nome:
+                    if conectado is None:
+                        # Sem flag de conexao no payload, mas nome+token OK.
+                        # Confia no retorno da /instance/status.
+                        resultado["valido"] = True
+                        resultado["motivo"] = "ok"
+                        resultado["erro"] = None
+                        return resultado
+                    resultado["valido"] = True
+                    resultado["motivo"] = "ok"
+                    resultado["erro"] = None
+                    return resultado
+
+                if motivo_nome == "instancia_nao_encontrada":
+                    resultado["motivo"] = "instancia_inexistente"
+                elif motivo_nome == "token_instancia_incompativel":
+                    resultado["motivo"] = "token_instancia_incompativel"
+                else:
+                    resultado["motivo"] = motivo_nome or "requisicao_erro"
+                resultado["erro"] = detalhe_nome
+                return resultado
+            except Exception as exc:
+                resultado["motivo"] = "requisicao_erro"
+                resultado["erro"] = str(exc)
+
+    return resultado
+
+
 def enviar_texto_evolution_go(
     config,
     telefone: str,

@@ -8,6 +8,8 @@ from .models import (
     Membro, Evento, Inscricao, Contato,
     FormularioInscricao, CampoFormulario, RespostaCampoInscricao,
 )
+from .models_fila import JobFila, TentativaJob, WhatsappMensagem
+from .fila import cancelar as fila_cancelar, reenviar as fila_reenviar
 
 
 @admin.register(Membro)
@@ -217,3 +219,88 @@ class ContatoAdmin(admin.ModelAdmin):
 admin.site.site_header = "Champions Church - Administração"
 admin.site.site_title = "Champions Church Admin"
 admin.site.index_title = "Painel de Controle"
+
+
+@admin.register(JobFila)
+class JobFilaAdmin(admin.ModelAdmin):
+    list_display = ('id', 'tipo', 'fila', 'status_badge', 'tentativas', 'proxima_execucao_em', 'referencia', 'criado_em')
+    list_filter = ('status', 'fila', 'tipo', 'criado_em')
+    search_fields = ('referencia_id', 'ultimo_erro', 'job_id', 'payload')
+    readonly_fields = ('tipo', 'fila', 'payload', 'tentativas', 'max_tentativas',
+                       'ultima_execucao_em', 'duracao_ms', 'ultimo_erro',
+                       'referencia_tipo', 'referencia_id', 'job_id',
+                       'criado_em', 'atualizado_em', 'concluido_em')
+    actions = ['reenviar_selecionados', 'cancelar_selecionados']
+    ordering = ('-criado_em',)
+    date_hierarchy = 'criado_em'
+
+    def status_badge(self, obj):
+        cores = {
+            'pendente': '#f59e0b',
+            'executando': '#3b82f6',
+            'sucesso': '#10b981',
+            'falha': '#ef4444',
+            'cancelado': '#6b7280',
+        }
+        cor = cores.get(obj.status, '#6b7280')
+        return format_html(
+            '<span style="background:{};color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;">{}</span>',
+            cor, obj.get_status_display(),
+        )
+    status_badge.short_description = 'Status'
+
+    def referencia(self, obj):
+        if obj.referencia_tipo:
+            return f'{obj.referencia_tipo} #{obj.referencia_id}' if obj.referencia_id else obj.referencia_tipo
+        return '-'
+    referencia.short_description = 'Referencia'
+
+    def has_add_permission(self, request):
+        return False
+
+    @admin.action(description='Reenviar jobs selecionados')
+    def reenviar_selecionados(self, request, queryset):
+        ok = 0
+        for job in queryset.exclude(status__in=('executando',)):
+            if fila_reenviar(job.id):
+                ok += 1
+        self.message_user(request, f'{ok} job(s) reenfileirado(s).')
+
+    @admin.action(description='Cancelar jobs pendentes')
+    def cancelar_selecionados(self, request, queryset):
+        ok = 0
+        for job in queryset.filter(status='pendente'):
+            if fila_cancelar(job.id):
+                ok += 1
+        self.message_user(request, f'{ok} job(s) cancelado(s).')
+
+
+@admin.register(TentativaJob)
+class TentativaJobAdmin(admin.ModelAdmin):
+    list_display = ('id', 'job', 'iniciado_em', 'terminou_em', 'sucesso', 'http_status')
+    list_filter = ('sucesso', 'iniciado_em')
+    search_fields = ('job__id', 'erro')
+    readonly_fields = ('job', 'iniciado_em', 'terminou_em', 'sucesso', 'erro', 'http_status')
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(WhatsappMensagem)
+class WhatsappMensagemAdmin(admin.ModelAdmin):
+    list_display = ('id', 'tipo', 'telefone', 'job_status', 'criado_em')
+    list_filter = ('tipo', 'job__status')
+    search_fields = ('telefone', 'mensagem_renderizada', 'job__referencia_id')
+    readonly_fields = ('job', 'tipo', 'telefone', 'mensagem_renderizada',
+                       'instancia_override', 'api_key_override')
+
+    def job_status(self, obj):
+        return obj.job.get_status_display()
+    job_status.short_description = 'Status'
+
+    def criado_em(self, obj):
+        return obj.job.criado_em
+    criado_em.short_description = 'Criado em'
+
+    def has_add_permission(self, request):
+        return False

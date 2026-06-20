@@ -1663,7 +1663,8 @@ class PermissaoMenu(models.Model):
         # Loja / cantina (apenas painel admin; rotas /admin/loja/*) — atribua ao grupo no ecrã Grupos
         {'codigo': 'loja', 'nome': 'Loja / Cantina', 'ordem': 14, 'descricao': 'Produtos, PDV e vendas (interno)'},
         {'codigo': 'backup_import', 'nome': 'Backup e Restore', 'ordem': 15, 'descricao': 'Exportar e restaurar banco e mídia (local ou Google Drive)'},
-    ]
+        {'codigo': 'fila', 'nome': 'Fila de Integracoes', 'ordem': 16, 'descricao': 'Acompanhar e reprocessar envios assincronos (WhatsApp, pagamentos, estoque)'},
+    ]     
     
     codigo = models.CharField(
         max_length=50,
@@ -1824,6 +1825,10 @@ class Grupo(models.Model):
         ).distinct().values_list('codigo', flat=True)
         
         return list(permissoes)
+
+
+# Importa models da fila (whatsapp/workers) - colocado aqui para evitar import circular.
+from .models_fila import JobFila, WhatsappMensagem, TentativaJob  # noqa: E402
 
 
 class GoogleDriveCredential(models.Model):

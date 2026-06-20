@@ -29,6 +29,10 @@ qrcode>=7.4.2  # Geração de QR Codes
 # Pagamentos
 mercadopago>=2.3.0  # SDK Mercado Pago
 
+# Fila assincrona
+redis>=5.0.0,<6.0.0  # Cliente Redis (v5 compativel com Redis 7 Windows)
+rq>=1.15.0,<1.16.0  # Fila de jobs Python sobre Redis (compat com Redis 7)
+
 # Segurança
 bleach>=6.1.0  # Sanitização HTML
 cryptography>=42.0.0  # Criptografia
